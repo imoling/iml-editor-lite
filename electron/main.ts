@@ -312,7 +312,10 @@ function createWindow() {
               await mainWindow!.webContents.executeJavaScript(process.env.IML_SMOKE_SCRIPT).catch((e) => console.warn('[smoke] script failed:', e));
               await new Promise((r) => setTimeout(r, 1500));
             }
-            const image = await mainWindow!.webContents.capturePage();
+            // IML_SMOKE_RECT=x,y,w,h（CSS 像素）只截窗口的一块区域
+            const rectEnv = (process.env.IML_SMOKE_RECT || '').split(',').map((n) => Number(n));
+            const rect = rectEnv.length === 4 && rectEnv.every((n) => Number.isFinite(n)) ? { x: rectEnv[0], y: rectEnv[1], width: rectEnv[2], height: rectEnv[3] } : undefined;
+            const image = await mainWindow!.webContents.capturePage(rect);
             fs.writeFileSync(shotPath, image.toPNG());
             console.log(`[smoke] screenshot saved to ${shotPath}`);
             console.log(`[smoke] windows: ${BrowserWindow.getAllWindows().map((w) => JSON.stringify(w.getTitle())).join(', ')}`);
@@ -598,6 +601,18 @@ app.whenReady().then(() => {
     }
   });
   
+  // 新特性介绍：记录用户最后看过哪个版本的介绍（单独一个小文件，不随设置整体覆盖）
+  const whatsNewPath = () => path.join(getPaths().userDataPath, 'whats-new.json');
+  ipcMain.handle('app:getWhatsNewState', () => {
+    let lastSeen: string | null = null;
+    try { lastSeen = JSON.parse(fs.readFileSync(whatsNewPath(), 'utf8')).lastSeenVersion || null; } catch { /* 首次安装 */ }
+    return { current: app.getVersion(), lastSeen };
+  });
+  ipcMain.handle('app:markWhatsNewSeen', () => {
+    try { fs.writeFileSync(whatsNewPath(), JSON.stringify({ lastSeenVersion: app.getVersion(), seenAt: Date.now() }), 'utf8'); } catch (err) { console.warn('[whats-new] write failed', err); }
+    return true;
+  });
+
   // App Settings IPC
   ipcMain.handle('app:getSettings', () => getAppSettings());
   ipcMain.handle('app:saveSettings', (_event, settings) => {

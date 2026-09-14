@@ -109,6 +109,8 @@ contextBridge.exposeInMainWorld('api', {
     getICloudLibraryPath: (): Promise<string | null> => ipcRenderer.invoke('app:getICloudLibraryPath'),
     previewSettings: (settings: any) => ipcRenderer.send('settings:preview', settings),
     revertSettings: () => ipcRenderer.send('settings:revert'),
+    getWhatsNewState: (): Promise<{ current: string; lastSeen: string | null }> => ipcRenderer.invoke('app:getWhatsNewState'),
+    markWhatsNewSeen: () => ipcRenderer.invoke('app:markWhatsNewSeen'),
   },
   appVersion,
 });

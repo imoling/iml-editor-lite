@@ -9,6 +9,8 @@ import ShortcutsModal from './components/Help/ShortcutsModal';
 import ModelConfigModal from './components/AI/ModelConfigModal';
 import { ImageConfigModal } from './components/AI/ImageConfigModal';
 import { SettingsModal } from './components/Settings/SettingsModal';
+import { WhatsNewModal } from './components/WhatsNew/WhatsNewModal';
+import { latestWhatsNew, shouldShowWhatsNew } from './data/whatsNew';
 import { extractHeadings } from './utils/outline';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { exportActiveTabToPdf } from './utils/exportPdf';
@@ -62,6 +64,7 @@ const App: React.FC = () => {
   } = useAppStore();
 
   const activeTab = tabs.find(t => t.id === activeTabId);
+  const whatsNewEntry = latestWhatsNew(window.api.appVersion);
 
   // 主窗口标题带上当前文档名，Dock / 调度中心里一眼能分清
   useEffect(() => {
@@ -239,6 +242,16 @@ const App: React.FC = () => {
       }
       // 无论会话恢复是否成功，启动时传入的文件都要打开
       await drainPendingOpenFiles();
+      // 新安装或升级后展示一次新特性介绍
+      try {
+        const state = await window.api.app.getWhatsNewState();
+        if (shouldShowWhatsNew(state.current, state.lastSeen)) {
+          await window.api.app.markWhatsNewSeen();
+          setTimeout(() => useAppStore.getState().openDialog('whats-new'), 600);
+        }
+      } catch (e) {
+        console.warn('[whats-new] check failed', e);
+      }
     };
     init();
 
@@ -319,6 +332,7 @@ const App: React.FC = () => {
       {dialog === 'ai-config' && <ModelConfigModal isOpen onClose={closeDialog} />}
       {dialog === 'image-config' && <ImageConfigModal onClose={closeDialog} />}
       {dialog === 'settings' && <SettingsModal onClose={closeDialog} />}
+      {dialog === 'whats-new' && whatsNewEntry && <WhatsNewModal entry={whatsNewEntry} onClose={closeDialog} />}
 
     </div>
   );

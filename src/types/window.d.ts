@@ -110,6 +110,8 @@ declare global {
         getICloudLibraryPath: () => Promise<string | null>;
         previewSettings: (settings: any) => void;
         revertSettings: () => void;
+        getWhatsNewState: () => Promise<{ current: string; lastSeen: string | null }>;
+        markWhatsNewSeen: () => Promise<boolean>;
       };
       appVersion: string;
     };

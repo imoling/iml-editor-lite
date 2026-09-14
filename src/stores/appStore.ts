@@ -3,7 +3,7 @@ import { isNewerVersion } from '../utils/version';
 import { formatDate } from '../utils/date';
 import { deriveNoteTitle } from '../utils/noteTitle';
 
-export type DialogId = 'about' | 'shortcuts' | 'ai-config' | 'image-config' | 'settings';
+export type DialogId = 'about' | 'shortcuts' | 'ai-config' | 'image-config' | 'settings' | 'whats-new';
 import { DAILY_DIR, TEMPLATE_DIR, DEFAULT_DAILY_TEMPLATE, SAMPLE_TEMPLATES, renderNoteTemplate } from '../utils/noteTemplates';
 
 export interface FileNode {

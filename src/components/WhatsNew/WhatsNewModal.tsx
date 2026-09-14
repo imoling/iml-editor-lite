@@ -1,0 +1,83 @@
+import React, { useEffect, useState } from 'react';
+import { X, ChevronLeft, ChevronRight, ExternalLink, Check } from 'lucide-react';
+import type { WhatsNewEntry, WhatsNewImage } from '../../data/whatsNew';
+import heroImg from '../../assets/whats-new/hero.png';
+import slashImg from '../../assets/whats-new/slash.png';
+import wikiImg from '../../assets/whats-new/wiki.png';
+import searchImg from '../../assets/whats-new/search.png';
+import dailyImg from '../../assets/whats-new/daily.png';
+import localImg from '../../assets/whats-new/local.png';
+
+const IMAGES: Record<WhatsNewImage, string> = { hero: heroImg, slash: slashImg, wiki: wikiImg, search: searchImg, daily: dailyImg, local: localImg };
+
+interface Props {
+  entry: WhatsNewEntry;
+  onClose: () => void;
+}
+
+/** 首次安装 / 升级后展示的新特性介绍：左文右图，一页一个特性；帮助菜单里也能随时打开 */
+export const WhatsNewModal: React.FC<Props> = ({ entry, onClose }) => {
+  const [index, setIndex] = useState(0);
+  const pages = entry.pages;
+  const page = pages[index];
+  const last = index === pages.length - 1;
+
+  const go = (next: number) => setIndex(Math.max(0, Math.min(pages.length - 1, next)));
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight') go(index + 1);
+      else if (e.key === 'ArrowLeft') go(index - 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [index, pages.length]);
+
+  if (!page) return null;
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card modal-card--flush whats-new" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onClose} className="icon-btn whats-new__close" title="关闭"><X size={18} /></button>
+
+        <div className="whats-new__stage" key={page.key}>
+          <div className="whats-new__copy">
+            <div className="whats-new__kicker">
+              <span className="whats-new__version">{entry.version}</span>
+              {page.kicker}
+            </div>
+            <h1 className="whats-new__title">
+              {page.title}
+              {page.hint && <kbd className="whats-new__hint">{page.hint}</kbd>}
+            </h1>
+            <p className="whats-new__desc">{page.desc}</p>
+            {page.bullets && (
+              <ul className="whats-new__bullets">
+                {page.bullets.map((b) => <li key={b}><Check size={13} /><span>{b}</span></li>)}
+              </ul>
+            )}
+            {last && entry.removed && <div className="whats-new__removed">{entry.removed}</div>}
+          </div>
+          <div className={`whats-new__visual whats-new__visual--${page.image}`}>
+            <img className="whats-new__img" src={IMAGES[page.image]} alt={page.title} draggable={false} />
+          </div>
+        </div>
+
+        <footer className="whats-new__footer">
+          <button className="btn-link" onClick={() => window.api.shell.openExternal(entry.releaseUrl)}><ExternalLink size={12} /> 完整更新日志</button>
+          <div className="whats-new__dots">
+            {pages.map((p, i) => (
+              <button key={p.key} className={`whats-new__dot ${i === index ? 'whats-new__dot--active' : ''}`} onClick={() => go(i)} title={p.title} />
+            ))}
+          </div>
+          <div className="row gap-8">
+            {index > 0 && <button className="btn btn-secondary btn-xs whats-new__nav" onClick={() => go(index - 1)}><ChevronLeft size={14} /> 上一页</button>}
+            {last
+              ? <button className="btn btn-primary btn-xs whats-new__nav" onClick={onClose}>开始使用</button>
+              : <button className="btn btn-primary btn-xs whats-new__nav" onClick={() => go(index + 1)}>下一页 <ChevronRight size={14} /></button>}
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+};

@@ -13,6 +13,8 @@ export function deriveNoteTitle(markdown: string): string | null {
     let line = raw.trim();
     if (!line || SKIP_LINE.test(line)) continue;
     line = line
+      // 富文本模式把行首的 # 等字符转义成 \#，先还原再按 Markdown 语法处理
+      .replace(/\\([\\`*_{}[\]()#+\-.!>|~])/g, '$1')
       .replace(/^#{1,6}\s+/, '')
       .replace(/^>\s*/, '')
       .replace(/^(?:[-*+]|\d+[.)])\s+/, '')

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import {
-  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays,
+  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles,
 } from 'lucide-react';
 import { exportActiveTabToPdf } from '../../utils/exportPdf';
 import { isNewerVersion } from '../../utils/version';
@@ -120,6 +120,7 @@ export const TitleBar: React.FC = () => {
           <MenuItem icon={<Layout size={14} />} label="快捷键" hint="⌘/" onClick={run(() => openDialog('shortcuts'))} />
           <MenuItem icon={<RotateCw size={14} />} label={<>检查更新{hasUpdate && <div className="notification-dot" />}</>} onClick={run(checkUpdates)} />
           <MenuItem icon={<Settings size={14} />} label="设置" onClick={run(() => openDialog('settings'))} />
+          <MenuItem icon={<Sparkles size={14} />} label="新特性介绍" onClick={run(() => openDialog('whats-new'))} />
           <MenuDivider />
           <MenuItem icon={<Layout size={14} />} label="关于" onClick={run(() => openDialog('about'))} />
         </Menu>

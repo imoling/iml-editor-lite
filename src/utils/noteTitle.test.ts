@@ -8,6 +8,9 @@ describe('deriveNoteTitle', () => {
     expect(deriveNoteTitle('- [ ] 买牛奶\n- [x] 遛狗')).toBe('买牛奶');
     expect(deriveNoteTitle('> 引用的一句话')).toBe('引用的一句话');
     expect(deriveNoteTitle('1. 第一步')).toBe('第一步');
+    // 富文本模式下输入的「# 周会纪要」会被转义成 \\# 存盘
+    expect(deriveNoteTitle('\\# 周会纪要')).toBe('周会纪要');
+    expect(deriveNoteTitle('\\*不是列表\\*')).toBe('不是列表');
   });
 
   it('链接与图片只保留文字', () => {

@@ -72,6 +72,8 @@ export function createMockApi(initialFiles: Record<string, string> = {}) {
       consumePendingOpenFiles: vi.fn(async () => []),
       clearSession: vi.fn(),
       getICloudLibraryPath: vi.fn(async () => null),
+      getWhatsNewState: vi.fn(async () => ({ current: '26.1.0', lastSeen: '26.1.0' })),
+      markWhatsNewSeen: vi.fn(async () => true),
     },
     appVersion: '26.1.0',
   };
