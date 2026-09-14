@@ -8,6 +8,7 @@
 |---|---|
 | macOS Apple Silicon（M 系列） | `iML.Markdown.Editor-26.1.0-arm64.dmg` |
 | macOS Intel | `iML.Markdown.Editor-26.1.0-x64.dmg` |
+| Windows | `iML.Markdown.Editor.Setup.26.1.0.exe` |
 
 安装包未做 Apple 公证，首次打开若提示「无法验证开发者」，在访达里右键应用选「打开」即可。
 

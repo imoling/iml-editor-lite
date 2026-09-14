@@ -1,0 +1,87 @@
+# 打 v* 标签时在 GitHub 上构建 macOS（arm64 / x64）与 Windows 安装包，并发布到同名 Release。
+# 也可在 Actions 页手动触发（填标签名）。本地网络不稳时用这条路发版。
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的标签，如 v26.1.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-14
+            script: build:mac
+          - name: Windows
+            os: windows-latest
+            script: build:win
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run ${{ matrix.script }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            release/*.dmg
+            release/*.exe
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Pick release notes
+        id: notes
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          NOTES="docs/release-notes-${VERSION}.md"
+          if [ ! -f "$NOTES" ]; then
+            NOTES="release-notes.generated.md"
+            printf '## %s\n\n见 README 的「版本历史」。\n' "$TAG" > "$NOTES"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "file=$NOTES" >> "$GITHUB_OUTPUT"
+          ls -la artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.notes.outputs.tag }}
+          name: ${{ steps.notes.outputs.tag }} — 回归纯粹编辑器
+          body_path: ${{ steps.notes.outputs.file }}
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/*.dmg
+            artifacts/*.exe
