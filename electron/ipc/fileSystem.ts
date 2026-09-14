@@ -183,6 +183,27 @@ export function setupFileSystemIPC() {
     }
   });
 
+  // 是否存在（新建笔记 / 文件夹时去重用）
+  ipcMain.handle('fs:exists', async (_, targetPath: string) => fs.existsSync(path.normalize(targetPath)));
+
+  // 新建文件夹
+  ipcMain.handle('fs:mkdir', async (_, dirPath: string) => {
+    try {
+      const normalized = path.normalize(dirPath);
+      if (fs.existsSync(normalized)) return { success: false, error: 'Target already exists' };
+      await fs.promises.mkdir(normalized, { recursive: true });
+      return { success: true, path: normalized };
+    } catch (error: any) {
+      console.error('Error creating directory:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 在访达 / 资源管理器中显示
+  ipcMain.handle('shell:showItemInFolder', async (_, targetPath: string) => {
+    shell.showItemInFolder(path.normalize(targetPath));
+  });
+
   // Rename or move file/directory
   ipcMain.handle('fs:rename', async (_, oldPath: string, newPath: string) => {
     try {

@@ -1,0 +1,302 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>iML Markdown Editor 升级方案</title><style>body{max-width:900px;margin:40px auto;padding:0 24px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;line-height:1.7;color:#1d1d1f}table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}th,td{border:1px solid #e5e5ea;padding:8px 10px;text-align:left;vertical-align:top}th{background:#f5f5f7}blockquote{border-left:3px solid #6366f1;background:#f5f5ff;margin:0;padding:8px 16px;color:#48484a}code{background:#f2f2f7;padding:1px 5px;border-radius:4px;font-size:.9em}h1{border-bottom:2px solid #6366f1;padding-bottom:8px}h2{margin-top:2em}</style></head><body>
+<h1>iML Markdown Editor 升级方案</h1>
+<blockquote>
+<p>日期：2026-09-13　·　基于代码全量分析与本轮重构后的现状
+定位：<strong>纯粹的 Markdown 编辑器，用于记笔记，附带轻量、可离线的 AI 辅助</strong></p>
+</blockquote>
+<hr>
+<h2>一、现状一句话</h2>
+<p>本轮已把 v1.9 的公众号写作工作站整体拆掉，产品回到&quot;编辑器本体&quot;。现在的骨架是：Electron 主进程（文件 / AI 请求 / 图片生成）+ React 渲染层（Zustand 单 store、Tiptap 富文本、CodeMirror 源码），代码量从约 15,000 行降到约 10,700 行，类型检查与构建全绿。</p>
+<p>本轮顺手修掉的问题（细节见 README 版本历史）：双击 .md 不显示、子目录文件把工作区挪走、关标签 / 新建文档丢文件树、重启丢未保存内容、⌘E / ⌘⇧S / ⌘H 快捷键冲突、Dock 图标偏大、查找替换只有壳、大文档每次按键整篇转换等。</p>
+<p>下面按&quot;值不值得做&quot;排序给方案，每项标了预估工作量：<strong>S</strong>（1~2 天）、<strong>M</strong>（一周内）、<strong>L</strong>（两周以上）、<strong>XL</strong>（独立立项）。</p>
+<hr>
+<h2>二、编辑器本体：让&quot;写&quot;这件事更顺手</h2>
+<p>这是定位的核心，优先级最高。</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>功能</th>
+<th>为什么值得</th>
+<th>量级</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><strong>斜杠命令菜单（非 AI）</strong></td>
+<td>行首 <code>/</code> 目前只唤起 AI 气泡。Notion 式的 <code>/表格</code> <code>/代码块</code> <code>/图片</code> <code>/公式</code> 菜单是现代编辑器的基本预期，也能把工具栏进一步收起来</td>
+<td>S</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Callout / 提示块</strong></td>
+<td>记笔记高频需求：<code>&gt; [!NOTE]</code> <code>&gt; [!WARNING]</code> 这类 GitHub 风格提示块，富文本模式渲染成彩色卡片</td>
+<td>S</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>自动目录（TOC）与标题编号</strong></td>
+<td>长笔记必备。<code>[TOC]</code> 占位符自动生成；侧边栏目录支持折叠层级</td>
+<td>S</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>粘贴智能化</strong></td>
+<td>粘贴 HTML 自动转 Markdown；粘贴 URL 自动取网页标题变成链接；粘贴图片压缩后存 <code>assets/</code>（现在原样存，一张截图几 MB）</td>
+<td>M</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>图片与附件管理</strong></td>
+<td>图片相对路径、重命名、删除时清理孤儿文件；插入 PDF / 文件附件</td>
+<td>M</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>表格增强</strong></td>
+<td>列宽拖拽记忆、对齐写回 Markdown、CSV 粘贴成表</td>
+<td>M</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>源码模式滚动同步</strong></td>
+<td>左右两栏现在各滚各的，改成按行映射同步滚动</td>
+<td>S</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>大文档性能</strong></td>
+<td>现在富文本每次编辑都整篇 HTML → Markdown（已防抖到 150ms）。真正的解法是增量转换：只序列化变化的顶层块。万字以上笔记会明显受益</td>
+<td>L</td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>专注写作</strong></td>
+<td>打字机滚动（当前行居中）、无干扰全屏、字数目标进度、段落高亮</td>
+<td>S</td>
+</tr>
+<tr>
+<td>10</td>
+<td><strong>主题与排版自定义</strong></td>
+<td>正文字体、行距、页宽可调；导出 PDF 时套用同一套主题；增加几套阅读主题</td>
+<td>M</td>
+</tr>
+<tr>
+<td>11</td>
+<td><strong>拼写检查与自动补全</strong></td>
+<td>Electron 内置拼写检查开关；源码模式补全 Markdown 语法与文内标题链接</td>
+<td>S</td>
+</tr>
+<tr>
+<td>12</td>
+<td><strong>导出格式</strong></td>
+<td>现在只有 PDF。加 HTML（单文件、内联图片）、DOCX（docx 库）、图片长图</td>
+<td>M</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>三、笔记能力：从&quot;编辑器&quot;变成&quot;笔记本&quot;</h2>
+<p>定位是记笔记，这一层决定用户愿不愿意长期留下来。</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>功能</th>
+<th>说明</th>
+<th>量级</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><strong>统一&quot;笔记库&quot;模型</strong></td>
+<td>现在&quot;工作区&quot;和&quot;笔记&quot;是两套概念（文件树按打开的文件自动切换根目录；笔记库只列顶层 .md）。建议合并：一个笔记库 = 一个根目录，侧边栏就是这棵树，支持子文件夹、收藏、最近。这是&quot;目录和文件关系不对&quot;的根本解法，本轮只是止血</td>
+<td>M</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>全文搜索</strong></td>
+<td>跨文件搜索是笔记工具的命门。方案：主进程用 SQLite FTS5（<code>better-sqlite3</code>）建索引，监听目录变化增量更新；渲染层 <code>⌘⇧F</code> 打开结果面板</td>
+<td>M</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>双向链接与反链</strong></td>
+<td><code>[[笔记名]]</code> 语法、自动补全、反向链接面板、未创建链接点击即建。记笔记从&quot;文件夹&quot;进化到&quot;网络&quot;的关键一步</td>
+<td>M</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>标签</strong></td>
+<td><code>#标签</code> 内联识别，侧边栏标签视图，点击筛选</td>
+<td>S</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>每日笔记与模板</strong></td>
+<td><code>⌘⇧D</code> 打开今天的日记；新建文档可选模板（会议、读书、周计划）</td>
+<td>S</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>快速捕获</strong></td>
+<td>全局快捷键呼出菜单栏小窗，随手记一条追加到收件箱笔记</td>
+<td>M</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>版本历史</strong></td>
+<td>每次保存留本地快照（<code>.iml/history/</code>），可对比、回滚；有 Git 仓库时可选自动提交</td>
+<td>M</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>文件监听</strong></td>
+<td>外部（同步盘、其他编辑器）改了文件时自动刷新，避免覆盖</td>
+<td>S</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>四、轻量 AI：本地优先，可关，不打断</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>功能</th>
+<th>说明</th>
+<th>量级</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><strong>内置本地推理运行时</strong></td>
+<td>✅ 26.1 已实现「本机模型」：不打包 <code>node-llama-cpp</code>，而是按平台下载 llama.cpp 官方发布的 <code>llama-server</code>（约 11 MB）放进应用数据目录，由主进程托管进程；推荐清单含讯飞星火 X2.5 1.7B / 4B、面壁 MiniCPM5 1B / 2B、Qwen3-4B 的 GGUF，按本机内存 / 核心数标注是否满足，断点续传 + SHA256 校验，可导入自己的 GGUF。后续可加：按机器自动推荐量化档位、Windows 上 CUDA / Vulkan 变体的运行时</td>
+<td>L</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>本地语义搜索与相关笔记</strong></td>
+<td>用 bge-small 这类嵌入模型在本地建向量索引，写笔记时侧栏推荐相关笔记；和全文搜索合并成一个搜索框</td>
+<td>M</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>语音转文字</strong></td>
+<td><code>whisper.cpp</code> 本地转写，按住快捷键说话直接成文。对&quot;记笔记&quot;场景价值很高</td>
+<td>M</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>AI 功能收敛</strong></td>
+<td>现在的 AI 气泡有文本 / 流程图 / SVG / 图片四种模式，建议保留文本与流程图，图片生成移到插入图片对话框（已有），SVG 并入流程图</td>
+<td>S</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>AI 总开关与隐私面板</strong></td>
+<td>设置里一键关闭全部 AI；显示当前模型是本地还是云端，云端时提示数据会发出</td>
+<td>S</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>五、iPad 端 + 手写 + 多端同步（远期，独立立项）</h2>
+<p>这是你提到的 GoodNotes 方向。先说结论：<strong>值得做，但它不是 Electron 项目的延伸，而是第二个产品</strong>。</p>
+<h3>5.1 现实约束</h3>
+<ul>
+<li>Electron 无法运行在 iPadOS。iPad 端必须是原生应用（Swift + SwiftUI），手写用 PencilKit，这是 Apple Pencil 体验最好、成本最低的路线。跨端框架（Flutter 等）的手写延迟和压感都不如 PencilKit。</li>
+<li>两端共享的不是代码，而是<strong>文件格式和同步规则</strong>。所以第一步是把格式定死。</li>
+</ul>
+<h3>5.2 建议的文件格式</h3>
+<ul>
+<li>正文仍是纯 Markdown（<code>note.md</code>），保证任何编辑器都能打开。</li>
+<li>手写作为<strong>旁挂图层</strong>存在同名文件里：<code>note.ink.json</code>（PencilKit <code>PKDrawing</code> 序列化）+ 一份 <code>note.ink.svg</code> 渲染快照。Mac 端先做只读叠加显示，iPad 端可编辑。</li>
+<li>手写与正文的锚定用&quot;段落 id + 相对偏移&quot;，避免正文改动后笔迹漂移。</li>
+</ul>
+<h3>5.3 同步方案</h3>
+<ul>
+<li><strong>iCloud Drive</strong>：文件级同步，不需要自己写服务器。Mac 端只需允许把笔记库根目录设在 <code>~/Library/Mobile Documents/iCloud~...</code> 或任意 iCloud 目录；iPad 端用 <code>UIDocument</code> / 文件协调器。这是最快能跑通的路径。</li>
+<li><strong>其他云盘</strong>：百度网盘没有面向第三方的实时同步 API，只能靠其客户端的&quot;同步空间&quot;目录间接实现，体验取决于百度客户端。通用方案是 <strong>WebDAV</strong>（坚果云、Nextcloud、群晖、阿里云盘 WebDAV 桥接都支持），建议把 WebDAV 作为&quot;其他云盘&quot;的统一接口，百度网盘归入&quot;目录同步&quot;这一类。</li>
+<li><strong>冲突</strong>：文件级同步必然有冲突。规则建议：Markdown 按段落三方合并，合并不了就生成 <code>note (冲突副本).md</code>；手写图层以时间戳新者为准并保留旧副本。</li>
+</ul>
+<h3>5.4 分阶段路线</h3>
+<ol>
+<li>Mac 端：笔记库支持放在 iCloud Drive / 同步盘目录，加文件监听与冲突副本处理（本项目内可做，M）。</li>
+<li>iPad 端 v0：只读阅读器 + 目录浏览（Swift 新项目，L）。</li>
+<li>iPad 端 v1：手写批注图层，Mac 端只读渲染（L）。</li>
+<li>iPad 端 v2：正文编辑（可用 Down / MarkdownUI 等 Swift 库），完整双向协同（XL）。</li>
+</ol>
+<hr>
+<h2>六、工程质量：让后面的迭代不返工</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>事项</th>
+<th>量级</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>引入 Vitest：覆盖 Markdown ↔ HTML 往返、搜索匹配、store 的会话恢复与笔记库逻辑</td>
+<td>S</td>
+<td>✅ 已做（41 个用例，<code>npm test</code>）</td>
+</tr>
+<tr>
+<td>2</td>
+<td>ESLint；CI（GitHub Actions）跑类型检查、测试、三平台打包</td>
+<td>S</td>
+<td>ESLint ✅（<code>npm run lint</code>）；CI 待做</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>electron-updater</code> 自动更新，替换现在&quot;检查到新版本去 GitHub 下载&quot;的流程</td>
+<td>S</td>
+<td>待做</td>
+</tr>
+<tr>
+<td>4</td>
+<td>拆分 <code>TiptapEditor.tsx</code>：对话框、AI 气泡逻辑、工具栏各自成文件</td>
+<td>M</td>
+<td>✅ 已做（主文件 1806 → 约 600 行）</td>
+</tr>
+<tr>
+<td>5</td>
+<td>安全收紧：CSP 去掉 <code>unsafe-eval</code>；预览与 SVG 块用 DOMPurify 清洗；Mermaid 改 <code>antiscript</code>；API Key 用 safeStorage 加密</td>
+<td>S</td>
+<td>✅ 已做</td>
+</tr>
+<tr>
+<td>6</td>
+<td>内联样式收口为 CSS 类</td>
+<td>M</td>
+<td>✅ 已做（457 → 11 处，剩余均为运行时动态值）</td>
+</tr>
+<tr>
+<td>7</td>
+<td>富文本模式按块增量序列化（原方案二.8）</td>
+<td>L</td>
+<td>✅ 已做</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>七、推荐路线图</h2>
+<p><strong>里程碑 1（26.1，约 3~4 周）— &quot;好用的编辑器&quot;</strong>
+二.1 斜杠菜单 ✅、二.2 提示块、二.3 目录、二.7 滚动同步、二.9 专注模式、三.1 统一笔记库 ✅、三.8 文件监听 ✅、六.1/2/5 ✅。
+（2026-09-13 追加完成：三.2 全文搜索 ✅、三.3 双向链接 ✅、三.5 日记与模板 ✅）</p>
+<p><strong>里程碑 2（2.1，约 4 周）— &quot;能长期记的笔记本&quot;</strong>
+三.2 全文搜索、三.3 双向链接、三.4 标签、三.5 日记与模板、二.4 粘贴智能化、二.5 图片管理、四.5 AI 总开关。</p>
+<p><strong>里程碑 3（2.2，约 4 周）— &quot;离线 AI 与同步基础&quot;</strong>
+四.1 内置本地模型（✅ 已在 26.1 完成）、四.2 语义搜索、四.3 语音转写、五.1 iCloud / 同步盘目录支持、二.8 增量转换。</p>
+<p><strong>里程碑 4（独立立项）— iPad 端</strong>
+按 5.4 分阶段推进。</p>
+<hr>
+<h2>八、需要你拍板的几个决策</h2>
+<ol>
+<li><strong>富文本模式要不要保留双模，还是走 Typora 式的&quot;单一混合模式&quot;？</strong> 双模的 HTML ↔ Markdown 往返是很多历史 bug 的来源；混合模式实现难度高但体验统一。建议 2.x 先保留双模，把往返做扎实。</li>
+<li><strong>AI 气泡要不要缩减到&quot;文本 + 流程图&quot;两种模式？</strong>（四.4）</li>
+<li><strong>笔记库合并工作区</strong>（三.1）会改变现有使用习惯，是否接受？</li>
+<li><strong>iPad 端何时启动</strong>：建议里程碑 2 之后，先把格式（5.2）定下来再动手。</li>
+<li><strong>版本号</strong>：本次重构建议直接发 <strong>2.0.0</strong>，README 与更新检查都按新主版本走。</li>
+</ol>
+
+</body></html>

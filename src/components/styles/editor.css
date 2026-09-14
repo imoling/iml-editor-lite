@@ -696,3 +696,126 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
   cursor: pointer;
 }
+
+/* ── 查找 / 替换高亮 ── */
+.tiptap-prosemirror .search-match {
+  background: rgba(250, 204, 21, 0.35);
+  border-radius: 2px;
+}
+.tiptap-prosemirror .search-match-current {
+  background: rgba(249, 115, 22, 0.5);
+  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.8);
+}
+[data-theme='dark'] .tiptap-prosemirror .search-match {
+  background: rgba(250, 204, 21, 0.22);
+}
+.md-editor-source .cm-searchMatch {
+  background: rgba(250, 204, 21, 0.35);
+}
+.md-editor-source .cm-searchMatch-selected {
+  background: rgba(249, 115, 22, 0.5);
+}
+
+/* ── 编辑器外壳 / 工具栏 / 气泡菜单（从内联样式收口） ── */
+.tiptap-editor-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  position: relative;
+}
+.tiptap-toolbar {
+  display: flex;
+  height: 48px;
+  min-height: 48px;
+  border-bottom: 1px solid var(--border-subtle);
+  align-items: center;
+  justify-content: center;
+  padding: 0 20px;
+  gap: 8px;
+  background-color: var(--bg-page);
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
+}
+.toolbar-group {
+  display: flex;
+  gap: 2px;
+}
+.bubble-menu {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-elevated);
+  padding: 8px;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-subtle);
+  gap: 8px;
+  min-width: max-content;
+}
+
+/* ── 编辑区壳 / 源码分栏 / 气泡菜单细节（从内联样式收口） ── */
+.editor-area--host { position: relative; display: flex; flex-direction: column; flex: 1; height: 100%; }
+.editor-content { flex: 1; padding: 0; overflow: hidden; display: flex; height: 100%; }
+.editor-content--column { flex-direction: column; }
+.editor-content--row { flex-direction: row; }
+.md-split { display: flex; flex: 1; height: 100%; width: 100%; overflow: hidden; }
+.md-pane { flex: 1 1 50%; width: 50%; max-width: 50%; display: flex; flex-direction: column; height: 100%; }
+.md-pane--source { border-right: 1px solid var(--border-subtle); }
+.md-pane--preview { background-color: var(--bg-surface); }
+.md-pane__header { height: 44px; min-height: 44px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; padding: 0 24px; color: var(--text-secondary); font-weight: 600; font-size: 13px; letter-spacing: 0.02em; }
+.md-pane__body { flex: 1; overflow: auto; }
+.md-pane__preview { flex: 1; overflow: auto; padding: 24px 40px; }
+.md-preview-body { min-width: min-content; }
+.bubble-menu__row { display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+.bubble-menu__divider { height: 1px; background-color: var(--border-subtle); margin: 4px 0; }
+.bubble-menu__lang { gap: 8px; padding: 0 4px; }
+.bubble-menu__lang-label { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+.bubble-menu__select { background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 3px 8px; font-size: 11px; outline: none; cursor: pointer; }
+.bubble-menu__badge { margin-left: -4px; margin-top: -8px; }
+.bubble-menu__dim { opacity: 0.5; }
+.bubble-menu__dim--more { opacity: 0.3; }
+.bubble-menu__trash { margin-left: -10px; margin-top: 6px; color: var(--color-accent-red); }
+
+/* ── Mermaid / SVG 块卡片（从内联样式收口） ── */
+.block-card {
+  margin: 1.5rem 0; width: 100%; max-width: 100%; box-sizing: border-box; overflow: hidden;
+  background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 14px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03);
+}
+.block-card--selected { border: 2px solid var(--color-accent-indigo); box-shadow: 0 12px 32px rgba(99, 102, 241, 0.15); }
+.block-card__header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background-color: var(--bg-surface); border-bottom: 1px solid var(--border-subtle); cursor: pointer; user-select: none; }
+.block-card__tabs { display: flex; background: var(--bg-page); border-radius: 8px; padding: 2px; border: 1px solid var(--border-subtle); }
+.block-card__tab {
+  display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; border: none; font-size: 11px; font-weight: 600; cursor: pointer;
+  background-color: transparent; color: var(--text-muted); transition: all 0.2s; font-family: inherit;
+}
+.block-card__tab--active { background-color: var(--bg-elevated); color: var(--color-accent-indigo); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1); }
+.block-card__status { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.block-card__error { display: flex; align-items: center; gap: 4px; color: var(--color-accent-red); font-size: 11px; font-weight: 500; }
+.block-card__code { min-height: 180px; background-color: var(--bg-page); border-left: 3px solid transparent; transition: border-color 0.2s; }
+.block-card__code--editing { border-left-color: var(--color-accent-indigo); }
+.block-card__cm { font-size: 13px; font-family: var(--font-mono); }
+.block-card__preview-wrap { position: relative; width: 100%; }
+.block-card__preview {
+  padding: 12px; min-height: 120px; max-height: 2000px; background-color: var(--bg-elevated); overflow: auto;
+  display: flex; flex-direction: column; align-items: center; transition: height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.block-card__preview--center { flex-direction: row; justify-content: center; }
+.block-card__preview--resizing { max-height: none; transition: none; }
+.block-card__canvas { margin: auto; display: flex; justify-content: center; align-items: center; width: 100%; height: 100%; cursor: pointer; }
+.block-card__placeholder { color: var(--text-muted); font-size: 12px; opacity: 0.6; }
+.block-card__resize { position: absolute; bottom: -4px; left: 50%; transform: translateX(-50%); width: 40px; height: 8px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; z-index: 20; }
+.block-card__resize-bar { width: 24px; height: 3px; border-radius: 2px; background-color: var(--border-strong); opacity: 0.4; transition: all 0.2s; }
+.block-card__resize-bar--active { background-color: var(--color-accent-indigo); opacity: 1; }
+
+/* ── 双向链接芯片 ── */
+.wiki-link {
+  display: inline-block; padding: 0 6px; margin: 0 1px; border-radius: 6px; cursor: pointer;
+  color: var(--color-brand-indigo); background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2);
+  font-size: 0.95em; line-height: 1.5; text-decoration: none; white-space: nowrap;
+}
+.wiki-link:hover { background: rgba(99, 102, 241, 0.16); }
+.wiki-link::before { content: '[['; opacity: 0.45; font-size: 0.8em; margin-right: 1px; }
+.wiki-link::after { content: ']]'; opacity: 0.45; font-size: 0.8em; margin-left: 1px; }
+.ProseMirror-selectednode.wiki-link { outline: 2px solid var(--color-brand-indigo); }
+.backlinks { margin-top: 16px; border-top: 1px solid var(--border-subtle); padding: 12px 8px 0; }

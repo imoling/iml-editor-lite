@@ -1,22 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
-
-type Protocol = 'openai' | 'anthropic';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Building2, Cloud, MonitorSmartphone, Cpu } from 'lucide-react';
+import { SERVICE_TYPES, PRESETS, DEFAULT_LOCAL_CONFIG, inferServiceType, fallbackServiceType, findPreset, isLocalEndpoint, type AIServiceType, type Protocol, type Preset } from '../../utils/aiService';
+import type { LocalModelConfig } from '../../types/window';
+import { LocalModelPanel } from './LocalModelPanel';
 
 interface AIConfig {
+  serviceType: AIServiceType;
   protocol: Protocol;
   endpoint: string;
   apiKey: string;
   model: string;
+  local: LocalModelConfig;
 }
 
-const PRESETS: { label: string; protocol: Protocol; endpoint: string; model: string; placeholder: string }[] = [
-  { label: 'OpenAI',     protocol: 'openai',    endpoint: 'https://api.openai.com/v1',          model: 'gpt-4o',                  placeholder: 'sk-...' },
-  { label: 'Anthropic',  protocol: 'anthropic', endpoint: 'https://api.anthropic.com/v1',       model: 'claude-sonnet-4-5',       placeholder: 'sk-ant-...' },
-  { label: 'DeepSeek',   protocol: 'openai',    endpoint: 'https://api.deepseek.com/v1',        model: 'deepseek-chat',            placeholder: 'sk-...' },
-  { label: 'Gemini',     protocol: 'openai',    endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.0-flash', placeholder: 'AIza...' },
-  { label: '中转 / 自定义', protocol: 'openai', endpoint: '',                                   model: '',                         placeholder: 'sk-...' },
-];
+const SERVICE_ICONS: Record<AIServiceType, React.ReactNode> = {
+  relay: <Building2 size={14} />,
+  cloud: <Cloud size={14} />,
+  local: <MonitorSmartphone size={14} />,
+  builtin: <Cpu size={14} />,
+};
+
+/** invoke 抛出的错误会被 Electron 加上 "Error invoking remote method" 前缀，展示前去掉 */
+export const stripIpcError = (err: any) => String(err?.message || err).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
 
 interface Props {
   isOpen: boolean;
@@ -24,15 +29,13 @@ interface Props {
 }
 
 const ModelConfigModal: React.FC<Props> = ({ isOpen, onClose }) => {
-  const [config, setConfig] = useState<AIConfig>({
-    protocol: 'openai',
-    endpoint: 'https://api.openai.com/v1',
-    apiKey: '',
-    model: 'gpt-4o',
-  });
+  const [config, setConfig] = useState<AIConfig>({ serviceType: 'cloud', protocol: 'openai', endpoint: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o', local: DEFAULT_LOCAL_CONFIG });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [models, setModels] = useState<string[]>([]);
+  const [listing, setListing] = useState(false);
 
   const isStandalone = new URLSearchParams(window.location.search).get('window') === 'ai-config';
   const isMac = window.api.app.platform === 'darwin';
@@ -40,14 +43,36 @@ const ModelConfigModal: React.FC<Props> = ({ isOpen, onClose }) => {
   useEffect(() => {
     window.api.ai.getConfig().then((saved: any) => {
       if (saved && Object.keys(saved).length > 0) {
-        setConfig(prev => ({ ...prev, ...saved }));
+        setConfig((prev) => ({
+          ...prev,
+          ...saved,
+          serviceType: inferServiceType(saved),
+          local: { ...DEFAULT_LOCAL_CONFIG, ...(saved.local || {}) },
+        }));
       }
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
 
-  const applyPreset = (preset: typeof PRESETS[0]) => {
-    setConfig(prev => ({
+  // 主进程里服务类型真的变了（比如启动本机模型后自动切换）才同步到表单；下载进度之类的广播不动用户未保存的选择
+  const mainServiceType = useRef<string | null>(null);
+  useEffect(() => {
+    return window.api.local.onState((state) => {
+      if (mainServiceType.current !== null && mainServiceType.current !== state.serviceType) {
+        setConfig((prev) => ({ ...prev, serviceType: state.serviceType }));
+      }
+      mainServiceType.current = state.serviceType;
+    });
+  }, []);
+
+  const notify = (type: 'success' | 'error', text: string, autoHide = type === 'success') => {
+    setMessage({ type, text });
+    if (autoHide) setTimeout(() => setMessage((m) => (m?.text === text ? null : m)), 4000);
+  };
+
+  const applyPreset = (preset: Preset) => {
+    setModels([]);
+    setConfig((prev) => ({
       ...prev,
       // 中转/自定义不覆盖 protocol，让用户自行选择
       protocol: preset.endpoint === '' ? prev.protocol : preset.protocol,
@@ -56,201 +81,214 @@ const ModelConfigModal: React.FC<Props> = ({ isOpen, onClose }) => {
     }));
   };
 
+  const selectServiceType = (type: AIServiceType) => {
+    setMessage(null);
+    setConfig((prev) => {
+      if (type === 'builtin' || type === prev.serviceType) return { ...prev, serviceType: type };
+      // 换到另一类服务时，如果当前地址不属于这一类，套用这一类的第一个预设
+      const current = findPreset(prev.endpoint);
+      if (current?.type === type || (type === 'relay' && !current)) return { ...prev, serviceType: type };
+      const first = PRESETS.find((p) => p.type === type);
+      return first
+        ? { ...prev, serviceType: type, protocol: first.endpoint ? first.protocol : prev.protocol, endpoint: first.endpoint, model: first.model }
+        : { ...prev, serviceType: type };
+    });
+    setModels([]);
+  };
+
+  const fetchModels = async () => {
+    setListing(true);
+    setMessage(null);
+    try {
+      const list = await window.api.ai.listModels({ endpoint: config.endpoint, apiKey: config.apiKey, protocol: config.protocol });
+      setModels(list);
+      if (list.length === 0) notify('error', '服务已连通，但没有可用模型（本地服务请先拉取模型）');
+      else if (!config.model || !list.includes(config.model)) setConfig((prev) => ({ ...prev, model: list[0] }));
+    } catch (err: any) {
+      setModels([]);
+      notify('error', stripIpcError(err) || '获取模型列表失败');
+    } finally {
+      setListing(false);
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setMessage(null);
     try {
       const result = await window.api.ai.saveConfig(config);
-      if (result.success) {
-        setMessage({ type: 'success', text: '配置已保存' });
-        setTimeout(() => setMessage(null), 3000);
-      } else {
-        setMessage({ type: 'error', text: result.error || '保存失败' });
-      }
+      if (result.success) notify('success', '配置已保存');
+      else notify('error', result.error || '保存失败');
     } catch {
-      setMessage({ type: 'error', text: '网络或系统错误' });
+      notify('error', '网络或系统错误');
     } finally {
       setSaving(false);
     }
   };
 
+  const handleTest = async () => {
+    setTesting(true);
+    setMessage(null);
+    try {
+      const result = config.serviceType === 'builtin'
+        ? await window.api.local.test(config.local)
+        : await window.api.ai.testConnection({ protocol: config.protocol, endpoint: config.endpoint, apiKey: config.apiKey, model: config.model });
+      const seconds = (result.latencyMs / 1000).toFixed(1);
+      notify('success', `连接正常 · ${result.model} · ${seconds}s${result.reply ? ` · 回复「${result.reply.slice(0, 20)}」` : ''}`);
+    } catch (err: any) {
+      notify('error', `连接失败：${stripIpcError(err)}`, false);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleSwitchBack = async () => {
+    const target = fallbackServiceType(config);
+    try {
+      await window.api.local.switchBack(target);
+      setConfig((prev) => ({ ...prev, serviceType: target }));
+      notify('success', `已切回${SERVICE_TYPES.find((t) => t.id === target)?.title ?? '模型服务'}`);
+    } catch (err: any) {
+      notify('error', stripIpcError(err));
+    }
+  };
+
   if (!isOpen) return null;
 
-  const containerStyle: React.CSSProperties = isStandalone
-    ? { height: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', background: 'transparent', overflow: 'hidden' }
-    : { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 };
-
-  const modalStyle: React.CSSProperties = isStandalone
-    ? { width: '100%', height: '100%', padding: '40px 32px', display: 'flex', flexDirection: 'column' }
-    : { backgroundColor: 'var(--bg-elevated)', borderRadius: 24, padding: 40, width: 460, boxShadow: '0 20px 50px rgba(0,0,0,0.3)', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', position: 'relative' };
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '10px 14px', borderRadius: 10,
-    border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-main)',
-    color: 'var(--text-primary)', fontSize: 13, outline: 'none', marginBottom: 16,
-  };
-
-  const labelStyle: React.CSSProperties = {
-    fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 6,
-    display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em',
-  };
-
-  const currentPresetKey = config.endpoint.includes('api.anthropic.com') ? 'Anthropic'
-    : config.endpoint.includes('openai.com') ? 'OpenAI'
-    : config.endpoint.includes('deepseek.com') ? 'DeepSeek'
-    : config.endpoint.includes('googleapis.com') ? 'Gemini'
-    : '中转 / 自定义';
+  const isBuiltin = config.serviceType === 'builtin';
+  const presets = PRESETS.filter((p) => p.type === config.serviceType);
+  const currentPreset = findPreset(config.endpoint);
+  const currentPresetKey = currentPreset?.label ?? '中转 / 自定义';
+  const isLocal = isLocalEndpoint(config.endpoint);
+  const requestUrl = config.protocol === 'anthropic'
+    ? `${(config.endpoint || 'https://api.anthropic.com/v1').replace(/\/$/, '')}/messages`
+    : `${(config.endpoint || 'https://api.openai.com/v1').replace(/\/$/, '')}/chat/completions`;
 
   return (
-    <div style={containerStyle} onClick={onClose}>
-      {isStandalone && (
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 40, WebkitAppRegion: 'drag', zIndex: 10 } as any} />
-      )}
-      <div style={modalStyle} onClick={e => e.stopPropagation()}>
-        {(!isStandalone || !isMac) && (
-          <button
-            onClick={onClose}
-            style={{ position: 'absolute', top: 20, right: 20, background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 8, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.05)')}
-            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-          >
-            <X size={20} />
-          </button>
-        )}
-
-        <header style={{ marginBottom: 24 }}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>模型配置</h1>
+    <div className={isStandalone ? 'standalone' : 'modal-backdrop'} onClick={onClose}>
+      {isStandalone && <div className="standalone-drag" />}
+      <div className={isStandalone ? 'standalone-card model-config' : 'modal-card modal-card--wide modal-card--flush model-config'} onClick={(e) => e.stopPropagation()}>
+        <header className={`modal-head ${isStandalone ? 'modal-head--standalone' : ''}`}>
+          <h1 className="modal-title">模型配置</h1>
+          {(!isStandalone || !isMac) && (
+            <button onClick={onClose} className="icon-btn" title="关闭"><X size={20} /></button>
+          )}
+          {message && (
+            <div className={`toast toast--under-head toast--${message.type}`}>{message.text}</div>
+          )}
         </header>
 
-        {loading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: 40, color: 'var(--text-muted)' }}>加载中...</div>
-        ) : (
-          <div>
-
-            {/* 服务商预设 */}
-            <label style={labelStyle}>服务商</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
-              {PRESETS.map(p => (
-                <button
-                  key={p.label}
-                  onClick={() => applyPreset(p)}
-                  style={{
-                    padding: '5px 12px', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer',
-                    border: `1px solid ${currentPresetKey === p.label ? 'var(--color-brand-indigo)' : 'var(--border-subtle)'}`,
-                    backgroundColor: currentPresetKey === p.label ? 'rgba(99,102,241,0.08)' : 'var(--bg-main)',
-                    color: currentPresetKey === p.label ? 'var(--color-brand-indigo)' : 'var(--text-secondary)',
-                  }}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-
-            {/* 协议 */}
-            <label style={labelStyle}>请求协议</label>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-              {(['openai', 'anthropic'] as Protocol[]).map(p => (
-                <button
-                  key={p}
-                  onClick={() => setConfig(prev => ({ ...prev, protocol: p }))}
-                  style={{
-                    flex: 1, padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer',
-                    border: `1px solid ${config.protocol === p ? 'var(--color-brand-indigo)' : 'var(--border-subtle)'}`,
-                    backgroundColor: config.protocol === p ? 'rgba(99,102,241,0.08)' : 'var(--bg-main)',
-                    color: config.protocol === p ? 'var(--color-brand-indigo)' : 'var(--text-secondary)',
-                  }}
-                >
-                  {p === 'openai' ? 'OpenAI Compatible' : 'Anthropic'}
-                </button>
-              ))}
-            </div>
-
-            <label style={labelStyle}>Base URL</label>
-            <input
-              style={inputStyle}
-              value={config.endpoint}
-              onChange={e => setConfig(prev => ({ ...prev, endpoint: e.target.value }))}
-              placeholder={config.protocol === 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.openai.com/v1'}
-            />
-
-            <label style={labelStyle}>API Key</label>
-            <input
-              style={inputStyle}
-              type="password"
-              value={config.apiKey}
-              onChange={e => setConfig(prev => ({ ...prev, apiKey: e.target.value }))}
-              placeholder={PRESETS.find(p => currentPresetKey === p.label)?.placeholder ?? 'sk-...'}
-            />
-
-            <label style={labelStyle}>Model</label>
-            <input
-              style={inputStyle}
-              value={config.model}
-              onChange={e => setConfig(prev => ({ ...prev, model: e.target.value }))}
-              placeholder="gpt-4o"
-            />
-
-            {/* 信息块：请求地址预览 + 安全说明 */}
-            <div style={{
-              borderRadius: 10, overflow: 'hidden',
-              border: '1px solid rgba(99,102,241,0.2)',
-              backgroundColor: 'rgba(99,102,241,0.04)',
-              fontSize: 12, lineHeight: 1.7,
-            }}>
-              <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(99,102,241,0.12)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>
-                  {config.protocol === 'anthropic'
-                    ? 'Anthropic Messages API，Base URL 须填到 /v1。实际请求：'
-                    : 'OpenAI Chat Completions 格式，适用于 OpenAI、DeepSeek、Gemini、中转站。实际请求：'}
-                </span>
-                <br />
-                <span style={{ color: 'var(--color-brand-indigo)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                  {config.protocol === 'anthropic'
-                    ? `${(config.endpoint || 'https://api.anthropic.com/v1').replace(/\/$/, '')}/messages`
-                    : `${(config.endpoint || 'https://api.openai.com/v1').replace(/\/$/, '')}/chat/completions`}
-                </span>
+        <div className={isStandalone ? 'standalone-scroll standalone-scroll--headed' : 'modal-body modal-body--headed'}>
+          {loading ? (
+            <div className="empty-state">加载中...</div>
+          ) : (
+            <div>
+              <label className="field-label">服务类型</label>
+              <div className="svc-grid mb-20">
+                {SERVICE_TYPES.map((t) => (
+                  <button key={t.id} onClick={() => selectServiceType(t.id)} className={`svc-card ${config.serviceType === t.id ? 'svc-card--active' : ''}`}>
+                    <span className="svc-card__title">{SERVICE_ICONS[t.id]}{t.title}</span>
+                    <span className="svc-card__desc">{t.desc}</span>
+                  </button>
+                ))}
               </div>
-              <div style={{ padding: '8px 14px', color: 'var(--text-muted)' }}>
-                🔒 API Key 仅保存在本地，不会上传。
-              </div>
-            </div>
-          </div>
-        )}
 
-        <footer style={{ marginTop: 24, display: 'flex', gap: 10, alignItems: 'center' }}>
-          <button
-            onClick={handleSave}
-            disabled={saving || loading}
-            style={{
-              flex: 1, padding: '11px', borderRadius: 12,
-              backgroundColor: saving ? 'var(--text-muted)' : 'var(--color-brand-indigo)',
-              color: '#fff', border: 'none', fontWeight: 600,
-              cursor: saving ? 'default' : 'pointer',
-            }}
-          >
-            {saving ? '保存中...' : '保存'}
-          </button>
-          {isStandalone && (
-            <button
-              onClick={() => window.close()}
-              style={{ padding: '11px 20px', borderRadius: 12, backgroundColor: 'var(--bg-main)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)', fontWeight: 600, cursor: 'pointer' }}
-            >
-              取消
-            </button>
+              {isBuiltin ? (
+                <LocalModelPanel
+                  draft={config.local}
+                  onChange={(patch) => setConfig((prev) => ({ ...prev, local: { ...prev.local, ...patch } }))}
+                  onSwitchBack={handleSwitchBack}
+                  notify={notify}
+                />
+              ) : (
+                <>
+                  <label className="field-label">服务商</label>
+                  <div className="chip-row mb-20">
+                    {presets.map((p) => (
+                      <button key={p.label} onClick={() => applyPreset(p)} className={`chip ${currentPresetKey === p.label ? 'chip--active' : ''}`}>{p.label}</button>
+                    ))}
+                  </div>
+
+                  <label className="field-label">请求协议</label>
+                  <div className="row gap-8 mb-16">
+                    {(['openai', 'anthropic'] as Protocol[]).map((p) => (
+                      <button key={p} onClick={() => setConfig((prev) => ({ ...prev, protocol: p }))} className={`chip chip--block ${config.protocol === p ? 'chip--active' : ''}`}>
+                        {p === 'openai' ? 'OpenAI Compatible' : 'Anthropic'}
+                      </button>
+                    ))}
+                  </div>
+
+                  <label className="field-label">Base URL</label>
+                  <input
+                    className="field-input"
+                    value={config.endpoint}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, endpoint: e.target.value }))}
+                    placeholder={config.protocol === 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.openai.com/v1'}
+                  />
+
+                  <label className="field-label">API Key{isLocal && <span className="field-label__note">（本地服务可留空）</span>}</label>
+                  <input
+                    className="field-input"
+                    type="password"
+                    value={config.apiKey}
+                    onChange={(e) => setConfig((prev) => ({ ...prev, apiKey: e.target.value }))}
+                    placeholder={presets.find((p) => currentPresetKey === p.label)?.placeholder ?? 'sk-...'}
+                  />
+
+                  <label className="field-label">Model</label>
+                  <div className="row row--start gap-8">
+                    <input
+                      className="field-input"
+                      value={config.model}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, model: e.target.value }))}
+                      placeholder={isLocal ? '点击右侧按钮从本地服务获取' : 'gpt-4o'}
+                    />
+                    <button onClick={fetchModels} disabled={listing || !config.endpoint} title="从服务端拉取可用模型列表" className="btn btn-secondary btn-xs model-config__fetch">
+                      {listing ? '获取中…' : '获取模型列表'}
+                    </button>
+                  </div>
+                  {models.length > 0 && (
+                    <div className="chip-row mb-16 model-config__models">
+                      {models.map((m) => (
+                        <button key={m} onClick={() => setConfig((prev) => ({ ...prev, model: m }))} className={`chip chip--mono ${config.model === m ? 'chip--active' : ''}`}>{m}</button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="info-box info-box--flush">
+                    <div className="info-box__row">
+                      <span>
+                        {config.protocol === 'anthropic'
+                          ? 'Anthropic Messages API，Base URL 须填到 /v1。实际请求：'
+                          : 'OpenAI Chat Completions 格式，适用于 OpenAI、DeepSeek、Gemini、中转站与本地服务。实际请求：'}
+                      </span>
+                      <br />
+                      <span className="text-brand model-config__url">{requestUrl}</span>
+                    </div>
+                    <div className="info-box__row">🔒 API Key 加密后保存在本机（macOS 钥匙串 / Windows DPAPI），不会上传。</div>
+                    {isLocal && (
+                      <div className="info-box__row">
+                        本地小模型（如 MiniCPM、讯飞星火开源版、Qwen 等）：安装 Ollama 或 LM Studio 后下载模型，
+                        保持服务运行，再点「获取模型列表」选择即可。不想自己装的话，选「本机模型」由编辑器代管。
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
-        </footer>
 
-        {message && (
-          <div style={{
-            position: 'absolute', top: 80, left: 32, right: 32,
-            padding: '10px 16px', borderRadius: 10,
-            backgroundColor: message.type === 'success' ? '#10b981' : '#ef4444',
-            color: '#fff', fontSize: 13, fontWeight: 500, textAlign: 'center',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.15)', zIndex: 100,
-          }}>
-            {message.text}
-          </div>
-        )}
+        </div>
+
+        <footer className={isStandalone ? 'standalone-footer' : 'modal-footer'}>
+          <button onClick={handleSave} disabled={saving || loading} className="btn btn-primary btn-block">
+            {saving ? '保存中...' : '保存配置'}
+          </button>
+          <button onClick={handleTest} disabled={testing || loading} className="btn btn-secondary btn-wide">
+            {testing ? '测试中…' : '测试连接'}
+          </button>
+          <button onClick={() => (isStandalone ? window.close() : onClose())} className="btn btn-secondary btn-wide">取消</button>
+        </footer>
       </div>
     </div>
   );

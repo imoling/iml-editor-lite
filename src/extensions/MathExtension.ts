@@ -30,7 +30,8 @@ export const MathExtension = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
-    return ['div', mergeAttributes(HTMLAttributes, { class: 'math-block' })];
+    // 带上 latex 文本：空 div 会被 turndown 视为空白节点直接丢掉，公式就无法保存
+    return ['div', mergeAttributes(HTMLAttributes, { class: 'math-block' }), HTMLAttributes['data-latex'] || ''];
   },
 
   addNodeView() {
@@ -51,7 +52,7 @@ export const MathExtension = Node.create({
             displayMode: true,
             throwOnError: false,
           });
-        } catch (e) {
+        } catch {
           dom.textContent = latex;
         }
       };

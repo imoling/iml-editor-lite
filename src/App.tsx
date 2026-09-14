@@ -1,13 +1,31 @@
 import React, { useEffect } from 'react';
 import { TitleBar } from './components/TitleBar/TitleBar';
-import { Sidebar, ActivityBar, RightPanel } from './components/Sidebar/Sidebar';
+import { Sidebar, ActivityBar } from './components/Sidebar/Sidebar';
 import { EditorArea } from './components/Editor/EditorArea';
 import { StatusBar } from './components/StatusBar/StatusBar';
-import { useAppStore, THEME_PRESETS } from './stores/appStore';
+import { useAppStore, THEME_PRESETS, clearSessionAndReload, type DialogId } from './stores/appStore';
+import AboutModal from './components/About/AboutModal';
+import ShortcutsModal from './components/Help/ShortcutsModal';
+import ModelConfigModal from './components/AI/ModelConfigModal';
+import { ImageConfigModal } from './components/AI/ImageConfigModal';
+import { SettingsModal } from './components/Settings/SettingsModal';
 import { extractHeadings } from './utils/outline';
 import { ConfirmDialog } from './components/ConfirmDialog';
-import { SettingsModal } from './components/Settings/SettingsModal';
+import { exportActiveTabToPdf } from './utils/exportPdf';
+import { formatVersion, isNewerVersion } from './utils/version';
 import './styles/layout.css';
+
+/** 拉取主进程排队的「打开方式」/ 命令行文件并逐个打开（启动完成后与收到提醒时都会调用） */
+async function drainPendingOpenFiles() {
+  try {
+    const files = await window.api.app.consumePendingOpenFiles();
+    for (const filePath of files) {
+      await useAppStore.getState().openFileByPath(filePath);
+    }
+  } catch (e) {
+    console.error('Failed to open pending files:', e);
+  }
+}
 
 const App: React.FC = () => {
   const { 
@@ -15,13 +33,11 @@ const App: React.FC = () => {
     activeTabId, 
     tabs,
     sidebarVisible,
-    aiPanelVisible,
     statusBarVisible,
     setOutline,
     toggleSidebar,
     toggleToolbar,
     toggleStatusBar,
-    toggleAIPanel,
     createNewFile,
     toggleFind,
     toggleReplace,
@@ -40,9 +56,17 @@ const App: React.FC = () => {
     loadSettings,
     appearanceMode,
     applyAppearance,
+    dialog,
+    openDialog,
+    closeDialog,
   } = useAppStore();
 
   const activeTab = tabs.find(t => t.id === activeTabId);
+
+  // 主窗口标题带上当前文档名，Dock / 调度中心里一眼能分清
+  useEffect(() => {
+    document.title = activeTab ? `${activeTab.title} — iML Markdown Editor` : 'iML Markdown Editor';
+  }, [activeTab?.title]);
 
   // Update outline when active tab content changes
   useEffect(() => {
@@ -93,16 +117,40 @@ const App: React.FC = () => {
         createNewFile();
       }
 
-      // Cmd+F to toggle find
-      if (modKey && e.key === 'f') {
-        e.preventDefault();
-        toggleFind();
-      }
-
-      // Cmd+H to toggle replace
-      if (modKey && e.key === 'h') {
+      // Alt+Cmd+F：查找并替换（⌘H 在 macOS 上被系统「隐藏应用」占用，不能用）
+      // 注意 macOS 下按住 ⌥ 时 e.key 会变成特殊字符，必须用 e.code 判断
+      if (modKey && e.altKey && e.code === 'KeyF') {
         e.preventDefault();
         toggleReplace();
+        return;
+      }
+
+      // Cmd+Shift+F：全文搜索
+      if (modKey && e.shiftKey && !e.altKey && e.code === 'KeyF') {
+        e.preventDefault();
+        useAppStore.getState().openGlobalSearch();
+        return;
+      }
+
+      // Cmd+F：查找
+      if (modKey && !e.altKey && !e.shiftKey && e.code === 'KeyF') {
+        e.preventDefault();
+        toggleFind();
+        return;
+      }
+
+      // Cmd+Shift+D：今日日记
+      if (modKey && e.shiftKey && e.code === 'KeyD') {
+        e.preventDefault();
+        useAppStore.getState().openDailyNote();
+        return;
+      }
+
+      // Cmd+P：导出 PDF
+      if (modKey && !e.shiftKey && e.code === 'KeyP') {
+        e.preventDefault();
+        exportActiveTabToPdf();
+        return;
       }
       
       // Cmd+Shift+O to open directory
@@ -121,13 +169,19 @@ const App: React.FC = () => {
       // Cmd+, to open settings
       if (modKey && e.key === ',') {
         e.preventDefault();
-        window.api.app.openSettings();
+        openDialog('settings');
       }
 
       // Cmd+/ to open shortcuts
       if (modKey && e.key === '/') {
         e.preventDefault();
-        window.api.events.send('open-shortcuts');
+        openDialog('shortcuts');
+      }
+
+      // Cmd+Shift+M：模型配置
+      if (modKey && e.shiftKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        openDialog('ai-config');
       }
       
       // Cmd+S or Cmd+Shift+S to save file
@@ -139,17 +193,28 @@ const App: React.FC = () => {
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleMode, openFile, openDirectory, saveActiveFile, toggleSidebar, toggleToolbar, toggleStatusBar, createNewFile, toggleFind, toggleReplace]);
+  }, [toggleMode, openFile, openDirectory, saveActiveFile, toggleSidebar, toggleToolbar, toggleStatusBar, createNewFile, toggleFind, toggleReplace, openDialog]);
+
+  // 弹窗打开时按 Esc 关闭
+  useEffect(() => {
+    if (!dialog) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeDialog(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dialog, closeDialog]);
 
   // 监听主进程发来的 open-file（macOS 双击或"打开方式"）
   useEffect(() => {
-    window.api.events.on('open-file', (filePath: string) => {
-      openFileByPath(filePath);
-    });
+    window.api.events.on('open-file', () => drainPendingOpenFiles());
+    window.api.events.on('session:clear', () => clearSessionAndReload());
+    // 笔记库目录被外部（同步盘 / 其他编辑器）改动：刷新树，未修改的标签页跟随磁盘
+    window.api.events.on('library:changed', (paths: string[]) => useAppStore.getState().handleExternalChanges(paths));
     window.api.events.on('menu:new-file', () => createNewFile());
     window.api.events.on('menu:open-file', () => openFile());
     window.api.events.on('menu:save', () => saveActiveFile());
-  }, [openFileByPath, createNewFile, openFile, saveActiveFile]);
+    // 原生菜单 / 其他入口要求打开某个弹窗
+    window.api.events.on('dialog:open', (id: DialogId) => openDialog(id));
+  }, [openFileByPath, createNewFile, openFile, saveActiveFile, openDialog]);
 
   // Handle auto-update check on mount
   useEffect(() => {
@@ -164,10 +229,16 @@ const App: React.FC = () => {
   useEffect(() => {
     setTheme(theme.id);
     const init = async () => {
-      await loadSettings();
-      if (useAppStore.getState().startupBehavior === 'restore') {
-        await loadSession();
+      try {
+        await loadSettings();
+        if (useAppStore.getState().startupBehavior === 'restore') {
+          await loadSession();
+        }
+      } catch (e) {
+        console.error('Init failed:', e);
       }
+      // 无论会话恢复是否成功，启动时传入的文件都要打开
+      await drainPendingOpenFiles();
     };
     init();
 
@@ -220,7 +291,6 @@ const App: React.FC = () => {
         <ActivityBar />
         {sidebarVisible && <Sidebar />}
         <EditorArea />
-        {aiPanelVisible && <RightPanel />}
       </div>
       
       {statusBarVisible && <StatusBar />}
@@ -243,8 +313,12 @@ const App: React.FC = () => {
         <UpdateModal />
       )}
 
-      {/* 全局设置弹窗 */}
-      <SettingsModal />
+      {/* 配置 / 关于 / 快捷键：主窗口内的浮层，不新开窗口 */}
+      {dialog === 'about' && <AboutModal isOpen onClose={closeDialog} />}
+      {dialog === 'shortcuts' && <ShortcutsModal isOpen onClose={closeDialog} />}
+      {dialog === 'ai-config' && <ModelConfigModal isOpen onClose={closeDialog} />}
+      {dialog === 'image-config' && <ImageConfigModal onClose={closeDialog} />}
+      {dialog === 'settings' && <SettingsModal onClose={closeDialog} />}
 
     </div>
   );
@@ -255,87 +329,48 @@ import { RotateCw, X, Layout } from 'lucide-react';
 
 const UpdateModal: React.FC = () => {
   const { updateStatus, setUpdateStatus } = useAppStore();
-  
+  const close = () => setUpdateStatus({ ...updateStatus, show: false });
+  const current = window.api.appVersion;
+  const hasUpdate = isNewerVersion(updateStatus.latestVersion, current);
+
   return (
-    <div style={{
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000,
-      animation: 'fadeIn 0.2s ease-out'
-    }}>
-      <div style={{
-        backgroundColor: 'var(--bg-elevated)', padding: 32, borderRadius: 24,
-        width: 320, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
-        boxShadow: '0 20px 50px rgba(0,0,0,0.3)', border: '1px solid var(--border-subtle)',
-        animation: 'scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
-      }}>
+    <div className="modal-backdrop modal-backdrop--top">
+      <div className="modal-card modal-card--compact">
         {updateStatus.loading ? (
           <>
             <RotateCw size={32} className="animate-spin" color="var(--color-accent-indigo)" />
-            <p style={{ fontSize: 14, color: 'var(--text-primary)', margin: 0 }}>正在检查更新...</p>
+            <p className="update-modal__text">正在检查更新...</p>
           </>
         ) : updateStatus.error ? (
           <>
             <X size={32} color="var(--color-accent-coral)" />
-            <p style={{ fontSize: 14, color: 'var(--text-primary)', margin: 0 }}>{updateStatus.error}</p>
-            <button 
-              onClick={() => setUpdateStatus({ ...updateStatus, show: false })}
-              style={{ 
-                marginTop: 8, padding: '10px 24px', borderRadius: 12, border: 'none',
-                backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)',
-                cursor: 'pointer', fontSize: 13, fontWeight: 500
-              }}
-            >
-              关闭
-            </button>
+            <p className="update-modal__text">{updateStatus.error}</p>
+            <button onClick={close} className="btn btn-surface btn-sm mt-8">关闭</button>
           </>
-        ) : (() => {
-            const current = window.api.appVersion || '1.6.0';
-            const hasUpdate = updateStatus.latestVersion && updateStatus.latestVersion !== current;
-            return (
-              <>
-                <Layout size={32} color={hasUpdate ? "var(--color-accent-indigo)" : "var(--text-muted)"} />
-                <div style={{ textAlign: 'center' }}>
-                  <p style={{ fontSize: 16, fontWeight: 600, margin: '0 0 4px 0' }}>
-                    {hasUpdate ? '发现新版本！' : '已是最新版本'}
-                  </p>
-                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
-                    {hasUpdate 
-                      ? `最新版本: v${updateStatus.latestVersion} (当前: v${current})` 
-                      : `当前版本 v${current} 已是最新`}
-                  </p>
-                </div>
-                <div style={{ display: 'flex', gap: 12, width: '100%', marginTop: 8 }}>
-                  <button 
-                    onClick={() => setUpdateStatus({ ...updateStatus, show: false })}
-                    style={{ 
-                      flex: 1, padding: '10px', borderRadius: 12, border: '1px solid var(--border-subtle)',
-                      backgroundColor: 'var(--bg-surface)', color: 'var(--text-secondary)',
-                      cursor: 'pointer', fontSize: 13, fontWeight: 500
-                    }}
-                  >
-                    关闭
-                  </button>
-                  {hasUpdate && (
-                    <button 
-                      onClick={() => {
-                        setUpdateStatus({ ...updateStatus, show: false });
-                        window.api.shell.openExternal('https://github.com/imoling/iml-markdown-editor/releases');
-                      }}
-                      style={{ 
-                        flex: 1, padding: '10px', borderRadius: 12, border: 'none',
-                        backgroundColor: 'var(--color-accent-indigo)', color: 'white',
-                        cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                        boxShadow: '0 4px 12px var(--brand-glow)'
-                      }}
-                    >
-                      前往下载
-                    </button>
-                  )}
-                </div>
-              </>
-            );
-        })()}
+        ) : (
+          <>
+            <Layout size={32} color={hasUpdate ? 'var(--color-accent-indigo)' : 'var(--text-muted)'} />
+            <div className="text-center">
+              <p className="update-modal__title">{hasUpdate ? '发现新版本！' : '已是最新版本'}</p>
+              <p className="update-modal__sub">
+                {hasUpdate
+                  ? `最新版本: ${formatVersion(updateStatus.latestVersion)} (当前: ${formatVersion(current)})`
+                  : `当前版本 ${formatVersion(current)} 已是最新`}
+              </p>
+            </div>
+            <div className="row gap-12 mt-8 btn-block">
+              <button onClick={close} className="btn btn-surface btn-sm btn-block">关闭</button>
+              {hasUpdate && (
+                <button
+                  onClick={() => { close(); window.api.shell.openExternal('https://github.com/imoling/iml-markdown-editor/releases'); }}
+                  className="btn btn-primary btn-sm btn-block"
+                >
+                  前往下载
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

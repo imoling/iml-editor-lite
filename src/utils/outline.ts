@@ -9,7 +9,7 @@ export function extractHeadings(markdown: string): HeadingNode[] {
     const match = line.match(/^(\s*(?:\d+\.\s+|[-*+]\s+)?)(#{1,6})\s+(.+)$/);
     if (match) {
       // Strip common markdown formatting symbols for a cleaner catalog view
-      let cleanText = match[3].trim()
+      const cleanText = match[3].trim()
         .replace(/\*\*([^*]+)\*\*/g, '$1') // Bold **
         .replace(/__([^_]+)__/g, '$1')     // Bold __
         .replace(/\*([^*]+)\*/g, '$1')     // Italic *

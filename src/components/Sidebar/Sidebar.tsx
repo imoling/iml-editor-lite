@@ -1,26 +1,26 @@
 import React from 'react';
-import { useAppStore, FileNode, HeadingNode } from '../../stores/appStore';
-import { Folder, ChevronDown, ChevronRight, FolderOpen, FileText, FileCode, FolderClosed, List, RotateCw, Sparkles, Star, BookOpen, Settings } from 'lucide-react';
-import { AIWritingPanel } from '../AI/AIWritingPanel';
+import { useAppStore, FileNode, HeadingNode, readLibraryDir } from '../../stores/appStore';
+import { SearchPanel } from './SearchPanel';
+import {
+  ChevronDown, ChevronRight, FolderOpen, FileText, FileCode, FolderClosed,
+  List, RotateCw, Star, BookOpen, Settings, FilePlus, FolderPlus, CalendarDays, LayoutTemplate, FolderOpen as FolderOpenIcon, Search,
+} from 'lucide-react';
+
+const isMac = window.api.app.platform === 'darwin';
+const REVEAL_LABEL = isMac ? '在访达中显示' : '在资源管理器中显示';
+const MD_RE = /\.(md|markdown|mdown|mkd)$/i;
 
 export const ActivityBar: React.FC = () => {
   const { sidebarTab, setSidebarTab, sidebarVisible } = useAppStore();
-
   const tabs = [
-    { id: 'notes' as const, icon: <BookOpen size={16} />, label: '笔记', title: '我的笔记库' },
-    { id: 'catalog' as const, icon: <List size={16} />, label: '目录', title: '文档目录' },
-    { id: 'files' as const, icon: <Folder size={16} />, label: '文件', title: '工作区文件' },
+    { id: 'library' as const, icon: <BookOpen size={16} />, label: '笔记库', title: '笔记库（所有笔记与文件夹）' },
+    { id: 'catalog' as const, icon: <List size={16} />, label: '目录', title: '当前文档目录' },
+    { id: 'search' as const, icon: <Search size={16} />, label: '搜索', title: '搜索所有笔记 (⇧⌘F)' },
   ];
-
   return (
     <div className="activity-bar">
       {tabs.map((t) => (
-        <button
-          key={t.id}
-          className={`activity-bar-btn ${sidebarTab === t.id && sidebarVisible ? 'active' : ''}`}
-          onClick={() => setSidebarTab(t.id)}
-          title={t.title}
-        >
+        <button key={t.id} className={`activity-bar-btn ${sidebarTab === t.id && sidebarVisible ? 'active' : ''}`} onClick={() => setSidebarTab(t.id)} title={t.title}>
           {t.icon}
           <span>{t.label}</span>
         </button>
@@ -29,53 +29,31 @@ export const ActivityBar: React.FC = () => {
   );
 };
 
-export const RightPanel: React.FC = () => {
-  const { aiPanelWidth, setAIPanelWidth } = useAppStore();
-  const dragRef = React.useRef<{ startX: number; startWidth: number } | null>(null);
-  const handleRef = React.useRef<HTMLDivElement>(null);
-
-  const onPointerDown = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    dragRef.current = { startX: e.clientX, startWidth: aiPanelWidth };
-    (e.target as HTMLDivElement).setPointerCapture(e.pointerId);
-    handleRef.current?.classList.add('dragging');
-  }, [aiPanelWidth]);
-
-  const onPointerMove = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragRef.current) return;
-    // 右侧 panel 拖拽：向左拖 = 宽度增大
-    const newW = Math.min(600, Math.max(240, dragRef.current.startWidth - (e.clientX - dragRef.current.startX)));
-    setAIPanelWidth(newW);
-  }, [setAIPanelWidth]);
-
-  const onPointerUp = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    dragRef.current = null;
-    (e.target as HTMLDivElement).releasePointerCapture(e.pointerId);
-    handleRef.current?.classList.remove('dragging');
-  }, []);
-
-  return (
-    <aside className="right-panel" style={{ width: aiPanelWidth }}>
-      <div
-        ref={handleRef}
-        className="right-panel-resize-handle"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-      />
-      <AIWritingPanel />
-    </aside>
-  );
-};
+/** 打开（或激活）一个笔记标签页 */
+async function openNote(path: string, title: string) {
+  const { tabs, setActiveTab, openTab } = useAppStore.getState();
+  if (tabs.some((t) => t.id === path)) {
+    setActiveTab(path);
+    return;
+  }
+  const result = await window.api.fs.readFile(path);
+  if (result.success && result.content !== undefined) {
+    openTab({ id: path, title, content: result.content, isDirty: false, mode: 'word' });
+  } else {
+    alert(`文件不存在或无法读取：\n${title}\n\n该文件可能已被移动或删除，请刷新笔记库。`);
+  }
+}
 
 const FileTreeItem: React.FC<{ node: FileNode; level: number }> = ({ node, level }) => {
-  const { openTab, updateFileNode, activeTabId, expandedPaths, setExpanded, starredFiles, toggleStar, selectedNodePath, setSelectedNodePath, renamingPath, setRenamingPath, renameFile, setContextMenu } = useAppStore();
+  const { updateFileNode, activeTabId, expandedPaths, setExpanded, starredFiles, toggleStar, selectedNodePath, setSelectedNodePath, renamingPath, setRenamingPath, renameFile, setContextMenu } = useAppStore();
   const isOpen = expandedPaths.includes(node.path);
   const [editName, setEditName] = React.useState(node.name.replace(/\.md$/i, ''));
+  const renameInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     if (renamingPath === node.path) {
       setEditName(node.name.replace(/\.md$/i, ''));
+      requestAnimationFrame(() => renameInputRef.current?.select());
     }
   }, [renamingPath, node.name, node.path]);
 
@@ -84,50 +62,34 @@ const FileTreeItem: React.FC<{ node: FileNode; level: number }> = ({ node, level
     setSelectedNodePath(node.path);
     if (node.isDirectory) {
       if (!isOpen && (!node.children || node.children.length === 0)) {
-         const result = await window.api.fs.readDir(node.path);
-         if (result.success && result.files) {
-            updateFileNode(node.path, { children: result.files });
-         }
+        const files = await readLibraryDir(node.path);
+        if (files) updateFileNode(node.path, { children: files });
       }
       setExpanded(node.path, !isOpen);
     } else {
-      const result = await window.api.fs.readFile(node.path);
-      if (result.success && result.content !== undefined) {
-         openTab({
-           id: node.path,
-           title: node.name,
-           content: result.content,
-           isDirty: false,
-           mode: 'word'
-         });
-      } else {
-        console.warn('读取文件失败:', node.path, result.error);
-        alert(`文件不存在或无法读取：\n${node.name}\n\n该文件可能已被移动或删除，请刷新工作区。`);
-      }
+      await openNote(node.path, node.name);
     }
   };
 
-  const isMarkdown = node.name.toLowerCase().endsWith('.md');
+  const isMarkdown = MD_RE.test(node.name);
   const isActive = activeTabId === node.path;
   const isSelected = selectedNodePath === node.path;
   const isRenaming = renamingPath === node.path;
+  const isStarred = starredFiles.includes(node.path);
 
   const handleRenameSubmit = async () => {
     if (editName.trim() && editName !== node.name.replace(/\.md$/i, '')) {
-      const newName = node.isDirectory ? editName.trim() : `${editName.trim()}.md`;
+      const newName = node.isDirectory || !isMarkdown ? editName.trim() : `${editName.trim()}.md`;
       await renameFile(node.path, newName);
     }
     setRenamingPath(null);
   };
-  
+
   return (
     <div>
-      <div 
-        className={`tree-item ${isActive && !node.isDirectory ? 'active' : ''}`} 
-        style={{ 
-          paddingLeft: `${ level * 12 + 8 }px`,
-          backgroundColor: isSelected && !isActive ? 'rgba(255, 255, 255, 0.05)' : undefined 
-        }}
+      <div
+        className={`tree-item ${isActive && !node.isDirectory ? 'active' : ''} ${isSelected && !isActive ? 'tree-item--selected' : ''}`}
+        style={{ paddingLeft: `${level * 12 + 8}px` }}
         onClick={handleToggle}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -143,66 +105,41 @@ const FileTreeItem: React.FC<{ node: FileNode; level: number }> = ({ node, level
           </>
         ) : (
           <>
-            <span style={{width: 14, display: 'inline-block'}}></span> 
-            {isMarkdown ? (
-              <FileCode size={14} color={isActive ? "var(--text-primary)" : "var(--color-accent-green)"} />
-            ) : (
-              <FileText size={14} color="var(--text-secondary)" />
-            )}
+            <span className="tree-item__spacer" />
+            {isMarkdown ? <FileCode size={14} color={isActive ? 'var(--text-primary)' : 'var(--color-accent-green)'} /> : <FileText size={14} color="var(--text-secondary)" />}
           </>
         )}
         {isRenaming ? (
           <input
+            ref={renameInputRef}
             autoFocus
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
             onBlur={handleRenameSubmit}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                handleRenameSubmit();
-              } else if (e.key === 'Escape') {
-                setRenamingPath(null);
-              }
+              if (e.key === 'Enter') handleRenameSubmit();
+              else if (e.key === 'Escape') setRenamingPath(null);
             }}
             onClick={(e) => e.stopPropagation()}
-            style={{
-              flex: 1,
-              background: 'var(--bg-modifier-active)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--color-brand-indigo)',
-              borderRadius: 3,
-              padding: '2px 4px',
-              fontSize: 12,
-              outline: 'none'
-            }}
+            className="tree-item__rename"
           />
         ) : (
-          <span style={{ 
-            color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            flex: 1
-          }}>
-            {node.name}
-          </span>
+          <span className={`tree-item__name ${isActive ? 'text-primary' : ''}`}>{node.isDirectory ? node.name : node.name.replace(/\.md$/i, '')}</span>
         )}
         {!node.isDirectory && !isRenaming && (
-          <div 
-            className={`tree-item-star ${starredFiles.includes(node.path) ? 'starred' : ''}`}
-            onClick={(e) => { e.stopPropagation(); toggleStar(node.path); }}
-            title={starredFiles.includes(node.path) ? "取消收藏" : "加入收藏"}
-          >
-            <Star size={13} strokeWidth={starredFiles.includes(node.path) ? 0 : 1.5} fill={starredFiles.includes(node.path) ? "currentColor" : "none"} />
+          <div className={`tree-item-star ${isStarred ? 'starred' : ''}`} onClick={(e) => { e.stopPropagation(); toggleStar(node.path); }} title={isStarred ? '取消收藏' : '加入收藏'}>
+            <Star size={13} strokeWidth={isStarred ? 0 : 1.5} fill={isStarred ? 'currentColor' : 'none'} />
           </div>
         )}
       </div>
-      
+
       {node.isDirectory && isOpen && node.children && (
         <div className="tree-children">
-          {node.children.map(child => (
-            <FileTreeItem key={child.path} node={child} level={level + 1} />
-          ))}
+          {node.children.length === 0 ? (
+            <div className="tree-empty" style={{ paddingLeft: `${(level + 1) * 12 + 22}px` }}>空文件夹</div>
+          ) : (
+            node.children.map((child) => <FileTreeItem key={child.path} node={child} level={level + 1} />)
+          )}
         </div>
       )}
     </div>
@@ -210,52 +147,15 @@ const FileTreeItem: React.FC<{ node: FileNode; level: number }> = ({ node, level
 };
 
 const StarredItem: React.FC<{ path: string }> = ({ path }) => {
-  const { openTab, activeTabId, toggleStar } = useAppStore();
+  const { activeTabId, toggleStar } = useAppStore();
   const name = path.split(/[/\\]/).pop() || 'Unknown';
   const isActive = activeTabId === path;
-
-  const handleClick = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const result = await window.api.fs.readFile(path);
-    if (result.success && result.content !== undefined) {
-       openTab({
-         id: path,
-         title: name,
-         content: result.content,
-         isDirty: false,
-         mode: 'word'
-       });
-    }
-  };
-
-  const isMarkdown = name.toLowerCase().endsWith('.md');
-
   return (
-    <div 
-      className={`tree-item ${isActive ? 'active' : ''}`} 
-      style={{ paddingLeft: '8px' }}
-      onClick={handleClick}
-    >
-      <span style={{width: 14, display: 'inline-block'}}></span> 
-      {isMarkdown ? (
-        <FileCode size={14} color={isActive ? "var(--text-primary)" : "var(--color-accent-green)"} />
-      ) : (
-        <FileText size={14} color="var(--text-secondary)" />
-      )}
-      <span style={{ 
-        flex: 1,
-        color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis'
-      }}>
-        {name}
-      </span>
-      <div 
-        className="tree-item-star starred"
-        onClick={(e) => { e.stopPropagation(); toggleStar(path); }}
-        title="取消收藏"
-      >
+    <div className={`tree-item tree-item--flat ${isActive ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); openNote(path, name); }} title={path}>
+      <span className="tree-item__spacer" />
+      <FileCode size={14} color={isActive ? 'var(--text-primary)' : 'var(--color-accent-green)'} />
+      <span className={`tree-item__name ${isActive ? 'text-primary' : ''}`}>{name.replace(/\.md$/i, '')}</span>
+      <div className="tree-item-star starred" onClick={(e) => { e.stopPropagation(); toggleStar(path); }} title="取消收藏">
         <Star size={13} strokeWidth={0} fill="currentColor" />
       </div>
     </div>
@@ -264,413 +164,231 @@ const StarredItem: React.FC<{ path: string }> = ({ path }) => {
 
 const OutlineItem: React.FC<{ node: HeadingNode }> = ({ node }) => {
   const { scrollToHeading } = useAppStore();
-  
   return (
-    <div 
-      className="tree-item" 
-      style={{ paddingLeft: `${(node.level - 1) * 16 + 12}px`, cursor: 'pointer' }}
-      onClick={() => scrollToHeading(node)}
-    >
-      <span style={{ 
-        color: node.level === 1 ? 'var(--text-primary)' : 'var(--text-secondary)',
-        fontSize: node.level === 1 ? '13px' : '12px',
-        fontWeight: node.level === 1 ? 600 : 400
-      }}>
-        {node.text}
-      </span>
+    <div className="tree-item" style={{ paddingLeft: `${(node.level - 1) * 16 + 12}px` }} onClick={() => scrollToHeading(node)}>
+      <span className={node.level === 1 ? 'outline-item--h1' : 'outline-item'}>{node.text}</span>
     </div>
   );
 };
 
-const NotesPanel: React.FC = () => {
-  const { defaultLibraryPath, openTab, activeTabId, renameFile, deleteFile, duplicateFile } = useAppStore();
-  const [files, setFiles] = React.useState<{ name: string; path: string }[]>([]);
-  const [loading, setLoading] = React.useState(false);
-  const [notesMenu, setNotesMenu] = React.useState<{ visible: boolean; x: number; y: number; file: { name: string; path: string } | null }>({ visible: false, x: 0, y: 0, file: null });
-  const [renamingPath, setRenamingPath] = React.useState<string | null>(null);
-  const [editName, setEditName] = React.useState('');
-  const [selectedNotePath, setSelectedNotePath] = React.useState<string | null>(null);
-  const renameInputRef = React.useRef<HTMLInputElement>(null);
-
-  const load = React.useCallback(async () => {
-    if (!defaultLibraryPath) return;
-    setLoading(true);
-    const result = await window.api.fs.readDir(defaultLibraryPath);
-    if (result.success && result.files) {
-      setFiles(
-        result.files
-          .filter((f: FileNode) => !f.isDirectory && f.name.toLowerCase().endsWith('.md'))
-          .sort((a: FileNode, b: FileNode) => b.name.localeCompare(a.name))
-      );
-    }
-    setLoading(false);
-  }, [defaultLibraryPath]);
-
-  React.useEffect(() => { load(); }, [load]);
-
-  // 点击菜单外关闭
-  React.useEffect(() => {
-    if (!notesMenu.visible) return;
-    const close = () => setNotesMenu(m => ({ ...m, visible: false }));
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, [notesMenu.visible]);
-
-  // 重命名输入框自动聚焦
-  React.useEffect(() => {
-    if (renamingPath) renameInputRef.current?.select();
-  }, [renamingPath]);
-
-  // 键盘快捷键（与文件面板保持一致）
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const activeEl = document.activeElement;
-      if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA') return;
-      if (activeEl?.getAttribute('contenteditable') === 'true') return;
-      if (!selectedNotePath || renamingPath) return;
-      const file = files.find(f => f.path === selectedNotePath);
-      if (!file) return;
-      if (e.key === 'F2' || e.key === 'Enter') {
-        e.preventDefault();
-        startRename(file);
-      } else if (e.key === 'Backspace' || e.key === 'Delete') {
-        e.preventDefault();
-        handleDelete(file);
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
-        e.preventDefault();
-        handleDuplicate(file);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNotePath, renamingPath, files]);
-
-  const openNoteMenu = (e: React.MouseEvent, file: { name: string; path: string }) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setNotesMenu({ visible: true, x: e.clientX, y: e.clientY, file });
-  };
-
-  const startRename = (file: { name: string; path: string }) => {
-    setEditName(file.name.replace(/\.md$/i, ''));
-    setRenamingPath(file.path);
-    setNotesMenu(m => ({ ...m, visible: false }));
-  };
-
-  const submitRename = async () => {
-    if (!renamingPath || !editName.trim()) { setRenamingPath(null); return; }
-    const currentFile = files.find(f => f.path === renamingPath);
-    if (currentFile && editName.trim() !== currentFile.name.replace(/\.md$/i, '')) {
-      await renameFile(renamingPath, `${editName.trim()}.md`);
-    }
-    setRenamingPath(null);
-    await load();
-  };
-
-  const handleDelete = async (file: { name: string; path: string }) => {
-    setNotesMenu(m => ({ ...m, visible: false }));
-    await deleteFile(file.path);
-    await load();
-  };
-
-  const handleDuplicate = async (file: { name: string; path: string }) => {
-    setNotesMenu(m => ({ ...m, visible: false }));
-    await duplicateFile(file.path);
-    await load();
-  };
-
-  const handleOpen = async (file: { name: string; path: string }) => {
-    const existing = useAppStore.getState().tabs.find(t => t.id === file.path);
-    if (existing) {
-      useAppStore.getState().setActiveTab(file.path);
-      return;
-    }
-    const result = await window.api.fs.readFile(file.path);
-    if (result.success && result.content !== undefined) {
-      openTab({ id: file.path, title: file.name.replace(/\.md$/i, ''), content: result.content, isDirty: false, mode: 'word' });
-    } else {
-      alert(`文件不存在或无法读取：\n${file.name}\n\n该文件可能已被移动或删除。`);
-      load();
-    }
-  };
-
-  if (!defaultLibraryPath) {
-    return (
-      <div style={{ padding: '24px 16px', textAlign: 'center' }}>
-        <BookOpen size={28} color="var(--text-muted)" style={{ marginBottom: 10, opacity: 0.5 }} />
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6, lineHeight: 1.6 }}>
-          笔记库未配置
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
-          设置一个目录作为笔记存放位置，<br />新建文档将自动存入该目录
-        </div>
-        <button
-          onClick={() => window.api.app.openSettings()}
-          style={{
-            fontSize: 11, padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border-subtle)',
-            background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
-          }}
-        >
-          <Settings size={11} /> 前往设置
-        </button>
-      </div>
-    );
-  }
-
-  const folderName = defaultLibraryPath.split(/[/\\]/).filter(Boolean).pop() || '笔记库';
-  const menuItemStyle = { padding: '6px 12px', fontSize: 13, cursor: 'pointer', borderRadius: 4, display: 'flex', justifyContent: 'space-between', color: 'var(--text-primary)', marginBottom: 2 };
-
-  return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', padding: '2px 8px 6px', gap: 4 }}>
-        <BookOpen size={13} color="var(--color-brand-indigo)" />
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{folderName}</span>
-        <div
-          onClick={load}
-          style={{ cursor: 'pointer', padding: '2px 4px', borderRadius: 4, display: 'flex', alignItems: 'center' }}
-          className="hover-bg"
-          title="刷新"
-        >
-          <RotateCw size={11} color="var(--text-muted)" />
-        </div>
-      </div>
-      {loading ? (
-        <div style={{ padding: '12px 16px', fontSize: 12, color: 'var(--text-muted)' }}>加载中…</div>
-      ) : files.length === 0 ? (
-        <div style={{ padding: '12px 16px', fontSize: 12, color: 'var(--text-muted)' }}>暂无笔记</div>
-      ) : (
-        files.map((f) => {
-          const isActive = activeTabId === f.path;
-          const isRenaming = renamingPath === f.path;
-          const isSelected = selectedNotePath === f.path;
-          const title = f.name.replace(/\.md$/i, '');
-          return (
-            <div
-              key={f.path}
-              className={`tree-item ${isActive ? 'active' : ''}`}
-              style={{ paddingLeft: 12, backgroundColor: isSelected && !isActive ? 'rgba(255,255,255,0.05)' : undefined }}
-              onClick={() => { setSelectedNotePath(f.path); if (!isRenaming) handleOpen(f); }}
-              title={f.name}
-              onContextMenu={(e) => { setSelectedNotePath(f.path); openNoteMenu(e, f); }}
-            >
-              <FileCode size={13} color={isActive ? 'var(--text-primary)' : 'var(--color-accent-green)'} style={{ flexShrink: 0 }} />
-              {isRenaming ? (
-                <input
-                  ref={renameInputRef}
-                  value={editName}
-                  onChange={e => setEditName(e.target.value)}
-                  onBlur={submitRename}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') { e.preventDefault(); submitRename(); }
-                    if (e.key === 'Escape') { setRenamingPath(null); }
-                  }}
-                  onClick={e => e.stopPropagation()}
-                  style={{ flex: 1, fontSize: 12, background: 'var(--bg-surface)', border: '1px solid var(--color-brand-indigo)', borderRadius: 3, padding: '1px 4px', color: 'var(--text-primary)', outline: 'none', minWidth: 0 }}
-                />
-              ) : (
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
-              )}
-            </div>
-          );
-        })
-      )}
-
-      {/* 笔记面板独立右键菜单 */}
-      {notesMenu.visible && notesMenu.file && (
-        <div
-          style={{
-            position: 'fixed', left: notesMenu.x, top: notesMenu.y, zIndex: 9999,
-            background: 'var(--glass-bg)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid var(--glass-border)', borderRadius: 8, padding: '4px',
-            boxShadow: '0 8px 30px rgba(0,0,0,0.5)', minWidth: 160
-          }}
-          onClick={e => e.stopPropagation()}
-          onContextMenu={e => e.preventDefault()}
-        >
-          <div
-            style={menuItemStyle}
-            onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-            onClick={() => startRename(notesMenu.file!)}
-          >
-            重命名 <span style={{ opacity: 0.5, fontSize: 11 }}>F2</span>
-          </div>
-          <div
-            style={menuItemStyle}
-            onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-            onClick={() => handleDuplicate(notesMenu.file!)}
-          >
-            创建副本 <span style={{ opacity: 0.5, fontSize: 11 }}>Cmd+D</span>
-          </div>
-          <div
-            style={{ ...menuItemStyle, color: '#ef4444' }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(239,68,68,0.1)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-            onClick={() => handleDelete(notesMenu.file!)}
-          >
-            推入废纸篓 <span style={{ opacity: 0.5, fontSize: 11 }}>Backspace</span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
+const MenuItem: React.FC<{ label: string; hint?: string; danger?: boolean; onClick: () => void }> = ({ label, hint, danger, onClick }) => (
+  <div className={`context-menu__item ${danger ? 'context-menu__item--danger' : ''}`} onClick={onClick}>
+    {label} {hint && <span className="context-menu__hint">{hint}</span>}
+  </div>
+);
 
 const ContextMenuComponent = () => {
-  const { contextMenu, setContextMenu, setRenamingPath, duplicateFile, deleteFile } = useAppStore();
-  
+  const { contextMenu, setContextMenu, setRenamingPath, duplicateFile, deleteFile, createNoteIn, createFolderIn, workspacePath } = useAppStore();
+
   React.useEffect(() => {
-    const handleClickOutside = () => setContextMenu({ visible: false });
-    if (contextMenu.visible) {
-      document.addEventListener('click', handleClickOutside);
-    }
-    return () => document.removeEventListener('click', handleClickOutside);
+    const close = () => setContextMenu({ visible: false });
+    if (contextMenu.visible) document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
   }, [contextMenu.visible, setContextMenu]);
 
   if (!contextMenu.visible || !contextMenu.node) return null;
 
   const node = contextMenu.node;
-
-  const itemStyle = {
-    padding: '6px 12px', fontSize: 13, cursor: 'pointer', borderRadius: 4, 
-    display: 'flex', justifyContent: 'space-between', color: 'var(--text-primary)',
-    marginBottom: 2
-  };
+  const isRoot = node.path === workspacePath;
+  const done = () => setContextMenu({ visible: false });
 
   return (
-    <div 
-      style={{
-        position: 'fixed', left: contextMenu.x, top: contextMenu.y, zIndex: 9999,
-        background: 'var(--glass-bg)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        border: '1px solid var(--glass-border)',
-        borderRadius: 8, padding: '4px',
-        boxShadow: '0 8px 30px rgba(0,0,0,0.5)', minWidth: 160
-      }}
-      onClick={(e) => e.stopPropagation()}
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      <div 
-        style={itemStyle} 
-        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-        onClick={() => { setRenamingPath(node.path); setContextMenu({ visible: false }); }}
-      >
-        重命名 <span style={{opacity: 0.5, fontSize: 11}}>F2/Enter</span>
-      </div>
-      {!node.isDirectory && (
-        <div 
-          style={itemStyle}
-          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-          onClick={() => { duplicateFile(node.path); setContextMenu({ visible: false }); }}
-        >
-          创建副本 <span style={{opacity: 0.5, fontSize: 11}}>Cmd+D</span>
-        </div>
+    <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>
+      {node.isDirectory && (
+        <>
+          <MenuItem label="新建笔记" onClick={() => { done(); createNoteIn(node.path); }} />
+          <MenuItem label="新建文件夹" onClick={() => { done(); createFolderIn(node.path); }} />
+          <div className="context-menu__divider" />
+        </>
       )}
-      <div 
-        style={{ ...itemStyle, color: '#ef4444' }}
-        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'}
-        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-        onClick={() => { deleteFile(node.path); setContextMenu({ visible: false }); }}
-      >
-        推入废纸篓 <span style={{opacity: 0.5, fontSize: 11}}>Backspace</span>
-      </div>
+      {!isRoot && <MenuItem label="重命名" hint="F2" onClick={() => { done(); setRenamingPath(node.path); }} />}
+      {!node.isDirectory && <MenuItem label="创建副本" hint={isMac ? '⌘D' : 'Ctrl+D'} onClick={() => { done(); duplicateFile(node.path); }} />}
+      <MenuItem label={REVEAL_LABEL} onClick={() => { done(); window.api.shell.showItemInFolder(node.path); }} />
+      {!isRoot && (
+        <>
+          <div className="context-menu__divider" />
+          <MenuItem label="推入废纸篓" hint="⌫" danger onClick={() => { done(); deleteFile(node.path); }} />
+        </>
+      )}
+    </div>
+  );
+};
+
+/** 当前笔记的反向链接：哪些笔记里写了 [[本篇]] */
+const BacklinksPanel: React.FC = () => {
+  const activeTabId = useAppStore((s) => s.activeTabId);
+  const libraryVersion = useAppStore((s) => s.libraryVersion);
+  const openFileByPath = useAppStore((s) => s.openFileByPath);
+  const [links, setLinks] = React.useState<{ path: string; title: string; snippets: { before: string; match: string; after: string }[] }[]>([]);
+
+  React.useEffect(() => {
+    if (!activeTabId || activeTabId.startsWith('new-')) { setLinks([]); return; }
+    const name = (activeTabId.split(/[/\\]/).pop() || '').replace(/\.(md|markdown|mdown|mkd|txt)$/i, '');
+    let cancelled = false;
+    window.api.search.backlinks(name).then((r) => { if (!cancelled) setLinks(r); }).catch(() => setLinks([]));
+    return () => { cancelled = true; };
+  }, [activeTabId, libraryVersion]);
+
+  if (!activeTabId) return null;
+  return (
+    <div className="backlinks">
+      <div className="sidebar-section-title">🔗 反向链接{links.length ? ` · ${links.length}` : ''}</div>
+      {links.length === 0 ? (
+        <div className="tree-empty tree-empty--root">还没有其他笔记链接到这里。在别的笔记里输入 [[ 即可引用。</div>
+      ) : (
+        links.map((l) => (
+          <div key={l.path} className="search-result" onClick={() => openFileByPath(l.path)} title={l.path}>
+            <div className="search-result__title"><span className="truncate flex-1">{l.title}</span></div>
+            {l.snippets.slice(0, 2).map((s, i) => (
+              <div key={i} className="search-result__snippet">{s.before}<mark>{s.match}</mark>{s.after}</div>
+            ))}
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
+
+/** 「从模板新建」下拉：列出笔记库/模板 下的文件，没有时提供一键创建示例模板 */
+const TemplateMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { listTemplates, createNoteFromTemplate, createSampleTemplates, workspacePath } = useAppStore();
+  const [templates, setTemplates] = React.useState<{ name: string; path: string }[] | null>(null);
+
+  React.useEffect(() => {
+    listTemplates().then(setTemplates);
+    const close = () => onClose();
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, []);
+
+  const templateDir = workspacePath ? `${workspacePath}${workspacePath.includes('\\') ? '\\' : '/'}模板` : '';
+
+  return (
+    <div className="popover-menu template-menu" onClick={(e) => e.stopPropagation()}>
+      <div className="popover-menu__label">从模板新建</div>
+      {templates === null ? (
+        <div className="popover-menu__label">加载中…</div>
+      ) : templates.length === 0 ? (
+        <button className="popover-menu__item" onClick={async () => { await createSampleTemplates(); setTemplates(await listTemplates()); }}>
+          还没有模板，创建示例模板
+        </button>
+      ) : (
+        templates.map((t) => (
+          <button key={t.path} className="popover-menu__item" onClick={() => { onClose(); createNoteFromTemplate(t.path); }}>
+            <LayoutTemplate size={12} /> {t.name}
+          </button>
+        ))
+      )}
+      {templates && templates.length > 0 && (
+        <>
+          <div className="context-menu__divider" />
+          <button className="popover-menu__item" onClick={() => { onClose(); window.api.shell.showItemInFolder(templateDir); }}>
+            <FolderOpenIcon size={12} /> 打开模板文件夹
+          </button>
+        </>
+      )}
     </div>
   );
 };
 
 export const Sidebar: React.FC = () => {
-  const { fileTree, workspaceName, sidebarVisible, outline, sidebarTab, refreshWorkspace, starredFiles } = useAppStore();
+  const {
+    fileTree, workspacePath, workspaceName, sidebarVisible, outline, sidebarTab,
+    refreshWorkspace, starredFiles, sidebarWidth, setSidebarWidth,
+    createNoteIn, createFolderIn, getNewNoteDir, setContextMenu, setSelectedNodePath, openDailyNote,
+  } = useAppStore();
+  const [showTemplates, setShowTemplates] = React.useState(false);
+
+  // 右缘拖拽调整宽度：拖动期间只改 DOM，松手时才写 store，避免整棵组件树随指针移动反复渲染
+  const dragRef = React.useRef<{ startX: number; startWidth: number } | null>(null);
+  const handleRef = React.useRef<HTMLDivElement>(null);
+  const asideRef = React.useRef<HTMLElement>(null);
+  const clampWidth = (w: number) => Math.min(600, Math.max(240, w));
+  const onHandlePointerDown = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startWidth: sidebarWidth };
+    (e.target as HTMLDivElement).setPointerCapture(e.pointerId);
+    handleRef.current?.classList.add('dragging');
+  }, [sidebarWidth]);
+  const onHandlePointerMove = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current || !asideRef.current) return;
+    asideRef.current.style.width = `${clampWidth(dragRef.current.startWidth + (e.clientX - dragRef.current.startX))}px`;
+  }, []);
+  const onHandlePointerUp = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current) setSidebarWidth(clampWidth(dragRef.current.startWidth + (e.clientX - dragRef.current.startX)));
+    dragRef.current = null;
+    (e.target as HTMLDivElement).releasePointerCapture(e.pointerId);
+    handleRef.current?.classList.remove('dragging');
+  }, [setSidebarWidth]);
 
   React.useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
-      if (activeEl) {
-        if (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') return;
-        if (activeEl.getAttribute('contenteditable') === 'true') return;
-      }
-      
-      const { selectedNodePath, renamingPath, setRenamingPath, duplicateFile, deleteFile } = useAppStore.getState();
-      if (!selectedNodePath || renamingPath) return;
-
-      if (e.key === 'F2' || e.key === 'Enter') {
-        e.preventDefault();
-        setRenamingPath(selectedNodePath);
-      } else if (e.key === 'Backspace' || e.key === 'Delete') {
-        e.preventDefault();
-        deleteFile(selectedNodePath);
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
-        e.preventDefault();
-        duplicateFile(selectedNodePath);
-      }
+      if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || activeEl?.getAttribute('contenteditable') === 'true') return;
+      const { selectedNodePath, renamingPath, setRenamingPath, duplicateFile, deleteFile, workspacePath: root } = useAppStore.getState();
+      if (!selectedNodePath || renamingPath || selectedNodePath === root) return;
+      if (e.key === 'F2' || e.key === 'Enter') { e.preventDefault(); setRenamingPath(selectedNodePath); }
+      else if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); deleteFile(selectedNodePath); }
+      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateFile(selectedNodePath); }
     };
-
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
   if (!sidebarVisible) return null;
 
+  const openRootMenu = (e: React.MouseEvent) => {
+    if (!workspacePath) return;
+    e.preventDefault();
+    setSelectedNodePath(null);
+    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, node: { name: workspaceName || '笔记库', path: workspacePath, isDirectory: true } });
+  };
+
   return (
-    <aside className="sidebar">
-      <div className="sidebar-content" style={{ padding: '12px 0', overflowY: 'auto' }}>
-        {sidebarTab === 'notes' ? (
-          <NotesPanel />
+    <aside ref={asideRef} className="sidebar" style={{ width: sidebarWidth }}>
+      <div ref={handleRef} className="sidebar-resize-handle" onPointerDown={onHandlePointerDown} onPointerMove={onHandlePointerMove} onPointerUp={onHandlePointerUp} title="拖动调整宽度" />
+      <div className="sidebar-content" onContextMenu={sidebarTab === 'library' ? openRootMenu : undefined}>
+        {sidebarTab === 'search' ? (
+          <SearchPanel />
         ) : sidebarTab === 'catalog' ? (
           <div className="catalog-view">
-            {outline.length === 0 ? (
-              <div style={{ padding: '24px 16px', color: 'var(--text-muted)', fontSize: 13, textAlign: 'center' }}>
-                暂无目录层级
-              </div>
-            ) : (
-              outline.map((item) => (
-                <OutlineItem key={item.id} node={item} />
-              ))
-            )}
+            {outline.length === 0 ? <div className="empty-state">暂无目录层级</div> : outline.map((item) => <OutlineItem key={item.id} node={item} />)}
+            <BacklinksPanel />
           </div>
-        ) : !workspaceName ? (
-           <div style={{ padding: '24px 16px', color: 'var(--text-muted)', fontSize: 13, textAlign: 'center' }}>
-             按 Cmd+Shift+O 打开目录
-           </div>
+        ) : !workspacePath ? (
+          <div className="empty-state">
+            <BookOpen size={28} color="var(--text-muted)" className="empty-state__icon" />
+            <div className="text-sm text-secondary mb-8">笔记库未配置</div>
+            <div className="hint mb-16">选一个文件夹作为笔记库，<br />所有笔记与子文件夹都在这里管理</div>
+            <button onClick={() => useAppStore.getState().openDialog('settings')} className="btn btn-ghost btn-xs"><Settings size={11} /> 前往设置</button>
+          </div>
         ) : (
           <>
             {starredFiles.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', paddingLeft: 12, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4, opacity: 0.7 }}>
-                  <span>⭐ 收藏夹</span>
-                </div>
-                <div>
-                  {starredFiles.map(path => (
-                    <StarredItem key={`star-${path}`} path={path} />
-                  ))}
-                </div>
+              <div className="mb-12">
+                <div className="sidebar-section-title">⭐ 收藏夹</div>
+                {starredFiles.map((path) => <StarredItem key={`star-${path}`} path={path} />)}
               </div>
             )}
-            
-            <div className="tree-item" style={{ fontWeight: 600, color: 'var(--text-primary)', paddingLeft: 8, display: 'flex', alignItems: 'center' }}>
-              <ChevronDown size={14} color="var(--text-muted)" />
-              <FolderOpen size={14} color="var(--color-brand-indigo)" />
-              <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{workspaceName}</span>
-              <div 
-                onClick={(e) => { e.stopPropagation(); refreshWorkspace(); }}
-                style={{ cursor: 'pointer', padding: '2px 4px', borderRadius: 4, display: 'flex', alignItems: 'center' }}
-                className="hover-bg"
-                title="刷新文件树"
-              >
-                <RotateCw size={12} color="var(--text-muted)" />
+
+            <div className="tree-item library-header" title={workspacePath} onClick={() => setSelectedNodePath(null)} onContextMenu={(e) => { e.stopPropagation(); openRootMenu(e); }}>
+              <BookOpen size={14} color="var(--color-brand-indigo)" />
+              <span className="truncate flex-1">{workspaceName}</span>
+              <button onClick={(e) => { e.stopPropagation(); createNoteIn(getNewNoteDir()); }} className="icon-btn icon-btn--sm hover-bg" title="新建笔记（在选中的文件夹里）"><FilePlus size={13} /></button>
+              <div className="menu-anchor">
+                <button onClick={(e) => { e.stopPropagation(); setShowTemplates((v) => !v); }} className="icon-btn icon-btn--sm hover-bg" title="从模板新建"><LayoutTemplate size={13} /></button>
+                {showTemplates && <TemplateMenu onClose={() => setShowTemplates(false)} />}
               </div>
+              <button onClick={(e) => { e.stopPropagation(); openDailyNote(); }} className="icon-btn icon-btn--sm hover-bg" title="今日日记 (⇧⌘D)"><CalendarDays size={13} /></button>
+              <button onClick={(e) => { e.stopPropagation(); createFolderIn(getNewNoteDir()); }} className="icon-btn icon-btn--sm hover-bg" title="新建文件夹"><FolderPlus size={13} /></button>
+              <button onClick={(e) => { e.stopPropagation(); refreshWorkspace(); }} className="icon-btn icon-btn--sm hover-bg" title="刷新"><RotateCw size={12} /></button>
             </div>
-            
+
             <div className="workspace-tree">
               {fileTree.length === 0 ? (
-                <div style={{ padding: '12px 28px', color: 'var(--text-muted)', fontSize: 12 }}>空文件夹</div>
+                <div className="tree-empty tree-empty--root">还没有笔记，点上方 ＋ 新建一篇</div>
               ) : (
-                fileTree.map(node => (
-                  <FileTreeItem key={node.path} node={node} level={1} />
-                ))
+                fileTree.map((node) => <FileTreeItem key={node.path} node={node} level={1} />)
               )}
             </div>
           </>

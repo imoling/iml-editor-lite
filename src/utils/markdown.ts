@@ -1,11 +1,70 @@
-import { marked } from 'marked';
+import { Marked } from 'marked';
 import TurndownService from 'turndown';
 import mermaid from 'mermaid';
 // @ts-ignore
 import { tables } from 'turndown-plugin-gfm';
 import { all, createLowlight } from 'lowlight';
+import { sanitizeHtml } from './sanitize';
+import katex from 'katex';
 
 const localLowlight = createLowlight(all);
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// lowlight HAST → HTML。文本节点必须转义：代码块里的 <script> / <img onerror> 否则会被当成真 HTML 执行
+const hastToHtml = (nodes: any[]): string =>
+  nodes.map((node) => {
+    if (node.type === 'text') return escapeHtml(node.value);
+    if (node.type === 'element') {
+      const cls = node.properties?.className?.join(' ') || '';
+      return `<span class="${cls}">${hastToHtml(node.children)}</span>`;
+    }
+    return '';
+  }).join('');
+
+// 双向链接 [[目标]] / [[目标|显示文本]]：作为 marked 的行内扩展，代码块和行内代码里不会被误转
+const wikiLinkExtension = {
+  name: 'wikiLink',
+  level: 'inline' as const,
+  start(src: string) {
+    const i = src.indexOf('[[');
+    return i === -1 ? undefined : i;
+  },
+  tokenizer(src: string) {
+    const m = /^\[\[([^\]|\n]+?)(?:\|([^\]\n]+?))?\]\]/.exec(src);
+    if (!m) return undefined;
+    return { type: 'wikiLink', raw: m[0], target: m[1].trim(), label: (m[2] || m[1]).trim() };
+  },
+  renderer(token: any) {
+    return `<span class="wiki-link" data-wiki-link="${escapeHtml(token.target)}">${escapeHtml(token.label)}</span>`;
+  },
+};
+
+// 独立的 Marked 实例：配置只设一次，避免每次转换都改全局 marked
+const md = new Marked({
+  gfm: true,
+  breaks: true,
+  extensions: [wikiLinkExtension],
+  renderer: {
+    code({ text, lang }: { text: string; lang?: string }) {
+      const language = lang || 'plaintext';
+      let highlighted = escapeHtml(text);
+      try {
+        if (language !== 'plaintext' && localLowlight.registered(language)) {
+          highlighted = hastToHtml(localLowlight.highlight(language, text).children);
+        }
+      } catch (e) {
+        console.warn('Highlighting failed in preview:', e);
+      }
+      return `<pre><code class="hljs language-${language}">${highlighted}</code></pre>`;
+    },
+    codespan({ text }: { text: string }) {
+      // marked 的 tokenizer 不转义行内代码，默认渲染器才转义；自定义渲染器必须自己做
+      return `<code class="inline-code">${escapeHtml(text)}</code>`;
+    },
+  },
+});
 
 export const turndownService = new TurndownService({
   headingStyle: 'atx',
@@ -36,7 +95,7 @@ turndownService.addRule('image', {
 // Override heading rule to prevent list breakage
 turndownService.addRule('heading', {
   filter: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
-  replacement: (content, node, options) => {
+  replacement: (content, node) => {
     const hLevel = Number(node.nodeName.charAt(1));
     let prefix = '';
     for (let i = 0; i < hLevel; i++) {
@@ -146,6 +205,16 @@ turndownService.addRule('svg', {
   }
 });
 
+// 双向链接：<span data-wiki-link="目标">文本</span> → [[目标]] / [[目标|文本]]
+turndownService.addRule('wikiLink', {
+  filter: (node) => node.nodeName === 'SPAN' && (node as HTMLElement).hasAttribute('data-wiki-link'),
+  replacement: (content, node) => {
+    const target = (node as HTMLElement).getAttribute('data-wiki-link') || '';
+    const label = (node as HTMLElement).textContent || target;
+    return label === target ? `[[${target}]]` : `[[${target}|${label}]]`;
+  },
+});
+
 // Custom rule for math blocks
 turndownService.addRule('math', {
   filter: (node) => {
@@ -231,48 +300,27 @@ export const markdownToHtml = (markdownContent: string, inlineActual: boolean = 
     return placeholderSVG(index);
   });
 
-  // 3. Parse with marked
-  // Helper to convert lowlight HAST tree to HTML string
-  const hastToHtml = (nodes: any[]): string => {
-    return nodes.map(node => {
-      if (node.type === 'text') return node.value;
-      if (node.type === 'element') {
-        const attrs = node.properties ? Object.entries(node.properties).map(([k, v]) => `${k}="${v}"`).join(' ') : '';
-        return `<span class="${node.properties?.className?.join(' ') || ''}" ${attrs}>${hastToHtml(node.children)}</span>`;
-      }
-      return '';
-    }).join('');
-  };
-
-  const renderer = new marked.Renderer();
-  renderer.code = ({ text, lang }: { text: string, lang?: string }) => {
-    const language = lang || 'plaintext';
-    let highlighted = text;
-    
-    try {
-      if (language !== 'plaintext' && localLowlight.registered(language)) {
-        const tree = localLowlight.highlight(language, text);
-        highlighted = hastToHtml(tree.children);
-      }
-    } catch (e) {
-      console.warn('Highlighting failed in preview:', e);
+  // 2.5 Process $$ math blocks（独占行的 $$ … $$）
+  const mathRegex = /^\$\$[ \t]*\n([\s\S]*?)\n\$\$[ \t]*$/gm;
+  const maths: string[] = [];
+  const placeholderMath = (index: number) => `:::MATH_BLOCK_${index}:::`;
+  processed = processed.replace(mathRegex, (_m, latex: string) => {
+    const index = maths.length;
+    const clean = latex.trim();
+    let html: string;
+    if (inlineActual) {
+      let rendered = '';
+      try { rendered = katex.renderToString(clean, { displayMode: true, throwOnError: false }); } catch { rendered = escapeHtml(clean); }
+      html = `<div class="math-block">${rendered}</div>`;
+    } else {
+      html = `<div class="math-block" data-latex="${escapeHtml(clean)}">${escapeHtml(clean)}</div>`;
     }
-    
-    return `<pre><code class="hljs language-${language}">${highlighted}</code></pre>`;
-  };
-
-  renderer.codespan = ({ text }: { text: string }) => {
-    return `<code class="inline-code">${text}</code>`;
-  };
-
-  marked.setOptions({
-    // @ts-ignore
-    renderer: renderer,
-    gfm: true,
-    breaks: true,
+    maths.push(html);
+    return placeholderMath(index);
   });
 
-  let htmlResult = marked.parse(processed, { async: false }) as string;
+  // 3. Parse with marked
+  let htmlResult = md.parse(processed, { async: false }) as string;
 
   // 3.5. Restore data URL <img> tags (replace placeholders, strip any <p> wrapper marked may have added)
   dataImgs.forEach((imgHtml, index) => {
@@ -304,9 +352,45 @@ export const markdownToHtml = (markdownContent: string, inlineActual: boolean = 
     }
   });
 
+  // 5.5 Restore math blocks
+  maths.forEach((mathHtml, index) => {
+    const pStr = placeholderMath(index);
+    if (!htmlResult.includes(pStr)) return;
+    const pRegex = new RegExp(`<p>\\s*${pStr.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*</p>`, 'g');
+    const replaced = htmlResult.replace(pRegex, () => mathHtml);
+    htmlResult = replaced === htmlResult ? htmlResult.split(pStr).join(mathHtml) : replaced;
+  });
+
   // 6. Tiptap TaskList compatibility: Convert GFM checkboxes to data-type structures
   const parser = new DOMParser();
   const doc = parser.parseFromString(htmlResult, 'text/html');
+
+  // 6a. GFM 允许同一个列表里混放普通项和任务项，但 Tiptap 的 taskList 只能装 taskItem：
+  //     按"任务项 / 普通项"的连续段把列表拆成相邻的几个 <ul>，否则普通项会被塞进任务项里渲染错乱
+  const isTaskLi = (li: Element) => {
+    if (li.querySelector(':scope > input[type="checkbox"], :scope > p > input[type="checkbox"]')) return true;
+    const firstText = (li.firstElementChild?.tagName === 'P' ? li.firstElementChild.textContent : li.firstChild?.textContent) || '';
+    return /^\s*\[[ xX]\]/.test(firstText);
+  };
+  doc.querySelectorAll('ul').forEach(ul => {
+    const items = Array.from(ul.children).filter(c => c.tagName === 'LI');
+    const flags = items.map(isTaskLi);
+    if (items.length < 2 || !flags.some(Boolean) || flags.every(Boolean)) return;
+    const groups: Element[][] = [];
+    items.forEach((li, i) => {
+      const last = groups[groups.length - 1];
+      if (last && flags[i] === flags[items.indexOf(last[0])]) last.push(li);
+      else groups.push([li]);
+    });
+    const parent = ul.parentNode;
+    if (!parent) return;
+    groups.forEach(group => {
+      const list = doc.createElement('ul');
+      group.forEach(li => list.appendChild(li));
+      parent.insertBefore(list, ul);
+    });
+    parent.removeChild(ul);
+  });
   
   doc.querySelectorAll('li').forEach(li => {
     // 1. Try finding an input checkbox (GFM standard)
@@ -366,7 +450,7 @@ export const markdownToStaticHtml = async (markdownContent: string): Promise<str
   mermaid.initialize({
     startOnLoad: false,
     theme: 'neutral',
-    securityLevel: 'loose',
+    securityLevel: 'antiscript',
     fontFamily: 'var(--font-body)',
   });
 
@@ -391,7 +475,7 @@ export const markdownToStaticHtml = async (markdownContent: string): Promise<str
   });
 
   // 2. 执行 Markdown 解析
-  const htmlResult = await marked.parse(processed, { async: true }) as string;
+  const htmlResult = sanitizeHtml(await md.parse(processed, { async: true }) as string);
   
   // 3. 使用 DOMParser 精准回填
   const parser = new DOMParser();

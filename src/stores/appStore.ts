@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import { extractHeadings } from '../utils/outline';
+import { isNewerVersion } from '../utils/version';
+import { formatDate } from '../utils/date';
+import { deriveNoteTitle } from '../utils/noteTitle';
+
+export type DialogId = 'about' | 'shortcuts' | 'ai-config' | 'image-config' | 'settings';
+import { DAILY_DIR, TEMPLATE_DIR, DEFAULT_DAILY_TEMPLATE, SAMPLE_TEMPLATES, renderNoteTemplate } from '../utils/noteTemplates';
 
 export interface FileNode {
   name: string;
@@ -14,6 +19,8 @@ export interface Tab {
   content: string;
   isDirty: boolean;
   mode: 'word' | 'markdown';
+  /** 磁盘上的文件被外部改动（或删除）而本标签页有未保存修改，需要用户决定 */
+  externallyModified?: boolean;
 }
 
 export interface HeadingNode {
@@ -79,53 +86,7 @@ export interface NavigationRequest {
   timestamp: number;
 }
 
-// ── SKILL 写作运行时状态 ──
-export type SkillStepStatus = 'pending' | 'running' | 'done' | 'skipped' | 'error';
-
-export interface CoverImage {
-  url: string;
-  localPath: string;
-}
-
-export interface SkillStepRun {
-  stepId: string;
-  status: SkillStepStatus;
-  output: string;
-  outlineItems?: string[];
-  selectedItemIndex?: number;
-  coverImages?: CoverImage[];
-  selectedCoverIndex?: number;
-  sectionOutputs?: Record<string, string>;
-  /** polish 步骤选中的功能项 ID 列表 */
-  polishOptions?: string[];
-  /** publish 步骤：选中的主题和颜色 */
-  publishTheme?: string;
-  publishColor?: string;
-  /** publish 步骤：发布状态 */
-  publishStatus?: 'idle' | 'publishing' | 'success' | 'error';
-  publishError?: string;
-  /** illustrations 步骤：每张图的已生成图片 */
-  illustrationImages?: Record<string, { url: string; localPath: string }>;
-  /** illustrations 步骤：每张图的生成中状态 */
-  illustrationLoading?: Record<string, boolean>;
-  error?: string;
-  updatedAt: number;
-}
-
-export interface SkillRun {
-  id: string;
-  skillId: string;
-  vibe: string;
-  webContext?: string;
-  steps: SkillStepRun[];
-  currentStepIndex: number;
-  tabId?: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
 export interface ImageGenConfig {
-  source: 'crawl' | 'generate';
   provider: 'gemini' | 'gemini-imagen' | 'gemini-flash' | 'volcengine' | 'minimax' | 'custom';
   apiKey: string;
   model: string;
@@ -133,12 +94,25 @@ export interface ImageGenConfig {
 }
 
 export const DEFAULT_IMAGE_GEN_CONFIG: ImageGenConfig = {
-  source: 'crawl',
   provider: 'gemini-imagen',
   apiKey: '',
   model: '',
   endpoint: '',
 };
+
+export interface SearchState {
+  query: string;
+  replacement: string;
+  caseSensitive: boolean;
+  /** 当前文档中的匹配总数 */
+  total: number;
+  /** 当前定位到第几个匹配（从 1 开始，0 表示无） */
+  current: number;
+}
+
+export interface SearchCommand {
+  type: 'next' | 'prev' | 'replace' | 'replaceAll';
+}
 
 export interface AppState {
   mode: 'word' | 'markdown';
@@ -154,10 +128,16 @@ export interface AppState {
   outline: HeadingNode[];
   findVisible: boolean;
   replaceVisible: boolean;
-  sidebarTab: 'catalog' | 'files' | 'notes';
+  search: SearchState;
+  searchCommand: SearchCommand | null;
+  /** 当前编辑器注册的「把未写回的内容立刻同步到 store」钩子（保存 / 导出 / 关窗前调用） */
+  editorFlush: (() => void) | null;
+  sidebarTab: 'library' | 'catalog' | 'search';
   sidebarWidth: number;
-  aiPanelVisible: boolean;
-  aiPanelWidth: number;
+  /** 每次 +1 让搜索面板重新聚焦输入框 */
+  globalSearchFocus: number;
+  /** 笔记库内容版本：树刷新 / 外部改动时 +1，反向链接面板据此重新查询 */
+  libraryVersion: number;
   expandedPaths: string[];
   navigationRequest: NavigationRequest | null;
   updateStatus: {
@@ -166,17 +146,14 @@ export interface AppState {
     latestVersion: string | null;
     error: string | null;
   };
+  /** 当前打开的弹窗（配置 / 关于 / 快捷键都在主窗口内以浮层显示，不再新开窗口） */
+  dialog: DialogId | null;
   aiStatus: {
     generating: boolean;
     onStop: (() => void) | null;
   };
-  skillRuns: Record<string, SkillRun>;
-  activeSkillRunId: string | null;
   zoom: number;
   theme: ThemeConfig;
-  isSettingsModalOpen: boolean;
-  isWechatConfigOpen: boolean;
-  isImageConfigOpen: boolean;
   appearanceMode: 'light' | 'dark' | 'system' | 'eye-protection';
   startupBehavior: 'restore' | 'dashboard';
   autoSave: boolean;
@@ -195,7 +172,25 @@ export interface AppState {
   openTab: (tab: Tab) => void;
   closeTab: (id: string) => void;
   updateTabContent: (id: string, content: string) => void;
-  setWorkspace: (path: string, name: string, files: FileNode[]) => void;
+  /** 加载笔记库（树根 = defaultLibraryPath），并开始监听目录变化 */
+  loadLibrary: (path: string) => Promise<void>;
+  /** 在指定目录新建笔记并进入重命名 */
+  createNoteIn: (dirPath: string) => Promise<string | null>;
+  createFolderIn: (dirPath: string) => Promise<string | null>;
+  /** 新建 / 静默保存时的目标目录：侧边栏选中的文件夹（或选中文件所在目录），否则笔记库根 */
+  getNewNoteDir: () => string;
+  /** 主进程通知：笔记库里这些路径被外部改动 */
+  handleExternalChanges: (paths: string[]) => Promise<void>;
+  /** 打开（不存在则按「模板/日记.md」或内置模板新建）今天的日记：<笔记库>/日记/YYYY-MM-DD.md */
+  openDailyNote: () => Promise<void>;
+  /** 列出 <笔记库>/模板 下的模板 */
+  listTemplates: () => Promise<{ name: string; path: string }[]>;
+  /** 用模板在目录里新建笔记（默认目录 = getNewNoteDir） */
+  createNoteFromTemplate: (templatePath: string, dirPath?: string) => Promise<string | null>;
+  /** 写入示例模板（已存在的不覆盖） */
+  createSampleTemplates: () => Promise<void>;
+  /** 打开 [[目标]] 指向的笔记：按文件名或一级标题匹配，优先同目录；找不到就在当前笔记所在目录新建 */
+  openWikiLink: (target: string) => Promise<void>;
   updateFileNode: (path: string, updates: Partial<FileNode>) => void;
   updateTabId: (oldId: string, newId: string, newTitle: string) => void;
   setExpanded: (path: string, expanded: boolean) => void;
@@ -211,10 +206,19 @@ export interface AppState {
   createNewFile: () => void;
   toggleFind: () => void;
   toggleReplace: () => void;
-  setSidebarTab: (tab: 'catalog' | 'files' | 'notes') => void;
+  closeSearch: () => void;
+  setSearch: (patch: Partial<SearchState>) => void;
+  setSearchCounts: (total: number, current: number) => void;
+  sendSearchCommand: (type: SearchCommand['type']) => void;
+  /** 编辑器处理完命令后清掉，避免切换编辑模式时新挂载的编辑器重放（例如再来一次「全部替换」） */
+  consumeSearchCommand: () => void;
+  registerEditorFlush: (fn: (() => void) | null) => void;
+  setSidebarTab: (tab: 'library' | 'catalog' | 'search') => void;
+  /** ⌘⇧F：打开侧边栏搜索面板并聚焦 */
+  openGlobalSearch: () => void;
+  /** 用给定关键词打开文档内查找（全文搜索结果点开后定位用） */
+  showFindWith: (query: string) => void;
   setSidebarWidth: (width: number) => void;
-  toggleAIPanel: () => void;
-  setAIPanelWidth: (width: number) => void;
   refreshWorkspace: () => Promise<void>;
   openFileByPath: (filePath: string) => Promise<void>;
   openFile: () => Promise<void>;
@@ -226,15 +230,10 @@ export interface AppState {
   autoCheckUpdates: () => Promise<void>;
   setUpdateStatus: (status: Partial<AppState['updateStatus']>) => void;
   setAIStatus: (status: Partial<AppState['aiStatus']>) => void;
-  upsertSkillRun: (run: SkillRun) => void;
-  updateSkillStepRun: (runId: string, stepId: string, patch: Partial<SkillStepRun>) => void;
-  setActiveSkillRun: (id: string | null) => void;
-  deleteSkillRun: (id: string) => void;
+  openDialog: (id: DialogId) => void;
+  closeDialog: () => void;
   setZoom: (zoom: number) => void;
   setTheme: (themeId: string) => void;
-  setSettingsModalOpen: (open: boolean) => void;
-  setWechatConfigOpen: (open: boolean) => void;
-  setImageConfigOpen: (open: boolean) => void;
   setAppearanceMode: (mode: 'light' | 'dark' | 'system' | 'eye-protection') => void;
   setStartupBehavior: (behavior: 'restore' | 'dashboard') => void;
   setAutoSave: (autoSave: boolean) => void;
@@ -255,6 +254,33 @@ export interface AppState {
   duplicateFile: (path: string) => Promise<boolean>;
 }
 
+/** 路径分隔符：出现反斜杠即按 Windows 处理（dialog / path.join 在 Windows 上一律给反斜杠） */
+function pathSep(p: string): '/' | '\\' {
+  return p.includes('\\') ? '\\' : '/';
+}
+
+const NOTE_FILE_RE = /\.(md|markdown|mdown|mkd|txt)$/i;
+
+/** 读取笔记库目录：隐藏文件与非笔记文件（图片、附件等）不进树，文件夹全部保留 */
+export async function readLibraryDir(dirPath: string): Promise<FileNode[] | null> {
+  const result = await window.api.fs.readDir(dirPath);
+  if (!result.success || !result.files) return null;
+  return (result.files as FileNode[]).filter(
+    (f) => !f.name.startsWith('.') && (f.isDirectory || NOTE_FILE_RE.test(f.name)),
+  );
+}
+
+function findNode(nodes: FileNode[], targetPath: string): FileNode | undefined {
+  for (const node of nodes) {
+    if (node.path === targetPath) return node;
+    if (node.children) {
+      const found = findNode(node.children, targetPath);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   mode: 'word',
   activeTabId: null,
@@ -269,10 +295,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   outline: [],
   findVisible: false,
   replaceVisible: false,
-  sidebarTab: 'notes',
+  search: { query: '', replacement: '', caseSensitive: false, total: 0, current: 0 },
+  searchCommand: null,
+  editorFlush: null,
+  sidebarTab: 'library',
+  globalSearchFocus: 0,
+  libraryVersion: 0,
   sidebarWidth: 240,
-  aiPanelVisible: false,
-  aiPanelWidth: 400,
   expandedPaths: [],
   navigationRequest: null,
   tabToClose: null,
@@ -283,14 +312,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   contextMenu: { visible: false, x: 0, y: 0, node: null },
   
   updateStatus: { show: false, loading: false, latestVersion: null, error: null },
+  dialog: null,
   aiStatus: { generating: false, onStop: null },
-  skillRuns: {},
-  activeSkillRunId: null,
   zoom: 100,
   theme: THEME_PRESETS[0],
-  isSettingsModalOpen: false,
-  isWechatConfigOpen: false,
-  isImageConfigOpen: false,
   appearanceMode: 'light',
   startupBehavior: 'restore',
   autoSave: true,
@@ -317,38 +342,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   setActiveTab: async (id: string | null) => {
     set({ activeTabId: id });
-    
-    if (id && !id.startsWith('new-') && !id.startsWith('ai-gen-')) {
-      get().addToRecent(id);
-      const sep = id.includes('/') ? '/' : '\\';
-      const lastSepIndex = id.lastIndexOf(sep);
-      if (lastSepIndex !== -1) {
-        const dirPath = id.substring(0, lastSepIndex);
-        const dirName = dirPath.split(sep).pop() || 'Workspace';
-        
-        if (get().workspacePath !== dirPath) {
-          try {
-            const result = await window.api.fs.readDir(dirPath);
-            if (result.success && result.files) {
-              set({ 
-                workspacePath: dirPath, 
-                workspaceName: dirName, 
-                fileTree: result.files,
-                expandedPaths: [...new Set([...get().expandedPaths, dirPath])]
-              });
-            }
-          } catch (error) {
-            console.error('Failed to auto-switch workspace:', error);
-          }
-        }
-      }
-    } else if (id && (id.startsWith('new-') || id.startsWith('ai-gen-'))) {
-      set({ workspacePath: null, workspaceName: null, fileTree: [] });
-    }
-
-    if (id && (id.includes('/') || id.includes('\\'))) {
-      get().revealInSidebar(id);
-    }
+    if (!id || id.startsWith('new-')) return;
+    get().addToRecent(id);
+    // 树根固定为笔记库；库内文件展开定位，库外文件只在标签页里打开，不动树
+    await get().revealInSidebar(id);
   },
   
   openTab: (tab: Tab) => {
@@ -366,8 +363,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       ? (newTabs.length > 0 ? newTabs[newTabs.length - 1].id : null)
       : state.activeTabId;
     
+    // 关掉最后一个标签页时保留工作区，文件树不应随文档关闭而消失
     if (newTabs.length === 0) {
-      return { tabs: [], activeTabId: null, outline: [], workspacePath: null, workspaceName: null, fileTree: [] };
+      return { tabs: [], activeTabId: null, outline: [] };
     }
 
     return { 
@@ -376,9 +374,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     };
   }),
 
-  updateTabContent: (id: string, content: string) => set((state) => ({
-    tabs: state.tabs.map(t => t.id === id ? { ...t, content, isDirty: true } : t)
-  })),
+  updateTabContent: (id: string, content: string) => {
+    const target = get().tabs.find(t => t.id === id);
+    // 内容没变就不动，避免把未编辑的文件标脏
+    if (!target || target.content === content) return;
+    set((state) => ({
+      tabs: state.tabs.map(t => t.id === id ? { ...t, content, isDirty: true } : t)
+    }));
+  },
 
   updateTabId: (oldId: string, newId: string, newTitle: string) => set((state) => {
     const newTabs = state.tabs.map(t => t.id === oldId ? { ...t, id: newId, title: newTitle, isDirty: false } : t);
@@ -389,12 +392,180 @@ export const useAppStore = create<AppState>((set, get) => ({
     return newState;
   }),
 
-  setWorkspace: (path: string, name: string, files: FileNode[]) => set({ 
-    workspacePath: path, 
-    workspaceName: name, 
-    fileTree: files,
-    expandedPaths: [path] 
-  }),
+  loadLibrary: async (libraryPath: string) => {
+    if (!libraryPath) return;
+    const files = await readLibraryDir(libraryPath);
+    if (!files) {
+      console.warn('Library path not readable:', libraryPath);
+      return;
+    }
+    set({
+      workspacePath: libraryPath,
+      workspaceName: libraryPath.split(/[/\\]/).filter(Boolean).pop() || '笔记库',
+      fileTree: files,
+      expandedPaths: [...new Set([libraryPath, ...get().expandedPaths])],
+    });
+    // 已展开的子目录补加载子节点
+    await get().refreshWorkspace();
+    window.api.library.watch(libraryPath).catch(() => {});
+  },
+
+  getNewNoteDir: () => {
+    const { selectedNodePath, fileTree, workspacePath, defaultLibraryPath } = get();
+    if (selectedNodePath && workspacePath) {
+      const node = findNode(fileTree, selectedNodePath);
+      if (node?.isDirectory) return node.path;
+      if (node) return selectedNodePath.substring(0, selectedNodePath.lastIndexOf(pathSep(selectedNodePath)));
+    }
+    return workspacePath || defaultLibraryPath;
+  },
+
+  createNoteIn: async (dirPath: string) => {
+    const sep = pathSep(dirPath);
+    const base = '未命名笔记';
+    let filePath = `${dirPath}${sep}${base}.md`;
+    for (let i = 2; await window.api.fs.exists(filePath); i++) filePath = `${dirPath}${sep}${base} ${i}.md`;
+    const res = await window.api.fs.writeFile(filePath, '');
+    if (!res.success) return null;
+    await get().refreshWorkspace();
+    get().openTab({ id: filePath, title: filePath.split(sep).pop() || base, content: '', isDirty: false, mode: 'word' });
+    set({ selectedNodePath: filePath, renamingPath: filePath });
+    return filePath;
+  },
+
+  createFolderIn: async (dirPath: string) => {
+    const sep = pathSep(dirPath);
+    const base = '新建文件夹';
+    let folderPath = `${dirPath}${sep}${base}`;
+    for (let i = 2; await window.api.fs.exists(folderPath); i++) folderPath = `${dirPath}${sep}${base} ${i}`;
+    const res = await window.api.fs.mkdir(folderPath);
+    if (!res.success) return null;
+    set({ expandedPaths: [...new Set([...get().expandedPaths, dirPath])] });
+    await get().refreshWorkspace();
+    set({ selectedNodePath: folderPath, renamingPath: folderPath });
+    return folderPath;
+  },
+
+  openDailyNote: async () => {
+    const root = get().workspacePath || get().defaultLibraryPath;
+    if (!root) return;
+    const sep = pathSep(root);
+    const dir = `${root}${sep}${DAILY_DIR}`;
+    if (!(await window.api.fs.exists(dir))) await window.api.fs.mkdir(dir);
+    const today = formatDate(new Date());
+    const filePath = `${dir}${sep}${today}.md`;
+    if (!(await window.api.fs.exists(filePath))) {
+      const tplPath = `${root}${sep}${TEMPLATE_DIR}${sep}日记.md`;
+      let template = DEFAULT_DAILY_TEMPLATE;
+      if (await window.api.fs.exists(tplPath)) {
+        const tpl = await window.api.fs.readFile(tplPath);
+        if (tpl.success && tpl.content) template = tpl.content;
+      }
+      const res = await window.api.fs.writeFile(filePath, renderNoteTemplate(template, { title: today }));
+      if (!res.success) return;
+      set({ expandedPaths: [...new Set([...get().expandedPaths, dir])] });
+      await get().refreshWorkspace();
+    }
+    await get().openFileByPath(filePath);
+  },
+
+  listTemplates: async () => {
+    const root = get().workspacePath || get().defaultLibraryPath;
+    if (!root) return [];
+    const dir = `${root}${pathSep(root)}${TEMPLATE_DIR}`;
+    if (!(await window.api.fs.exists(dir))) return [];
+    const files = await readLibraryDir(dir);
+    return (files || [])
+      .filter((f) => !f.isDirectory)
+      .map((f) => ({ name: f.name.replace(/\.(md|markdown|mdown|mkd|txt)$/i, ''), path: f.path }));
+  },
+
+  createNoteFromTemplate: async (templatePath: string, dirPath?: string) => {
+    const dir = dirPath || get().getNewNoteDir();
+    if (!dir) return null;
+    const tpl = await window.api.fs.readFile(templatePath);
+    if (!tpl.success) return null;
+    const sep = pathSep(dir);
+    const tplName = (templatePath.split(/[/\\]/).pop() || '笔记').replace(/\.(md|markdown|mdown|mkd|txt)$/i, '');
+    const base = `${tplName} ${formatDate(new Date())}`;
+    let title = base;
+    let filePath = `${dir}${sep}${title}.md`;
+    for (let i = 2; await window.api.fs.exists(filePath); i++) {
+      title = `${base} ${i}`;
+      filePath = `${dir}${sep}${title}.md`;
+    }
+    const res = await window.api.fs.writeFile(filePath, renderNoteTemplate(tpl.content || '', { title }));
+    if (!res.success) return null;
+    await get().refreshWorkspace();
+    get().openTab({ id: filePath, title: `${title}.md`, content: renderNoteTemplate(tpl.content || '', { title }), isDirty: false, mode: 'word' });
+    set({ selectedNodePath: filePath, renamingPath: filePath });
+    return filePath;
+  },
+
+  createSampleTemplates: async () => {
+    const root = get().workspacePath || get().defaultLibraryPath;
+    if (!root) return;
+    const sep = pathSep(root);
+    const dir = `${root}${sep}${TEMPLATE_DIR}`;
+    if (!(await window.api.fs.exists(dir))) await window.api.fs.mkdir(dir);
+    for (const tpl of SAMPLE_TEMPLATES) {
+      const filePath = `${dir}${sep}${tpl.name}.md`;
+      if (!(await window.api.fs.exists(filePath))) await window.api.fs.writeFile(filePath, tpl.content);
+    }
+    set({ expandedPaths: [...new Set([...get().expandedPaths, dir])] });
+    await get().refreshWorkspace();
+  },
+
+  openWikiLink: async (target: string) => {
+    const name = target.trim();
+    if (!name) return;
+    const { activeTabId, workspacePath, defaultLibraryPath } = get();
+    const currentDir = activeTabId && !activeTabId.startsWith('new-')
+      ? activeTabId.substring(0, activeTabId.lastIndexOf(pathSep(activeTabId)))
+      : (workspacePath || defaultLibraryPath);
+    const lower = name.toLowerCase();
+    let notes: { path: string; title: string }[] = [];
+    try { notes = await window.api.search.listNotes(); } catch { notes = []; }
+    const basename = (p: string) => (p.split(/[/\\]/).pop() || '').replace(/\.(md|markdown|mdown|mkd|txt)$/i, '');
+    const candidates = notes.filter((n) => basename(n.path).toLowerCase() === lower || n.title.toLowerCase() === lower);
+    const pick = candidates.find((n) => currentDir && n.path.startsWith(currentDir + pathSep(n.path))) || candidates[0];
+    if (pick) {
+      await get().openFileByPath(pick.path);
+      return;
+    }
+    // 新建
+    const dir = currentDir || workspacePath || defaultLibraryPath;
+    if (!dir) return;
+    const filePath = `${dir}${pathSep(dir)}${name.replace(/[\\/:*?"<>|]/g, '')}.md`;
+    if (!(await window.api.fs.exists(filePath))) {
+      const res = await window.api.fs.writeFile(filePath, `# ${name}\n\n`);
+      if (!res.success) return;
+      await get().refreshWorkspace();
+    }
+    await get().openFileByPath(filePath);
+  },
+
+  handleExternalChanges: async (paths: string[]) => {
+    await get().refreshWorkspace();
+    const changed = new Set(paths);
+    for (const tab of get().tabs) {
+      if (tab.id.startsWith('new-') || !changed.has(tab.id)) continue;
+      const result = await window.api.fs.readFile(tab.id);
+      const mark = (patch: Partial<Tab>) =>
+        set((state) => ({ tabs: state.tabs.map((t) => (t.id === tab.id ? { ...t, ...patch } : t)) }));
+      if (!result.success) {
+        mark({ externallyModified: true }); // 被外部删除 / 移动
+        continue;
+      }
+      const diskContent = result.content || '';
+      if (diskContent === tab.content) continue;
+      if (tab.isDirty) {
+        mark({ externallyModified: true }); // 两边都改了，交给用户决定（保存即覆盖）
+      } else {
+        mark({ content: diskContent, isDirty: false, externallyModified: false }); // 未改动的标签页静默跟随磁盘
+      }
+    }
+  },
 
   updateFileNode: (path: string, updates: Partial<FileNode>) => set((state) => {
     const updateRecursive = (nodes: FileNode[]): FileNode[] => {
@@ -414,18 +585,31 @@ export const useAppStore = create<AppState>((set, get) => ({
   })),
 
   revealInSidebar: async (path: string) => {
-    const parts = path.split(/[/\\]/);
-    let currentPath = '';
-    const newExpanded = [...get().expandedPaths];
-    
-    for (let i = 0; i < parts.length - 1; i++) {
-        currentPath += (i === 0 ? '' : path.includes('/') ? '/' : '\\') + parts[i];
-        if (!newExpanded.includes(currentPath)) {
-            newExpanded.push(currentPath);
+    const { workspacePath } = get();
+    if (!workspacePath) return;
+    const sep = pathSep(path);
+    if (!path.startsWith(workspacePath + sep)) return;
+
+    // 工作区根到文件所在目录之间的每一级：展开，并在子节点尚未加载时读取目录
+    const segments = path.slice(workspacePath.length + 1).split(sep);
+    segments.pop(); // 去掉文件名
+    const expanded = new Set(get().expandedPaths);
+    expanded.add(workspacePath);
+    let current = workspacePath;
+    for (const segment of segments) {
+      current = current + sep + segment;
+      expanded.add(current);
+      const node = findNode(get().fileTree, current);
+      if (node?.isDirectory && (!node.children || node.children.length === 0)) {
+        try {
+          const files = await readLibraryDir(current);
+          if (files) get().updateFileNode(current, { children: files });
+        } catch (error) {
+          console.error('Failed to load directory for reveal:', error);
         }
+      }
     }
-    
-    set({ expandedPaths: [...new Set(newExpanded)] });
+    set({ expandedPaths: [...expanded] });
   },
 
   scrollToHeading: (heading: HeadingNode) => set({ 
@@ -453,9 +637,36 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
-  toggleFind: () => set((state) => ({ findVisible: !state.findVisible, replaceVisible: false })),
-  toggleReplace: () => set((state) => ({ replaceVisible: !state.replaceVisible, findVisible: false })),
-  setSidebarTab: (tab: 'catalog' | 'files' | 'notes') => {
+  // ⌘F：未开 → 开查找；开着替换 → 收起替换行；只开着查找 → 关闭（并清除高亮）
+  toggleFind: () => {
+    const { findVisible, replaceVisible } = get();
+    if (!findVisible) set({ findVisible: true, replaceVisible: false });
+    else if (replaceVisible) set({ replaceVisible: false });
+    else get().closeSearch();
+  },
+  // ⌥⌘F：未开 → 开查找+替换；已开 → 关闭
+  toggleReplace: () => {
+    if (!get().replaceVisible) set({ findVisible: true, replaceVisible: true });
+    else get().closeSearch();
+  },
+  closeSearch: () => set((state) => ({
+    findVisible: false,
+    replaceVisible: false,
+    searchCommand: null,
+    search: { ...state.search, query: '', total: 0, current: 0 },
+  })),
+  setSearch: (patch) => set((state) => ({ search: { ...state.search, ...patch } })),
+  setSearchCounts: (total, current) => {
+    const s = get().search;
+    if (s.total === total && s.current === current) return;
+    set({ search: { ...s, total, current } });
+  },
+  sendSearchCommand: (type) => set({ searchCommand: { type } }),
+  consumeSearchCommand: () => { if (get().searchCommand) set({ searchCommand: null }); },
+  registerEditorFlush: (fn) => set({ editorFlush: fn }),
+  openGlobalSearch: () => set((state) => ({ sidebarTab: 'search', sidebarVisible: true, globalSearchFocus: state.globalSearchFocus + 1 })),
+  showFindWith: (query) => set((state) => ({ findVisible: true, replaceVisible: false, search: { ...state.search, query } })),
+  setSidebarTab: (tab: 'library' | 'catalog' | 'search') => {
     const { sidebarTab, sidebarVisible } = get();
     if (sidebarVisible && sidebarTab === tab) {
       set({ sidebarVisible: false });
@@ -464,17 +675,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   setSidebarWidth: (width) => set({ sidebarWidth: Math.min(600, Math.max(240, width)) }),
-  toggleAIPanel: () => set((s) => ({ aiPanelVisible: !s.aiPanelVisible })),
-  setAIPanelWidth: (width) => set({ aiPanelWidth: Math.min(600, Math.max(240, width)) }),
   refreshWorkspace: async () => {
-    const { workspacePath } = get();
+    const { workspacePath, expandedPaths } = get();
     if (!workspacePath) return;
 
     try {
-      const result = await window.api.fs.readDir(workspacePath);
-      if (result.success && result.files) {
-        set({ fileTree: result.files });
-      }
+      const rootFiles = await readLibraryDir(workspacePath);
+      if (!rootFiles) return;
+      // 已展开的目录逐层重新读取，刷新后树的展开状态和子节点都不丢
+      const loadExpanded = async (nodes: FileNode[]): Promise<FileNode[]> =>
+        Promise.all(nodes.map(async (node) => {
+          if (!node.isDirectory || !expandedPaths.includes(node.path)) return node;
+          const sub = await readLibraryDir(node.path);
+          if (!sub) return node;
+          return { ...node, children: await loadExpanded(sub) };
+        }));
+      set((state) => ({ fileTree: state.fileTree, libraryVersion: state.libraryVersion + 1 }));
+      set({ fileTree: await loadExpanded(rootFiles) });
     } catch (error) {
       console.error('Failed to refresh workspace:', error);
     }
@@ -518,51 +735,38 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  // 切换笔记库：选一个目录作为新的树根并持久化到设置
   openDirectory: async () => {
-    const result = await window.api.dialog.open({
-      properties: ['openDirectory']
-    });
-
+    const result = await window.api.dialog.open({ properties: ['openDirectory'] });
     if (result && result.length > 0) {
-      const dirPath = result[0];
-      const readResult = await window.api.fs.readDir(dirPath);
-      if (readResult.success && readResult.files) {
-        get().setWorkspace(dirPath, dirPath.split(/[/\\]/).pop() || 'Workspace', readResult.files);
-      }
+      get().setDefaultLibraryPath(result[0]);
     }
   },
 
   saveActiveFile: async (saveAs = false, isAutoSave = false) => {
+    // 编辑器的写回是防抖的，保存前先把屏幕上的最新内容刷进 store
+    get().editorFlush?.();
     const { activeTabId, tabs } = get();
     const activeTab = tabs.find(t => t.id === activeTabId);
     if (!activeTab) return false;
 
     let filePath = activeTab.id;
-    const isTempFile = filePath.startsWith('new-') || filePath.startsWith('ai-gen-');
+    const isTempFile = filePath.startsWith('new-');
 
     if (isTempFile || saveAs) {
       if (isTempFile && isAutoSave) {
-        // 完全无感静默创建新文件
-        const date = new Date();
-        const timeStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}-${String(date.getMinutes()).padStart(2, '0')}-${String(date.getSeconds()).padStart(2, '0')}`;
-        
-        let titleStr = timeStr;
-        const firstLine = activeTab.content.split('\n').find(l => l.trim().length > 0);
-        if (firstLine) {
-          const cleanTitle = firstLine.replace(/^#+\s*/, '').replace(/[\\/:*?"<>|]/g, '').trim().substring(0, 30);
-          if (cleanTitle) titleStr = cleanTitle;
-        }
-        
-        const targetDir = get().workspacePath || get().defaultLibraryPath;
-        filePath = `${targetDir}${targetDir.includes('\\\\') ? '\\\\' : '/'}${titleStr}.md`;
+        // 无感静默创建新文件：文件名取自内容的第一行正文。
+        // AI 正在往文档里写内容时不落盘（半成品会被当成文件名）；空文档或只有符号的文档也先不落盘，
+        // 内容已经随会话保存，等有了正文再建文件。
+        if (get().aiStatus.generating) return false;
+        const titleStr = deriveNoteTitle(activeTab.content);
+        if (!titleStr) return false;
 
-        // 简易去重防碰撞（若同名加上时间戳）
-        try {
-          const exists = await window.api.fs.readFile(filePath);
-          if (exists.success) {
-            filePath = `${targetDir}${targetDir.includes('\\\\') ? '\\\\' : '/'}${titleStr} ${timeStr}.md`;
-          }
-        } catch(e) {}
+        const targetDir = get().getNewNoteDir();
+        if (!targetDir) return false;
+        const dirSep = pathSep(targetDir);
+        filePath = `${targetDir}${dirSep}${titleStr}.md`;
+        for (let i = 2; await window.api.fs.exists(filePath); i++) filePath = `${targetDir}${dirSep}${titleStr} ${i}.md`;
       } else {
         const result = await window.api.dialog.save({
           defaultPath: isTempFile ? (activeTab.title === '未命名' ? 'untitled.md' : `${activeTab.title}.md`) : filePath,
@@ -583,7 +787,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       } else {
         set((state) => ({
-          tabs: state.tabs.map(t => t.id === filePath ? { ...t, isDirty: false } : t)
+          tabs: state.tabs.map(t => t.id === filePath ? { ...t, isDirty: false, externallyModified: false } : t)
         }));
       }
       return true;
@@ -595,42 +799,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     updateStatus: { ...state.updateStatus, ...status }
   })),
 
+  openDialog: (id) => set({ dialog: id }),
+  closeDialog: () => set({ dialog: null }),
+
   setAIStatus: (status: Partial<AppState['aiStatus']>) => set((state) => ({
     aiStatus: { ...state.aiStatus, ...status }
   })),
 
-  upsertSkillRun: (run: SkillRun) => set((state) => ({
-    skillRuns: { ...state.skillRuns, [run.id]: { ...run, updatedAt: Date.now() } }
-  })),
-
-  updateSkillStepRun: (runId, stepId, patch) => set((state) => {
-    const run = state.skillRuns[runId];
-    if (!run) return {};
-    const exists = run.steps.some(s => s.stepId === stepId);
-    const now = Date.now();
-    const steps = exists
-      ? run.steps.map(s => s.stepId === stepId ? { ...s, ...patch, updatedAt: now } : s)
-      // 步骤不存在时（旧 run 遇到新增步骤）：追加
-      : [...run.steps, { stepId, status: 'pending' as const, output: '', updatedAt: now, ...patch }];
-    return {
-      skillRuns: {
-        ...state.skillRuns,
-        [runId]: { ...run, steps, updatedAt: now }
-      }
-    };
-  }),
-
-  setActiveSkillRun: (id) => set({ activeSkillRunId: id }),
-
-  deleteSkillRun: (id) => set((state) => {
-    const next = { ...state.skillRuns };
-    delete next[id];
-    return {
-      skillRuns: next,
-      activeSkillRunId: state.activeSkillRunId === id ? null : state.activeSkillRunId
-    };
-  }),
-  
   setZoom: (zoom: number) => set({ zoom }),
   
   setTheme: (themeId: string) => {
@@ -648,9 +823,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     root.style.setProperty('--color-accent-blue', theme.secondary);
   },
 
-  setSettingsModalOpen: (open: boolean) => set({ isSettingsModalOpen: open }),
-  setWechatConfigOpen: (open: boolean) => set({ isWechatConfigOpen: open }),
-  setImageConfigOpen: (open: boolean) => set({ isImageConfigOpen: open }),
   
   setAppearanceMode: (mode: 'light' | 'dark' | 'system' | 'eye-protection') => {
     set({ appearanceMode: mode });
@@ -671,6 +843,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setDefaultLibraryPath: (path: string) => {
     set({ defaultLibraryPath: path });
     get().saveSettings();
+    get().loadLibrary(path);
   },
 
   applyAppearance: (mode: 'light' | 'dark' | 'system' | 'eye-protection') => {
@@ -690,18 +863,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (sessionStr) {
         const session = JSON.parse(sessionStr);
 
-        // 恢复 Workspace
-        if (session.workspacePath) {
-          const readResult = await window.api.fs.readDir(session.workspacePath);
-          if (readResult.success && readResult.files) {
-            set({ 
-              workspacePath: session.workspacePath, 
-              workspaceName: session.workspacePath.split(/[/\\]/).pop() || 'Workspace', 
-              fileTree: readResult.files,
-              expandedPaths: session.expandedPaths || [session.workspacePath]
-            });
-            restoredWorkspace = true;
-          }
+        // 树根固定为笔记库（loadSettings 已加载），会话只恢复目录展开状态
+        const root = get().workspacePath;
+        if (root && Array.isArray(session.expandedPaths)) {
+          set({ expandedPaths: [...new Set([root, ...session.expandedPaths])] });
+          await get().refreshWorkspace();
+          restoredWorkspace = true;
         }
 
         // 恢复 Starred Files
@@ -713,58 +880,50 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (session.recentFiles) {
           set({ recentFiles: session.recentFiles });
         }
-
-        // 恢复 SKILL 写作进度
-        if (session.skillRuns) {
-          // 将所有 running 状态视为中断 → 重置为 pending，避免恢复后看起来卡住
-          const cleaned: Record<string, SkillRun> = {};
-          for (const [k, run] of Object.entries(session.skillRuns as Record<string, SkillRun>)) {
-            cleaned[k] = {
-              ...run,
-              steps: run.steps.map(s =>
-                s.status === 'running' ? { ...s, status: 'pending' as SkillStepStatus } : s
-              )
-            };
-          }
-          set({ skillRuns: cleaned });
-        }
-        if (session.activeSkillRunId) {
-          set({ activeSkillRunId: session.activeSkillRunId });
+        if (typeof session.sidebarWidth === 'number') {
+          get().setSidebarWidth(session.sidebarWidth);
         }
 
-        // 恢复 Tabs
-        const tabsToRestore = session.tabs || [];
-        if (tabsToRestore.length > 0) {
-          const initialTabs = tabsToRestore.map((t: any) => ({ ...t, content: '' }));
-          set({ tabs: initialTabs, activeTabId: session.activeTabId });
-
-          for (const tab of tabsToRestore) {
-            if (!tab.id.startsWith('new-') && !tab.id.startsWith('ai-gen-')) {
-              try {
-                 const result = await window.api.fs.readFile(tab.id);
-                 if (result.success && result.content !== undefined) {
-                    const loadedContent = result.content || '';
-                    set(state => ({
-                      tabs: state.tabs.map(t => 
-                        t.id === tab.id 
-                          ? { ...t, content: loadedContent, isDirty: tab.isDirty } 
-                          : t
-                      )
-                    }));
-                 } else {
-                    set(state => ({ tabs: state.tabs.filter(t => t.id !== tab.id) }));
-                 }
-              } catch (e) {
-                 set(state => ({ tabs: state.tabs.filter(t => t.id !== tab.id) }));
-              }
+        // 恢复 Tabs：与启动时通过「打开方式」已打开的标签页合并，而非覆盖
+        const tabsToRestore: any[] = session.tabs || [];
+        const preOpened = get().tabs;
+        const restoredTabs: Tab[] = tabsToRestore
+          .filter((t) => t && typeof t.id === 'string' && !preOpened.some((p) => p.id === t.id))
+          .map((t) => ({
+            id: t.id,
+            title: t.title || t.id.split(/[/\\]/).pop() || '未命名',
+            mode: t.mode || 'word',
+            isDirty: !!t.isDirty,
+            content: typeof t.content === 'string' ? t.content : '',
+          }));
+        if (restoredTabs.length > 0) {
+          // 并行读盘、一次性写回：避免逐个 set 让整棵组件树反复渲染
+          const loaded = await Promise.all(restoredTabs.map(async (tab): Promise<Tab | null> => {
+            if (tab.id.startsWith('new-')) return tab; // 未命名文档：内容已随会话保存
+            try {
+              const result = await window.api.fs.readFile(tab.id);
+              if (!result.success || result.content === undefined) return null;
+              const diskContent = result.content || '';
+              // 上次退出前未保存的修改优先于磁盘内容，避免重启丢稿
+              const useDirty = tab.isDirty && tab.content.length > 0 && tab.content !== diskContent;
+              return { ...tab, content: useDirty ? tab.content : diskContent, isDirty: useDirty };
+            } catch (e) {
+              return null;
             }
-          }
-          
+          }));
+          const survivors = loaded.filter((t): t is Tab => t !== null);
+          // 读盘期间可能已通过「打开方式」新开了标签，以当前 store 为准合并
+          const preOpenedNow = get().tabs;
+          set({
+            tabs: [...survivors.filter(s => !preOpenedNow.some(p => p.id === s.id)), ...preOpenedNow],
+            activeTabId: preOpenedNow.length > 0 ? get().activeTabId : session.activeTabId,
+          });
+
           const currentTabs = get().tabs;
           if (currentTabs.length > 0 && !currentTabs.find(t => t.id === get().activeTabId)) {
-             set({ activeTabId: currentTabs[currentTabs.length - 1].id });
+            set({ activeTabId: currentTabs[currentTabs.length - 1].id });
           } else if (currentTabs.length === 0) {
-             set({ activeTabId: null });
+            set({ activeTabId: null });
           }
         }
       }
@@ -788,6 +947,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
         if (settings.themeId) get().setTheme(settings.themeId);
         get().applyAppearance(settings.appearanceMode || 'light');
+        // 笔记库路径变化（含设置窗口里改动后广播回来）时重新加载树
+        const libraryPath: string = settings.defaultLibraryPath || '';
+        if (libraryPath && libraryPath !== get().workspacePath) await get().loadLibrary(libraryPath);
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -808,22 +970,26 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   renameFile: async (oldPath: string, newName: string) => {
     try {
-      const sep = oldPath.includes('\\') ? '\\' : '/';
+      const sep = pathSep(oldPath);
       const parentDir = oldPath.substring(0, oldPath.lastIndexOf(sep));
       const newPath = `${parentDir}${sep}${newName}`;
       
       const result = await window.api.fs.rename(oldPath, newPath);
       if (result.success) {
-        set((state) => {
-          const newTabs = state.tabs.map(t => t.id === oldPath ? { ...t, id: newPath, title: newName.replace(/\.md$/i, '') } : t);
-          return {
-            tabs: newTabs,
-            activeTabId: state.activeTabId === oldPath ? newPath : state.activeTabId,
-            renamingPath: null,
-            selectedNodePath: state.selectedNodePath === oldPath ? newPath : state.selectedNodePath,
-            starredFiles: state.starredFiles.map(p => p === oldPath ? newPath : p)
-          };
-        });
+        // 文件本身或（重命名目录时）其下所有路径都要改
+        const remap = (p: string) => p === oldPath ? newPath : p.startsWith(oldPath + sep) ? newPath + p.slice(oldPath.length) : p;
+        set((state) => ({
+          tabs: state.tabs.map(t => {
+            const id = remap(t.id);
+            if (id === t.id) return t;
+            return { ...t, id, title: id.split(sep).pop()?.replace(/\.md$/i, '') || t.title };
+          }),
+          activeTabId: state.activeTabId ? remap(state.activeTabId) : state.activeTabId,
+          renamingPath: null,
+          selectedNodePath: state.selectedNodePath ? remap(state.selectedNodePath) : state.selectedNodePath,
+          starredFiles: state.starredFiles.map(remap),
+          expandedPaths: state.expandedPaths.map(remap),
+        }));
         await get().refreshWorkspace();
         return true;
       }
@@ -838,7 +1004,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const result = await window.api.fs.delete(path);
       if (result.success) {
-        get().closeTab(path);
+        // 删除目录时连同其下已打开的标签页一起关闭
+        const sep = pathSep(path);
+        get().tabs.filter(t => t.id === path || t.id.startsWith(path + sep)).forEach(t => get().closeTab(t.id));
         set((state) => ({
           selectedNodePath: state.selectedNodePath === path ? null : state.selectedNodePath,
           starredFiles: state.starredFiles.filter(p => p !== path)
@@ -859,17 +1027,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       const ext = extMatch ? `.${extMatch[1]}` : '';
       const basePath = extMatch ? oldPath.substring(0, oldPath.length - ext.length) : oldPath;
       
-      let newPath = `${basePath} 副本${ext}`;
-      let counter = 1;
-      // Loop is handled by UI ideally, but backend can also handle duplicates.
-      // For now just try append " 副本"
-      
-      const result = await window.api.fs.copy(oldPath, newPath);
-      if (!result.success) {
-        // Retry with number
-        newPath = `${basePath} 副本 2${ext}`;
-        await window.api.fs.copy(oldPath, newPath);
+      let result = await window.api.fs.copy(oldPath, `${basePath} 副本${ext}`);
+      for (let counter = 2; !result.success && counter <= 50; counter++) {
+        result = await window.api.fs.copy(oldPath, `${basePath} 副本 ${counter}${ext}`);
       }
+      if (!result.success) return false;
       await get().refreshWorkspace();
       return true;
     } catch (e) {
@@ -912,8 +1074,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const result = await window.api.app.checkUpdates();
       if (result.success && result.latestVersion) {
-        const currentVersion = window.api.appVersion || '1.6.0';
-        if (result.latestVersion !== currentVersion) {
+        if (isNewerVersion(result.latestVersion, window.api.appVersion)) {
           set({
             updateStatus: {
               show: true,
@@ -930,33 +1091,71 @@ export const useAppStore = create<AppState>((set, get) => ({
   }
 }));
 
+// ── 会话持久化（防抖写入 localStorage）──
+// 未保存的修改（脏标签页 / 新建未命名文档）连同内容一起保存，重启后可恢复；超大内容跳过以免撑爆 localStorage
+const MAX_PERSISTED_CONTENT = 1_500_000;
+// 只有主窗口持有真实会话；设置 / 关于等子窗口的 store 是空的，绝不能让它们写回 localStorage
+const isMainWindow = !new URLSearchParams(window.location.search).get('window');
+let sessionSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let sessionPersistDisabled = false;
+
+function persistSession(state: AppState) {
+  if (!isMainWindow || sessionPersistDisabled) return;
+  const sessionToSave = {
+    expandedPaths: state.expandedPaths,
+    activeTabId: state.activeTabId,
+    starredFiles: state.starredFiles,
+    recentFiles: state.recentFiles,
+    sidebarWidth: state.sidebarWidth,
+    tabs: state.tabs.map(t => {
+      const keepContent = (t.isDirty || t.id.startsWith('new-')) && t.content.length <= MAX_PERSISTED_CONTENT;
+      return { id: t.id, title: t.title, isDirty: t.isDirty, mode: t.mode, ...(keepContent ? { content: t.content } : {}) };
+    }),
+  };
+  try {
+    localStorage.setItem('iml_session', JSON.stringify(sessionToSave));
+  } catch (e) {
+    console.warn('Session persist failed:', e);
+  }
+}
+
+/** 立即落盘：先让编辑器把未写回的内容刷进 store，再写 localStorage（关窗 / 失焦时调用） */
+export function flushSessionNow() {
+  if (!isMainWindow || sessionPersistDisabled) return;
+  useAppStore.getState().editorFlush?.();
+  if (sessionSaveTimer) {
+    clearTimeout(sessionSaveTimer);
+    sessionSaveTimer = null;
+  }
+  persistSession(useAppStore.getState());
+}
+
+/** 清空会话并重载：期间禁止回写，否则 reload 前的 beforeunload 会把旧会话原样写回去 */
+export function clearSessionAndReload() {
+  sessionPersistDisabled = true;
+  if (sessionSaveTimer) clearTimeout(sessionSaveTimer);
+  localStorage.removeItem('iml_session');
+  window.location.reload();
+}
+
 useAppStore.subscribe((state, prevState) => {
   const shouldSave =
     state.tabs !== prevState.tabs ||
     state.activeTabId !== prevState.activeTabId ||
-    state.workspacePath !== prevState.workspacePath ||
     state.expandedPaths !== prevState.expandedPaths ||
     state.starredFiles !== prevState.starredFiles ||
     state.recentFiles !== prevState.recentFiles ||
-    state.skillRuns !== prevState.skillRuns ||
-    state.activeSkillRunId !== prevState.activeSkillRunId;
-
-  if (shouldSave) {
-    const sessionToSave = {
-      workspacePath: state.workspacePath,
-      expandedPaths: state.expandedPaths,
-      activeTabId: state.activeTabId,
-      starredFiles: state.starredFiles,
-      recentFiles: state.recentFiles,
-      tabs: state.tabs.map(t => ({
-        id: t.id,
-        title: t.title,
-        isDirty: t.isDirty,
-        mode: t.mode
-      })),
-      skillRuns: state.skillRuns,
-      activeSkillRunId: state.activeSkillRunId
-    };
-    localStorage.setItem('iml_session', JSON.stringify(sessionToSave));
-  }
+    state.sidebarWidth !== prevState.sidebarWidth;
+  if (!shouldSave || !isMainWindow || sessionPersistDisabled) return;
+  if (sessionSaveTimer) clearTimeout(sessionSaveTimer);
+  // 脏标签页的内容也会序列化，1s 防抖把连续打字合并成一次写入
+  sessionSaveTimer = setTimeout(() => {
+    sessionSaveTimer = null;
+    persistSession(useAppStore.getState());
+  }, 1000);
 });
+
+if (isMainWindow) {
+  window.addEventListener('beforeunload', flushSessionNow);
+  window.addEventListener('blur', flushSessionNow);
+}

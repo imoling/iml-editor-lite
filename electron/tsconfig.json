@@ -9,5 +9,10 @@
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "include": ["."]
+  "include": [
+    "."
+  ],
+  "exclude": [
+    "**/*.test.ts"
+  ]
 }

@@ -1,75 +1,45 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
 import { languages } from '@codemirror/language-data';
-import { Eye, AlertCircle, FileCode } from 'lucide-react';
+import { Eye, FileCode } from 'lucide-react';
 import CodeMirror, { ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { EditorView } from '@codemirror/view';
+import { sanitizeSvg } from '../../../utils/sanitize';
+import { BlockCard, ResizeHandle, useResizableHeight } from './BlockCard';
 
 export const SVGBlock: React.FC<NodeViewProps> = ({ node, updateAttributes, selected, editor, getPos }) => {
   const [code, setCode] = useState(node.attrs.code || '');
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'preview' | 'code'>('preview');
-  const [isEditing, setIsEditing] = useState(false); // 代码区是否激活
+  const [isEditing, setIsEditing] = useState(false);
   const [extensions, setExtensions] = useState<any[]>([EditorView.lineWrapping]);
   const editorRef = useRef<ReactCodeMirrorRef>(null);
   const previewRef = useRef<HTMLDivElement>(null);
-  const [isResizing, setIsResizing] = useState(false);
-  const [currentHeight, setCurrentHeight] = useState<string>(node.attrs.height || 'auto');
+  const { isResizing, currentHeight, onMouseDown } = useResizableHeight(node.attrs.height, previewRef, (height) => updateAttributes({ height }));
 
-  // Sync state with node attributes
   useEffect(() => {
-    if (node.attrs.code !== code) {
-      setCode(node.attrs.code);
-    }
+    if (node.attrs.code !== code) setCode(node.attrs.code);
   }, [node.attrs.code]);
 
   useEffect(() => {
-    if (node.attrs.height !== currentHeight) {
-      setCurrentHeight(node.attrs.height || 'auto');
-    }
-  }, [node.attrs.height]);
-
-  useEffect(() => {
-    const htmlLang = languages.find(l => l.name === 'HTML' || l.alias.includes('html'));
-    if (htmlLang) {
-      htmlLang.load().then(lang => {
-        setExtensions([EditorView.lineWrapping, lang]);
-      });
-    }
+    const htmlLang = languages.find((l) => l.name === 'HTML' || l.alias.includes('html'));
+    htmlLang?.load().then((lang) => setExtensions([EditorView.lineWrapping, lang]));
   }, []);
 
-  const validateSVG = (text: string) => {
-    if (!text.trim()) {
-      setError(null);
-      return;
-    }
-    const clean = text.trim();
-    const lower = clean.toLowerCase();
-    if (!lower.includes('<svg') || !lower.includes('</svg>')) {
-      if (clean.length > 20) setError('无效的 SVG 代码');
-    } else {
-      setError(null);
-    }
-  };
-
   useEffect(() => {
-    validateSVG(code);
+    const clean = code.trim();
+    const lower = clean.toLowerCase();
+    if (!clean) setError(null);
+    else if (!lower.includes('<svg') || !lower.includes('</svg>')) { if (clean.length > 20) setError('无效的 SVG 代码'); }
+    else setError(null);
   }, [code]);
 
-  // Reset editing state when switching to preview
   useEffect(() => {
-    if (viewMode === 'preview') {
-      setIsEditing(false);
-    }
+    if (viewMode === 'preview') setIsEditing(false);
   }, [viewMode]);
 
-  // Auto-focus CodeMirror when entering editing mode
   useEffect(() => {
-    if (viewMode === 'code' && isEditing) {
-      requestAnimationFrame(() => {
-        editorRef.current?.view?.focus();
-      });
-    }
+    if (viewMode === 'code' && isEditing) requestAnimationFrame(() => editorRef.current?.view?.focus());
   }, [viewMode, isEditing]);
 
   const handleCodeChange = (newCode: string) => {
@@ -77,286 +47,98 @@ export const SVGBlock: React.FC<NodeViewProps> = ({ node, updateAttributes, sele
     updateAttributes({ code: newCode });
   };
 
-  // ========= 分区域交互核心逻辑 =========
-
-  /** 点击顶栏 → 选中组件整体（蓝色高亮），方便移动/删除/撤销 */
-  const handleHeaderClick = useCallback(() => {
+  const selectNode = useCallback(() => {
     setIsEditing(false);
     if (editor && typeof getPos === 'function') {
       const pos = getPos();
-      if (typeof pos === 'number') {
-        editor.chain().focus().setNodeSelection(pos).run();
-      }
+      if (typeof pos === 'number') editor.chain().focus().setNodeSelection(pos).run();
     }
   }, [editor, getPos]);
 
-  /** 点击代码区域 → 取消 ProseMirror 选中，进入代码编辑态 */
   const handleCodeAreaClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     setIsEditing(true);
-    
     if (editor && typeof getPos === 'function') {
       const pos = getPos();
       if (typeof pos === 'number') {
-        try {
-          editor.commands.setTextSelection(pos + node.nodeSize);
-        } catch {
-          // 如果节点之后没有位置（文档末尾），忽略
-        }
+        try { editor.commands.setTextSelection(pos + node.nodeSize); } catch { /* 文档末尾没有后续位置 */ }
       }
     }
-
-    requestAnimationFrame(() => {
-      editorRef.current?.view?.focus();
-    });
+    requestAnimationFrame(() => editorRef.current?.view?.focus());
   }, [editor, getPos, node.nodeSize]);
 
-  /** 按键深度隔离 — 关键按键不冒泡到 ProseMirror */
   const handleEditorKeyDown = useCallback((e: React.KeyboardEvent) => {
-    const isolatedKeys = ['Backspace', 'Delete', 'Enter', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
-    
-    if (isolatedKeys.includes(e.key)) {
-      e.stopPropagation();
-    }
-    
-    // Escape 键退出编辑态，重新选中组件
+    if (['Backspace', 'Delete', 'Enter', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.stopPropagation();
     if (e.key === 'Escape') {
       e.stopPropagation();
-      setIsEditing(false);
-      if (editor && typeof getPos === 'function') {
-        const pos = getPos();
-        if (typeof pos === 'number') {
-          editor.chain().focus().setNodeSelection(pos).run();
-        }
-      }
+      selectNode();
     }
-  }, [editor, getPos]);
+  }, [selectNode]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsResizing(true);
-    
-    const startY = e.clientY;
-    const startHeight = previewRef.current?.offsetHeight || 0;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const deltaY = moveEvent.clientY - startY;
-      const newHeight = Math.max(120, startHeight + deltaY);
-      setCurrentHeight(`${newHeight}px`);
-    };
-
-    const onMouseUp = () => {
-      setIsResizing(false);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      
-      const resizer = previewRef.current;
-      if (resizer) {
-        const finalHeight = `${resizer.offsetHeight}px`;
-        updateAttributes({ height: finalHeight });
-      }
-    };
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-  }, [updateAttributes]);
-
-  const handlePreviewClick = useCallback((e: React.MouseEvent) => {
+  /** 双击预览里的元素 → 跳到代码里对应文本 */
+  const handlePreviewDoubleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     const target = e.target as HTMLElement;
-    
-    // 尝试从点击的元素或其父级获取文本/ID
     const labelText = target.textContent?.trim() || target.getAttribute('id') || '';
     if (!labelText || labelText.length < 2) return;
-
-    // 在代码中搜索该文本
     const index = code.indexOf(labelText);
-    if (index !== -1) {
-      setViewMode('code');
-      setIsEditing(true);
-      
-      requestAnimationFrame(() => {
-        if (editorRef.current?.view) {
-          const view = editorRef.current.view;
-          view.focus();
-          view.dispatch({
-            selection: { anchor: index, head: index + labelText.length },
-            scrollIntoView: true
-          });
-        }
-      });
-    }
+    if (index === -1) return;
+    setViewMode('code');
+    setIsEditing(true);
+    requestAnimationFrame(() => {
+      const view = editorRef.current?.view;
+      if (view) {
+        view.focus();
+        view.dispatch({ selection: { anchor: index, head: index + labelText.length }, scrollIntoView: true });
+      }
+    });
   }, [code]);
 
   return (
     <NodeViewWrapper className="svg-block-wrapper">
-      <div 
-        className={`svg-card ${selected && !isEditing ? 'is-selected' : ''}`}
-        style={{
-          margin: '1.5rem 0',
-          background: 'var(--bg-elevated)',
-          border: (selected && !isEditing) ? '2px solid var(--color-accent-indigo)' : '1px solid var(--border-subtle)',
-          borderRadius: '14px',
-          maxWidth: '100%',
-          overflow: 'hidden',
-          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-          boxShadow: (selected && !isEditing) ? '0 12px 32px rgba(99, 102, 241, 0.15)' : '0 2px 12px rgba(0,0,0,0.03)',
-        }}
+      <BlockCard
+        selected={selected}
+        isEditing={isEditing}
+        viewMode={viewMode}
+        onHeaderClick={selectNode}
+        onPreview={() => setViewMode('preview')}
+        onCode={() => { setViewMode('code'); setIsEditing(true); }}
+        previewIcon={<Eye size={13} />}
+        codeIcon={<FileCode size={13} />}
+        error={error}
       >
-        {/* Header — 点击选中整个组件 */}
-        <div 
-          onClick={handleHeaderClick}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            padding: '8px 16px',
-            backgroundColor: 'var(--bg-surface)',
-            borderBottom: '1px solid var(--border-subtle)',
-            cursor: 'pointer',
-            userSelect: 'none',
-          }}
-        >
-          <div style={{ display: 'flex', background: 'var(--bg-page)', borderRadius: '8px', padding: '2px', border: '1px solid var(--border-subtle)' }}>
-            <button 
-              onClick={(e) => { e.stopPropagation(); setViewMode('preview'); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '6px',
-                border: 'none', fontSize: '11px', fontWeight: 600, cursor: 'pointer',
-                backgroundColor: viewMode === 'preview' ? 'var(--bg-elevated)' : 'transparent',
-                color: viewMode === 'preview' ? 'var(--color-accent-indigo)' : 'var(--text-muted)',
-                boxShadow: viewMode === 'preview' ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
-                transition: 'all 0.2s'
-              }}
-            >
-              <Eye size={13} />
-              <span>预览</span>
-            </button>
-            <button 
-              onClick={(e) => { e.stopPropagation(); setViewMode('code'); setIsEditing(true); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '6px',
-                border: 'none', fontSize: '11px', fontWeight: 600, cursor: 'pointer',
-                backgroundColor: viewMode === 'code' ? 'var(--bg-elevated)' : 'transparent',
-                color: viewMode === 'code' ? 'var(--color-accent-indigo)' : 'var(--text-muted)',
-                boxShadow: viewMode === 'code' ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
-                transition: 'all 0.2s'
-              }}
-            >
-              <FileCode size={13} />
-              <span>代码</span>
-            </button>
+        {viewMode === 'code' ? (
+          <div onClick={handleCodeAreaClick} onKeyDownCapture={handleEditorKeyDown} className={`code-editor-container block-card__code ${isEditing ? 'block-card__code--editing' : ''}`}>
+            <CodeMirror
+              ref={editorRef}
+              value={code}
+              height="auto"
+              minHeight="180px"
+              theme="light"
+              extensions={extensions}
+              onChange={handleCodeChange}
+              placeholder="粘贴 SVG 代码..."
+              basicSetup={{ lineNumbers: true, foldGutter: false, dropCursor: true, allowMultipleSelections: false, indentOnInput: true }}
+              className="block-card__cm"
+            />
           </div>
-          
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {error && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--color-accent-red)', fontSize: '11px', fontWeight: 500 }}>
-                <AlertCircle size={13} />
-                <span>{error}</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {viewMode === 'code' ? (
-            <div 
-              onClick={handleCodeAreaClick}
-              onKeyDownCapture={handleEditorKeyDown}
-              className="code-editor-container"
-              style={{ 
-                minHeight: '180px', 
-                backgroundColor: 'var(--bg-page)',
-                borderLeft: isEditing ? '3px solid var(--color-accent-indigo)' : '3px solid transparent',
-                transition: 'border-color 0.2s',
-              }}
+        ) : (
+          <div className="block-card__preview-wrap">
+            <div
+              ref={previewRef}
+              className={`svg-preview-container custom-scrollbar block-card__preview block-card__preview--center ${isResizing ? 'block-card__preview--resizing' : ''}`}
+              style={{ height: currentHeight }}
             >
-              <CodeMirror
-                ref={editorRef}
-                value={code}
-                height="auto"
-                minHeight="180px"
-                theme="light"
-                extensions={extensions}
-                onChange={handleCodeChange}
-                placeholder="粘贴 SVG 代码..."
-                basicSetup={{
-                  lineNumbers: true,
-                  foldGutter: false,
-                  dropCursor: true,
-                  allowMultipleSelections: false,
-                  indentOnInput: true,
-                }}
-                style={{
-                  fontSize: '13px',
-                  fontFamily: 'var(--font-mono)',
-                }}
-              />
+              {code.trim() && !error ? (
+                <div className="svg-render-wrapper block-card__canvas" onDoubleClick={handlePreviewDoubleClick} title="双击元素以定位源码" dangerouslySetInnerHTML={{ __html: sanitizeSvg(code) }} />
+              ) : (
+                <div className="block-card__placeholder">{error || '等待输入内容...'}</div>
+              )}
             </div>
-          ) : (
-            <div style={{ position: 'relative', width: '100%' }}>
-              <div 
-                ref={previewRef}
-                className="svg-preview-container custom-scrollbar"
-                style={{
-                  padding: '12px',
-                  minHeight: '120px',
-                  height: currentHeight,
-                  maxHeight: isResizing ? 'none' : '2000px',
-                  backgroundColor: 'var(--bg-elevated)', 
-                  overflow: 'auto',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transition: isResizing ? 'none' : 'height 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-                }}
-              >
-                {code.trim() && !error ? (
-                <div 
-                  className="svg-render-wrapper"
-                  onDoubleClick={handlePreviewClick}
-                  style={{ width: '100%', height: '100%', cursor: 'pointer' }}
-                  title="双击元素以定位源码"
-                  dangerouslySetInnerHTML={{ __html: code }} 
-                />
-                ) : (
-                  <div style={{ color: 'var(--text-muted)', fontSize: '12px', opacity: 0.6 }}>
-                    {error || '等待输入内容...'}
-                  </div>
-                )}
-              </div>
-
-              {/* Resize Handle */}
-              <div
-                onMouseDown={handleMouseDown}
-                style={{
-                  position: 'absolute',
-                  bottom: -4,
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  width: '40px',
-                  height: '8px',
-                  cursor: 'ns-resize',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  zIndex: 20,
-                }}
-              >
-                <div style={{
-                  width: '24px',
-                  height: '3px',
-                  borderRadius: '2px',
-                  backgroundColor: isResizing ? 'var(--color-accent-indigo)' : 'var(--border-strong)',
-                  opacity: isResizing ? 1 : 0.4,
-                  transition: 'all 0.2s'
-                }} />
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+            <ResizeHandle resizing={isResizing} onMouseDown={onMouseDown} />
+          </div>
+        )}
+      </BlockCard>
     </NodeViewWrapper>
   );
 };
