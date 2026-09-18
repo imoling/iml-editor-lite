@@ -2,7 +2,7 @@
 
 **极简其表 · 极致内核**
 
-![iML Markdown Editor 26.1：笔记库、富文本编辑、双向链接](screenshots/首页.png)
+![iML Markdown Editor 26.2：搬进来的笔记原样呈现 —— 属性卡片、自动目录、#标签、提示块](screenshots/首页.png)
 
 ---
 
@@ -94,7 +94,7 @@
 |---|---|
 | ![空格唤起 AI](screenshots/空格AI.png) | ![气泡菜单](screenshots/气泡菜单.png) |
 
-| 本机模型：一键下载运行时与模型 | 润色的四种风格 |
+| 写作助手 → 本机模型：一键下载运行时与模型 | 润色的四种风格 |
 |---|---|
 | ![本机模型](screenshots/本机模型.png) | ![润色风格](screenshots/润色风格.png) |
 
