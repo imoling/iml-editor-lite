@@ -301,7 +301,8 @@ export interface AppState {
   setSidebarTab: (tab: SidebarTab) => void;
   /** 打开侧边栏的标签视图并选中某个标签（点击正文里的 #标签 时调用） */
   openTag: (tag: string | null) => void;
-  notify: (text: string) => void;
+  /** 状态栏里的一行提示；报错类的可以给长一点的停留时间 */
+  notify: (text: string, ms?: number) => void;
   toggleFocusMode: () => void;
   /** ⌘⇧F：打开侧边栏搜索面板并聚焦 */
   openGlobalSearch: () => void;
@@ -823,10 +824,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   openGlobalSearch: () => set((state) => ({ sidebarTab: 'search', sidebarVisible: true, globalSearchFocus: state.globalSearchFocus + 1 })),
   showFindWith: (query) => set((state) => ({ findVisible: true, replaceVisible: false, search: { ...state.search, query } })),
   openTag: (tag) => set({ selectedTag: tag, sidebarTab: 'tags', sidebarVisible: true, focusMode: false }),
-  notify: (text) => {
+  notify: (text, ms = 5000) => {
     const id = Date.now();
     set({ notice: { id, text } });
-    setTimeout(() => { if (get().notice?.id === id) set({ notice: null }); }, 5000);
+    setTimeout(() => { if (get().notice?.id === id) set({ notice: null }); }, ms);
   },
   toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
   setSidebarTab: (tab: SidebarTab) => {

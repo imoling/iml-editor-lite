@@ -476,7 +476,12 @@
   font-size: 13px; cursor: pointer; font-weight: 500; transition: background 0.2s; -webkit-app-region: no-drag; position: relative; font-family: inherit;
 }
 .titlebar-tabs { flex: 1; margin-left: 20px; }
-.close-tab-icon { margin-left: auto; opacity: 0.6; cursor: pointer; pointer-events: auto; display: flex; align-items: center; }
+.close-tab-icon { margin-left: auto; opacity: 0.6; cursor: pointer; pointer-events: auto; display: flex; align-items: center; justify-content: center; width: 12px; height: 12px; }
+/* 未保存：平时是圆点，鼠标移上标签页换回叉号 */
+.close-tab-icon__dot { display: none; width: 8px; height: 8px; border-radius: 50%; background-color: var(--text-primary); }
+.titlebar-tab--unsaved .close-tab-icon { opacity: 0.85; }
+.titlebar-tab--unsaved:not(:hover) .close-tab-icon__dot { display: block; }
+.titlebar-tab--unsaved:not(:hover) .close-tab-icon__x { display: none; }
 
 /* ── 确认对话框 ── */
 .confirm-dialog { user-select: none; gap: 12px; }

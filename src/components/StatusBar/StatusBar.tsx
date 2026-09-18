@@ -71,7 +71,8 @@ export const StatusBar: React.FC = () => {
       </div>
 
       {notice && !aiStatus.generating && (
-        <div className="statusbar-section statusbar-notice" key={notice.id}>{notice.text}</div>
+        // 一行放不下会被截断，悬停能看到全文（报错信息往往比较长）
+        <div className="statusbar-section statusbar-notice" key={notice.id} title={notice.text}>{notice.text}</div>
       )}
 
       {aiStatus.generating && (

@@ -64,7 +64,7 @@ const TabContextMenu: React.FC<{ tabId: string; x: number; y: number; onDone: ()
 
 export const TitleBar: React.FC = () => {
   const {
-    tabs, activeTabId, setActiveTab, requestCloseTab,
+    tabs, activeTabId, setActiveTab, requestCloseTab, closeOtherTabs, reopenClosedTab, closedTabs,
     toggleSidebar, toggleToolbar, toggleStatusBar, createNewFile,
     sidebarVisible, toolbarVisible, statusBarVisible,
     openFile, saveActiveFile, refreshWorkspace, updateStatus, checkUpdates, openDailyNote, openDialog,
@@ -119,7 +119,12 @@ export const TitleBar: React.FC = () => {
           <MenuItem icon={<History size={14} />} label="版本历史…" hint="⇧⌘H" disabled={!activeTab} onClick={run(() => openDialog('history'))} />
           <MenuDivider />
           <MenuItem icon={<FileDown size={14} />} label="导出为 PDF" hint="⌘P" disabled={!activeTab} onClick={run(exportActiveTabToPdf)} />
-          <MenuItem icon={<FileDown size={14} />} label="导出为 HTML" disabled={!activeTab} onClick={run(exportActiveTabToHtml)} />
+          <MenuItem icon={<FileDown size={14} />} label="导出为 HTML" hint="⇧⌘E" disabled={!activeTab} onClick={run(exportActiveTabToHtml)} />
+          <MenuDivider />
+          {/* Windows 没有原生菜单，这几项得在这里也能找到；关闭右侧 / 已保存 / 全部 留在标签页右键里 */}
+          <MenuItem icon={<X size={14} />} label="关闭标签页" hint="⌘W" disabled={!activeTab} onClick={run(() => activeTabId && requestCloseTab(activeTabId))} />
+          <MenuItem icon={<X size={14} />} label="关闭其他标签页" hint="⌥⌘W" disabled={tabs.length < 2} onClick={run(() => activeTabId && closeOtherTabs(activeTabId))} />
+          <MenuItem icon={<RotateCw size={14} />} label="重开刚关的标签页" hint="⇧⌘T" disabled={closedTabs.length === 0} onClick={run(() => void reopenClosedTab())} />
         </Menu>
 
         <Menu id="edit" label="编辑">
@@ -166,10 +171,12 @@ export const TitleBar: React.FC = () => {
       <div ref={tabsRef} className="titlebar-tabs">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
+          // 和「关之前要不要问」用同一条规则：空白的未命名文档不算未保存
+          const unsaved = needsSavePrompt(tab);
           return (
             <div
               key={tab.id}
-              className={`titlebar-tab ${isActive ? 'active' : ''}`}
+              className={`titlebar-tab ${isActive ? 'active' : ''} ${unsaved ? 'titlebar-tab--unsaved' : ''}`}
               onClick={() => setActiveTab(tab.id)}
               onContextMenu={(e) => { e.preventDefault(); setTabMenu({ tabId: tab.id, x: e.clientX, y: e.clientY }); }}
               // 中键关闭：浏览器习惯
@@ -180,8 +187,10 @@ export const TitleBar: React.FC = () => {
                 <span className="dot-indicator dot-indicator--warn" title="这个文件在磁盘上已被外部修改或删除；保存会覆盖磁盘版本" />
               )}
               <span className="tab-title" title={tab.externallyModified ? '磁盘上已被外部修改' : tab.id}>{tab.title}</span>
-              <div className="close-tab-icon" title="关闭标签页 ⌘W" onClick={(e) => { e.stopPropagation(); requestCloseTab(tab.id); }}>
-                <X size={12} />
+              {/* 未保存时平时显示圆点，鼠标移上标签页才换回叉号（VS Code 的做法）：一眼能看出哪个没存，又不占额外位置 */}
+              <div className="close-tab-icon" title={unsaved ? '有未保存的修改 · 点击关闭' : '关闭标签页 ⌘W'} onClick={(e) => { e.stopPropagation(); requestCloseTab(tab.id); }}>
+                <span className="close-tab-icon__dot" />
+                <X size={12} className="close-tab-icon__x" />
               </div>
             </div>
           );

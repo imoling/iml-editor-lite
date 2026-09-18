@@ -193,11 +193,13 @@ export function useEditorAI({ editor, outline, activeTabIdRef, pushToStore }: Pa
           const tabId = activeTabIdRef.current;
           if (tabId) pushToStore(tabId, serializeDoc(editor).markdown);
         } else {
-          alert('图片生成失败：服务未返回结果，请检查「智能 → AI 配图」或稍后重试。');
+          useAppStore.getState().notify('AI 配图失败：服务没有返回图片，检查「智能 → AI 配图」或稍后再试', 8000);
         }
       } catch (err: any) {
         console.error('[AI Image] 生成失败:', err);
-        alert(`图片生成失败：${err?.message || '未知错误'}\n\n请检查「智能 → AI 配图」里的 API Key 和服务商。`);
+        // 主进程的报错带着 IPC 前缀，去掉再显示；状态栏放不下的部分悬停可见
+        const reason = String(err?.message || '未知错误').replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
+        useAppStore.getState().notify(`AI 配图失败：${reason}`, 10000);
       } finally {
         setAiGenerating(false);
         setAIStatus({ generating: false, onStop: null });

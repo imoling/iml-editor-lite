@@ -43,7 +43,7 @@ async function openNote(path: string, title: string) {
   if (result.success && result.content !== undefined) {
     openTab({ id: path, title, content: result.content, isDirty: false, mode: 'word' });
   } else {
-    alert(`文件不存在或无法读取：\n${title}\n\n该文件可能已被移动或删除，请刷新笔记库。`);
+    useAppStore.getState().notify(`打不开「${title}」：文件可能已被移动或删除，刷新一下笔记库试试`, 8000);
   }
 }
 
