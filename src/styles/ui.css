@@ -236,10 +236,12 @@
 .menu-item--dim { opacity: 0.6; }
 .menu-hint { margin-left: auto; opacity: 0.4; font-size: 11px; }
 .menu-divider { height: 1px; background-color: var(--border-subtle); margin: 6px 4px; }
+/* 不用玻璃拟态：菜单压在正文上，半透明会让底下的字透上来，条目读不清。
+   与 .dropdown-menu / .popover-menu 保持一致，都是实底 */
 .context-menu {
   position: fixed; z-index: 9999; min-width: 180px; padding: 4px;
-  background: var(--glass-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--glass-border); border-radius: 8px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  background-color: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
 }
 .context-menu__item { padding: 6px 12px; font-size: 13px; cursor: pointer; border-radius: 4px; display: flex; justify-content: space-between; gap: 16px; color: var(--text-primary); margin-bottom: 2px; }
 .context-menu__item:hover { background: var(--bg-hover-editor); }
@@ -305,10 +307,11 @@
 /* ── 快捷键说明 ── */
 .shortcuts-standalone { padding: 40px 32px; }
 .shortcuts-drag { height: 48px; }
+/* 和 .modal-card 一样用实底：满屏都是文字，半透明会让底下的正文透上来 */
 .shortcuts-card {
   width: 600px; max-height: 95vh; display: flex; flex-direction: column; overflow: hidden;
-  background-color: var(--glass-bg); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
-  border-radius: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--glass-border); animation: fadeInScale 0.3s ease-out;
+  background-color: var(--bg-elevated);
+  border-radius: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--border-subtle); animation: fadeInScale 0.3s ease-out;
 }
 .shortcuts-card--standalone { width: 100%; height: 100%; background: transparent; box-shadow: none; border-radius: 0; animation: none; }
 .shortcuts-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid var(--border-subtle); }
