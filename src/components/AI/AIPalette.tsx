@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, Send, Loader2, BookOpen, Activity, FileCode, ImagePlus } from 'lucide-react';
+import { Sparkles, Send, Loader2, BookOpen, Activity, FileCode, ImagePlus, Wand2 } from 'lucide-react';
+import { useAppStore } from '../../stores/appStore';
+import { useAiReadiness } from '../../utils/aiReadiness';
 
 type Mode = 'text' | 'mermaid' | 'svg' | 'image';
 
@@ -22,6 +24,9 @@ export const AIPalette: React.FC<AIPaletteProps> = ({ onClose, onAction, onStop,
   const [useContext, setUseContext] = useState(false);
   const [activeMode, setActiveMode] = useState<Mode>('text');
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const aiEnabled = useAppStore((s) => s.aiEnabled);
+  const openDialog = useAppStore((s) => s.openDialog);
+  const readiness = useAiReadiness(aiEnabled);
 
   const submit = () => {
     if (!input.trim() || loading) return;
@@ -40,6 +45,24 @@ export const AIPalette: React.FC<AIPaletteProps> = ({ onClose, onAction, onStop,
       onClose();
     }
   };
+
+  // 还没配过模型就别让人白敲一遍指令 —— 发出去也只会换回一句报错
+  if (!readiness.ready) {
+    return (
+      <div className="ai-palette ai-palette--setup" onClick={(e) => e.stopPropagation()}>
+        <div className="ai-palette__setup">
+          <Wand2 size={18} color="var(--color-brand-indigo)" />
+          <div className="ai-palette__setup-text">
+            <div className="ai-palette__setup-title">{readiness.message}</div>
+            <div className="ai-palette__setup-desc">配好之后，在空行按空格就能让 AI 续写、润色、画图。</div>
+          </div>
+          <button className="btn btn-primary btn-xs" onClick={() => { onClose(); openDialog(readiness.blocker === 'disabled' ? 'settings' : 'ai-setup'); }}>
+            {readiness.blocker === 'disabled' ? '去打开' : '一分钟配好'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="ai-palette" onClick={(e) => e.stopPropagation()}>

@@ -17,6 +17,7 @@ import { exportActiveTabToPdf, exportActiveTabToHtml } from './utils/exportPdf';
 import { HistoryModal } from './components/History/HistoryModal';
 import { ImageCleanupModal } from './components/Library/ImageCleanupModal';
 import { SemanticIndexModal } from './components/AI/SemanticIndexModal';
+import { AiSetupModal } from './components/AI/AiSetupModal';
 import { formatVersion, isNewerVersion } from './utils/version';
 import './styles/layout.css';
 
@@ -366,6 +367,7 @@ const App: React.FC = () => {
       {dialog === 'history' && <HistoryModal onClose={closeDialog} />}
       {dialog === 'image-cleanup' && <ImageCleanupModal onClose={closeDialog} />}
       {dialog === 'semantic-config' && <SemanticIndexModal onClose={closeDialog} />}
+      {dialog === 'ai-setup' && <AiSetupModal onClose={closeDialog} />}
 
     </div>
   );

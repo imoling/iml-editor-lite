@@ -67,7 +67,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       {
         key: 'semantic', kicker: '轻量 AI', title: '相关笔记与语义搜索',
         desc: '一个 26 MB 的本机嵌入模型读懂每篇笔记的意思：目录面板推荐「相关笔记」，搜索时用词不一样也能找到。和本机模型共用运行时，全程不出这台电脑。',
-        bullets: ['智能 → 相关笔记：一键开启，笔记改动后自动增量更新', '可选 BGE-small / BGE-base / Qwen3-Embedding', '状态栏始终显示 AI 请求发往本机还是云端；设置里可一键关闭全部 AI'],
+        bullets: ['智能 → 相关笔记：一键开启，笔记改动后自动增量更新', '可选 BGE-small / BGE-base / Qwen3-Embedding', '不想花钱也能用 AI：帮助 → 快速开始 AI，本机模型免费离线，Agnes 有免费额度'],
         image: 'v262-semantic',
       },
       {

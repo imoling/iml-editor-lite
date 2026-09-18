@@ -125,6 +125,7 @@ export const TitleBar: React.FC = () => {
         </Menu>
 
         <Menu id="help" label="帮助" width={180} badge={hasUpdate}>
+          <MenuItem icon={<Wand2 size={14} />} label="快速开始 AI…" onClick={run(() => openDialog('ai-setup'))} />
           <MenuItem icon={<Layout size={14} />} label="快捷键" hint="⌘/" onClick={run(() => openDialog('shortcuts'))} />
           <MenuItem icon={<RotateCw size={14} />} label={<>检查更新{hasUpdate && <div className="notification-dot" />}</>} onClick={run(checkUpdates)} />
           <MenuItem icon={<Settings size={14} />} label="设置" onClick={run(() => openDialog('settings'))} />

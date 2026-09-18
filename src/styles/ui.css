@@ -368,6 +368,11 @@
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2), 0 0 0 1px var(--border-subtle); display: flex; flex-direction: column;
   animation: paletteIn 0.2s cubic-bezier(0.16, 1, 0.3, 1); backdrop-filter: blur(20px);
 }
+/* 还没配好模型时的引导态：不给输入框，直接指路 */
+.ai-palette__setup { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+.ai-palette__setup-text { flex: 1; min-width: 0; }
+.ai-palette__setup-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.ai-palette__setup-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 .ai-palette__input-wrap { position: relative; }
 .ai-palette__icon { position: absolute; left: 16px; top: 18px; }
 .ai-palette__input {

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../../stores/appStore';
-import { Plus, FolderOpen, FileText, Settings, Clock, Star, CalendarDays } from 'lucide-react';
+import { Plus, FolderOpen, FileText, Settings, Clock, Star, CalendarDays, Wand2, ChevronRight } from 'lucide-react';
 import { formatVersion } from '../../utils/version';
+import { useAiReadiness } from '../../utils/aiReadiness';
 
 function greetingForNow(): string {
   const hour = new Date().getHours();
@@ -40,6 +41,9 @@ const FileList: React.FC<{ paths: string[]; icon: React.ReactNode; empty: string
 export const StartPage: React.FC = () => {
   const { createNewFile, openDirectory, openFile, recentFiles, starredFiles, openFileByPath, openDailyNote, openDialog } = useAppStore();
   const [timeGreeting] = useState(greetingForNow);
+  // AI 没配好时在这里递一句 —— 配好了就不再出现，不打扰老用户
+  const aiEnabled = useAppStore((s) => s.aiEnabled);
+  const readiness = useAiReadiness(aiEnabled);
 
   return (
     <div className="start-page">
@@ -64,6 +68,14 @@ export const StartPage: React.FC = () => {
           <ActionButton icon={FileText} label="打开单文件" hotkey="Cmd + O" onClick={openFile} />
           <ActionButton icon={Settings} label="全局设置" hotkey="Cmd + ," onClick={() => openDialog('settings')} />
         </div>
+
+        {!readiness.ready && readiness.blocker !== 'disabled' && (
+          <button className="start-page__ai-hint" onClick={() => openDialog('ai-setup')}>
+            <Wand2 size={16} />
+            <span><strong>还没配过 AI</strong> —— 本机模型免费离线，Agnes 有免费额度，一分钟就能配好</span>
+            <ChevronRight size={16} />
+          </button>
+        )}
 
         <div className="start-page__cards">
           <div className="start-card">
