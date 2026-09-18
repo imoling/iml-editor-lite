@@ -435,10 +435,23 @@ function setupAppMenu() {
         },
         {
           label: '导出为 HTML…',
+          accelerator: 'Cmd+Shift+E',
           click: () => mainWindow?.webContents.send('menu:export', 'html'),
         },
         { type: 'separator' },
-        { role: 'close', label: '关闭窗口' },
+        // 标签页是渲染进程管的，但 Cmd+W 得在这里占住：否则 role:'close' 会拿走它去关窗口
+        {
+          label: '关闭标签页',
+          accelerator: 'Cmd+W',
+          click: () => mainWindow?.webContents.send('menu:close-tab'),
+        },
+        {
+          label: '重开刚关的标签页',
+          accelerator: 'Cmd+Shift+T',
+          click: () => mainWindow?.webContents.send('menu:reopen-tab'),
+        },
+        { type: 'separator' },
+        { role: 'close', label: '关闭窗口', accelerator: 'Cmd+Shift+W' },
       ],
     },
     {

@@ -168,13 +168,57 @@ const App: React.FC = () => {
         return;
       }
 
-      // Cmd+P：导出 PDF
+      // Cmd+P / Cmd+Shift+E：导出 PDF / HTML
       if (modKey && !e.shiftKey && e.code === 'KeyP') {
         e.preventDefault();
         exportActiveTabToPdf();
         return;
       }
-      
+      if (modKey && e.shiftKey && e.code === 'KeyE') {
+        e.preventDefault();
+        exportActiveTabToHtml();
+        return;
+      }
+
+      // ── 标签页 ──────────────────────────────────────────────────────────
+      // 弹窗（含「保存更改？」确认框）开着时不碰标签页：那时 ⌘W 该管的是弹窗，不是背后的文档
+      const ts = useAppStore.getState();
+      const modalOpen = !!ts.dialog || !!ts.tabToClose;
+
+      // Cmd+W：关闭当前标签页（原生菜单里「关闭窗口」已让到 Cmd+Shift+W）
+      if (modKey && !e.shiftKey && e.code === 'KeyW') {
+        e.preventDefault();
+        if (!modalOpen && ts.activeTabId) ts.requestCloseTab(ts.activeTabId);
+        return;
+      }
+
+      // Cmd+Shift+T：重新打开刚关掉的标签页
+      if (modKey && e.shiftKey && e.code === 'KeyT') {
+        e.preventDefault();
+        if (!modalOpen) void ts.reopenClosedTab();
+        return;
+      }
+
+      // Ctrl+Tab / Ctrl+Shift+Tab：下一个 / 上一个标签页（两个平台一致，不用 Cmd）
+      if (e.ctrlKey && e.key === 'Tab') {
+        e.preventDefault();
+        if (modalOpen || ts.tabs.length < 2) return;
+        const at = ts.tabs.findIndex((t) => t.id === ts.activeTabId);
+        const next = (at + (e.shiftKey ? -1 : 1) + ts.tabs.length) % ts.tabs.length;
+        ts.setActiveTab(ts.tabs[next].id);
+        return;
+      }
+
+      // Cmd+1…8 跳到第 N 个标签页，Cmd+9 跳到最后一个（浏览器惯例）
+      if (modKey && !e.shiftKey && !e.altKey && /^Digit[1-9]$/.test(e.code)) {
+        if (modalOpen || ts.tabs.length === 0) return;
+        e.preventDefault();
+        const n = Number(e.code.slice(-1));
+        const tab = n === 9 ? ts.tabs[ts.tabs.length - 1] : ts.tabs[n - 1];
+        if (tab) ts.setActiveTab(tab.id);
+        return;
+      }
+
       // Cmd+Shift+O to open directory
       if (modKey && e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault();
@@ -246,6 +290,17 @@ const App: React.FC = () => {
     window.api.events.on('menu:open-file', () => openFile());
     window.api.events.on('menu:save', () => saveActiveFile());
     window.api.events.on('menu:export', (kind: 'pdf' | 'html') => (kind === 'html' ? exportActiveTabToHtml() : exportActiveTabToPdf()));
+    // macOS 上 ⌘W / ⌘⇧T 由原生菜单拦下（键不会再到达渲染进程），走这条；Windows 没有原生菜单，走上面的 keydown
+    window.api.events.on('menu:close-tab', () => {
+      const s = useAppStore.getState();
+      if (s.dialog || s.tabToClose || !s.activeTabId) return;
+      s.requestCloseTab(s.activeTabId);
+    });
+    window.api.events.on('menu:reopen-tab', () => {
+      const s = useAppStore.getState();
+      if (s.dialog || s.tabToClose) return;
+      void s.reopenClosedTab();
+    });
     // 原生菜单 / 其他入口要求打开某个弹窗
     window.api.events.on('dialog:open', (id: DialogId) => openDialog(id));
   }, [openFileByPath, createNewFile, openFile, saveActiveFile, openDialog]);

@@ -26,10 +26,10 @@ const MenuDivider = () => <div className="menu-divider" />;
 
 export const TitleBar: React.FC = () => {
   const {
-    tabs, activeTabId, setActiveTab, closeTab,
+    tabs, activeTabId, setActiveTab, requestCloseTab,
     toggleSidebar, toggleToolbar, toggleStatusBar, createNewFile,
     sidebarVisible, toolbarVisible, statusBarVisible,
-    openFile, saveActiveFile, refreshWorkspace, setTabToClose, updateStatus, checkUpdates, openDailyNote, openDialog,
+    openFile, saveActiveFile, refreshWorkspace, updateStatus, checkUpdates, openDailyNote, openDialog,
     focusMode, toggleFocusMode, aiEnabled,
   } = useAppStore();
 
@@ -38,18 +38,6 @@ export const TitleBar: React.FC = () => {
   const activeTab = tabs.find(t => t.id === activeTabId);
   const tabsRef = useRef<HTMLDivElement>(null);
   const isMac = window.api.app.platform === 'darwin';
-
-  const handleCloseTab = (id: string) => {
-    const tab = tabs.find(t => t.id === id);
-    const isTemp = id.startsWith('new-');
-    const hasContent = !!tab?.content.trim();
-    // 空白的未命名文档直接关，有内容的未命名 / 已修改文档才询问是否保存
-    if (tab && ((isTemp && hasContent) || (!isTemp && tab.isDirty))) {
-      setTabToClose(id);
-    } else {
-      closeTab(id);
-    }
-  };
 
   // 自动滚动激活标签到可见区域
   useEffect(() => {
@@ -146,7 +134,7 @@ export const TitleBar: React.FC = () => {
                 <span className="dot-indicator dot-indicator--warn" title="这个文件在磁盘上已被外部修改或删除；保存会覆盖磁盘版本" />
               )}
               <span className="tab-title" title={tab.externallyModified ? '磁盘上已被外部修改' : tab.id}>{tab.title}</span>
-              <div className="close-tab-icon" onClick={(e) => { e.stopPropagation(); handleCloseTab(tab.id); }}>
+              <div className="close-tab-icon" title="关闭标签页 ⌘W" onClick={(e) => { e.stopPropagation(); requestCloseTab(tab.id); }}>
                 <X size={12} />
               </div>
             </div>

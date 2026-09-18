@@ -282,3 +282,64 @@ describe('弹窗', () => {
     expect(useAppStore.getState().dialog).toBeNull();
   });
 });
+
+describe('标签页：关闭与重开', () => {
+  const tab = (id: string, extra: any = {}) => ({ id, title: id.split('/').pop()!, content: '', isDirty: false, mode: 'word' as const, ...extra });
+
+  it('干净的直接关；未保存的先弹确认框，不立刻关掉', () => {
+    useAppStore.setState({ tabs: [tab('/lib/a.md'), tab('/lib/b.md', { isDirty: true })], activeTabId: '/lib/b.md' });
+    useAppStore.getState().requestCloseTab('/lib/a.md');
+    expect(useAppStore.getState().tabs.map((t) => t.id)).toEqual(['/lib/b.md']);
+    expect(useAppStore.getState().tabToClose).toBeNull();
+
+    useAppStore.getState().requestCloseTab('/lib/b.md');
+    expect(useAppStore.getState().tabToClose).toBe('/lib/b.md');
+    expect(useAppStore.getState().tabs).toHaveLength(1);   // 还没真关
+  });
+
+  it('空白的未命名文档直接关，写了东西的要确认', () => {
+    useAppStore.setState({ tabs: [tab('new-1'), tab('new-2', { content: '写了一半' })] });
+    useAppStore.getState().requestCloseTab('new-1');
+    expect(useAppStore.getState().tabs.map((t) => t.id)).toEqual(['new-2']);
+    useAppStore.getState().requestCloseTab('new-2');
+    expect(useAppStore.getState().tabToClose).toBe('new-2');
+  });
+
+  it('⌘⇧T 按关闭顺序倒着开回来；未命名文档没有路径，不进栈', async () => {
+    useApi({ '/lib/a.md': 'A', '/lib/b.md': 'B' });
+    useAppStore.setState({ tabs: [tab('/lib/a.md'), tab('/lib/b.md'), tab('new-1')] });
+    useAppStore.getState().closeTab('/lib/a.md');
+    useAppStore.getState().closeTab('new-1');
+    useAppStore.getState().closeTab('/lib/b.md');
+    expect(useAppStore.getState().closedTabs).toEqual(['/lib/a.md', '/lib/b.md']);
+
+    await useAppStore.getState().reopenClosedTab();
+    expect(useAppStore.getState().tabs.map((t) => t.id)).toEqual(['/lib/b.md']);
+    await useAppStore.getState().reopenClosedTab();
+    expect(useAppStore.getState().tabs.map((t) => t.id)).toEqual(['/lib/b.md', '/lib/a.md']);
+    // 栈空了再按不该出错
+    await useAppStore.getState().reopenClosedTab();
+    expect(useAppStore.getState().tabs).toHaveLength(2);
+  });
+
+  it('已经又打开的文件会被跳过，不会重复开同一个', async () => {
+    useApi({ '/lib/a.md': 'A', '/lib/b.md': 'B' });
+    useAppStore.setState({ tabs: [tab('/lib/b.md')], closedTabs: ['/lib/a.md', '/lib/b.md'] });
+    await useAppStore.getState().reopenClosedTab();
+    expect(useAppStore.getState().tabs.map((t) => t.id)).toEqual(['/lib/b.md', '/lib/a.md']);
+  });
+
+  it('重复关同一个文件不会在栈里留两份，且最多记 10 个', () => {
+    useAppStore.setState({ tabs: [tab('/lib/a.md')], closedTabs: ['/lib/a.md', '/lib/x.md'] });
+    useAppStore.getState().closeTab('/lib/a.md');
+    expect(useAppStore.getState().closedTabs).toEqual(['/lib/x.md', '/lib/a.md']);
+
+    const many = Array.from({ length: 10 }, (_, i) => `/lib/${i}.md`);
+    useAppStore.setState({ tabs: [tab('/lib/new.md')], closedTabs: many });
+    useAppStore.getState().closeTab('/lib/new.md');
+    const stack = useAppStore.getState().closedTabs;
+    expect(stack).toHaveLength(10);
+    expect(stack[stack.length - 1]).toBe('/lib/new.md');
+    expect(stack).not.toContain('/lib/0.md');   // 最旧的被挤出去
+  });
+});

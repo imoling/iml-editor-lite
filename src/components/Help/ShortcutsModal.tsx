@@ -30,9 +30,19 @@ const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose }) => {
           { label: '切换笔记库', keys: [modKey, '⇧', 'O'] },
           { label: '保存', keys: [modKey, 'S'] },
           { label: '另存为', keys: [modKey, '⇧', 'S'] },
-          { label: '导出 PDF', keys: [modKey, 'P'] },
+          { label: '导出 PDF / HTML', keys: [modKey, 'P', '·', modKey, '⇧', 'E'] },
           { label: '今日日记', keys: [modKey, '⇧', 'D'] },
           { label: '版本历史', keys: [modKey, '⇧', 'H'] },
+        ],
+      },
+      {
+        title: '标签页',
+        shortcuts: [
+          { label: '关闭当前标签页', keys: [modKey, 'W'] },
+          { label: '重开刚关的标签页', keys: [modKey, '⇧', 'T'] },
+          { label: '下一个 / 上一个', keys: ['⌃', 'Tab', '·', '⌃', '⇧', 'Tab'] },
+          { label: '第 1~8 个 / 最后一个', keys: [modKey, '1~8', '·', modKey, '9'] },
+          { label: '关闭窗口', keys: [modKey, '⇧', 'W'] },
         ],
       },
       {

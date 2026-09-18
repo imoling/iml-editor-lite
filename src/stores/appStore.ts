@@ -231,6 +231,12 @@ export interface AppState {
   setActiveTab: (id: string | null) => void;
   openTab: (tab: Tab) => void;
   closeTab: (id: string) => void;
+  /** 关标签页的统一入口：脏文档先弹确认，干净的直接关 */
+  requestCloseTab: (id: string) => void;
+  /** 最近关掉的文件路径（栈顶是最后关的），供 ⌘⇧T 用 */
+  closedTabs: string[];
+  /** ⌘⇧T：重新打开最近关掉的那个标签页 */
+  reopenClosedTab: () => Promise<void>;
   updateTabContent: (id: string, content: string) => void;
   /** 加载笔记库（树根 = defaultLibraryPath），并开始监听目录变化 */
   loadLibrary: (path: string) => Promise<void>;
@@ -372,6 +378,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   expandedPaths: [],
   navigationRequest: null,
   tabToClose: null,
+  closedTabs: [],
   
   // File Management Default State
   selectedNodePath: null,
@@ -429,7 +436,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().setActiveTab(tab.id);
   },
   
+  requestCloseTab: (id: string) => {
+    const tab = get().tabs.find((t) => t.id === id);
+    if (!tab) return;
+    const isTemp = id.startsWith('new-');
+    // 空白的未命名文档直接关，有内容的未命名 / 已修改文档才询问是否保存
+    if ((isTemp && !!tab.content.trim()) || (!isTemp && tab.isDirty)) set({ tabToClose: id });
+    else get().closeTab(id);
+  },
+
+  reopenClosedTab: async () => {
+    const stack = [...get().closedTabs];
+    while (stack.length > 0) {
+      const path = stack.pop()!;
+      set({ closedTabs: stack });
+      if (get().tabs.some((t) => t.id === path)) continue;   // 已经又打开了就跳过
+      await get().openFileByPath(path);
+      return;
+    }
+  },
+
   closeTab: (id: string) => set((state) => {
+    // 记下刚关掉的真实文件，⌘⇧T 能原路开回来；未命名文档没有路径，开不回来
+    const closedTabs = id.startsWith('new-')
+      ? state.closedTabs
+      : [...state.closedTabs.filter((p) => p !== id), id].slice(-10);
     const newTabs = state.tabs.filter((t) => t.id !== id);
     const newActiveId = state.activeTabId === id 
       ? (newTabs.length > 0 ? newTabs[newTabs.length - 1].id : null)
@@ -437,12 +468,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     
     // 关掉最后一个标签页时保留工作区，文件树不应随文档关闭而消失
     if (newTabs.length === 0) {
-      return { tabs: [], activeTabId: null, outline: [] };
+      return { tabs: [], activeTabId: null, outline: [], closedTabs };
     }
 
-    return { 
+    return {
       tabs: newTabs,
-      activeTabId: newActiveId
+      activeTabId: newActiveId,
+      closedTabs
     };
   }),
 
