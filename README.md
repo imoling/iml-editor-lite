@@ -1,8 +1,15 @@
 # iML Markdown Editor · [![Release v26.2.0](https://img.shields.io/badge/Release-v26.2.0-indigo?style=for-the-badge&logo=github)](https://github.com/imoling/iml-markdown-editor/releases)
+<!--
+  图片为什么不用相对路径（screenshots/xxx.png）：
+  相对路径会被 GitHub 发到 raw.githubusercontent.com，而这个域名在国内多数网络下被 DNS 污染（解析到 0.0.0.0），
+  不挂代理的访客看到的是一排碎图。写成外链后，GitHub 会改走它自己的 camo.githubusercontent.com 代理，那个域名直连可达；
+  访客的浏览器既不碰 raw，也不碰 jsDelivr（去源站取图的是 GitHub 的服务器）。
+  代价：@main 有缓存，换了截图最长要等半天才刷新；本地预览也走网络。别「顺手」改回相对路径。
+-->
 
 **极简其表 · 极致内核**
 
-![iML Markdown Editor 26.2：搬进来的笔记原样呈现 —— 属性卡片、自动目录、#标签、提示块](screenshots/首页.png)
+![iML Markdown Editor 26.2：搬进来的笔记原样呈现 —— 属性卡片、自动目录、#标签、提示块](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/首页.png)
 
 ---
 
@@ -36,19 +43,19 @@
 
 | 属性卡片、目录与标签视图 | 源码与预览：文件里始终是干净的 Markdown |
 |---|---|
-| ![属性与标签](screenshots/属性与标签.png) | ![原样保存](screenshots/原样保存.png) |
+| ![属性与标签](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/属性与标签.png) | ![原样保存](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/原样保存.png) |
 
 | 版本历史 `⌘⇧H` | 语义搜索：关键词 0 个结果，意思相近的照样找到 |
 |---|---|
-| ![版本历史](screenshots/版本历史.png) | ![语义搜索](screenshots/语义搜索.png) |
+| ![版本历史](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/版本历史.png) | ![语义搜索](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/语义搜索.png) |
 
 | 粘贴图片自动压缩 | 专注模式 `⌘⇧.` |
 |---|---|
-| ![粘贴图片](screenshots/粘贴图片.png) | ![专注模式](screenshots/专注模式.png) |
+| ![粘贴图片](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/粘贴图片.png) | ![专注模式](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/专注模式.png) |
 
 | 快速打开 `⌘T`：标题命中高亮，文件夹名也能搜 | 快速开始 AI：三条路选一条，两条不花钱 |
 |---|---|
-| ![快速打开](screenshots/快速打开.png) | ![快速开始 AI](screenshots/快速开始AI.png) |
+| ![快速打开](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/快速打开.png) | ![快速开始 AI](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/快速开始AI.png) |
 
 ### 🎨 编辑器
 
@@ -59,7 +66,7 @@
 - 导出 PDF（`⌘P`）与单文件 HTML（图片内联），Mermaid 图表会预先渲染成静态 SVG
 - `⌘K` 插入链接；侧边栏宽度可拖拽
 
-![源码模式：左侧 CodeMirror，右侧实时预览，Mermaid 与公式直接渲染](screenshots/MD模式.png)
+![源码模式：左侧 CodeMirror，右侧实时预览，Mermaid 与公式直接渲染](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/MD模式.png)
 
 ### ✍️ 记笔记
 
@@ -70,11 +77,11 @@
 
 | 斜杠菜单 `/` | 双向链接 `[[` |
 |---|---|
-| ![斜杠菜单](screenshots/斜杠菜单.png) | ![双向链接](screenshots/双向链接.png) |
+| ![斜杠菜单](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/斜杠菜单.png) | ![双向链接](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/双向链接.png) |
 
 | 全文搜索 `⌘⇧F` | 每日日记与模板 `⌘⇧D` |
 |---|---|
-| ![全文搜索](screenshots/全文搜索.png) | ![每日日记与模板](screenshots/日记与模板.png) |
+| ![全文搜索](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/全文搜索.png) | ![每日日记与模板](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/日记与模板.png) |
 
 ### 📁 笔记库
 
@@ -86,7 +93,7 @@
 - 可设为 `.md` 的默认打开方式（macOS「打开方式」/ Windows 文件关联），应用未开、已开但无窗口、已开有窗口三种情况都能正确显示文件
 - 写作助手、全局设置、关于、快捷键都是主窗口内的浮层，Dock 与调度中心里只有一个窗口；首次安装或升级后自动展示「新特性介绍」，帮助菜单里可随时再看
 
-![欢迎页：新建文档、今日日记、切换笔记库，以及近期打开与收藏](screenshots/欢迎页.png)
+![欢迎页：新建文档、今日日记、切换笔记库，以及近期打开与收藏](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/欢迎页.png)
 
 ### ✨ 轻量 AI 辅助（可选）
 
@@ -99,11 +106,11 @@
 
 | 空行按空格唤起 AI | 选中文本后的气泡菜单 |
 |---|---|
-| ![空格唤起 AI](screenshots/空格AI.png) | ![气泡菜单](screenshots/气泡菜单.png) |
+| ![空格唤起 AI](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/空格AI.png) | ![气泡菜单](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/气泡菜单.png) |
 
 | 写作助手 → 本机模型：一键下载运行时与模型 | 润色的四种风格 |
 |---|---|
-| ![本机模型](screenshots/本机模型.png) | ![润色风格](screenshots/润色风格.png) |
+| ![本机模型](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/本机模型.png) | ![润色风格](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@main/screenshots/润色风格.png) |
 
 ---
 
