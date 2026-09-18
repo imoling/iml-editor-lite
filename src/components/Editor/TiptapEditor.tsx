@@ -6,6 +6,7 @@ import type { Editor } from '@tiptap/core';
 import { useAppStore } from '../../stores/appStore';
 import { markdownToHtml } from '../../utils/markdown';
 import { serializeDoc } from '../../utils/incrementalMarkdown';
+import { registerSource, placeCursorAfterFrontmatter } from '../../utils/sourceMap';
 import { searchPluginKey } from '../../extensions/SearchExtension';
 import { editorExtensions } from './editorExtensions';
 import { useEditorAI } from './useEditorAI';
@@ -21,7 +22,25 @@ import { slashMenuRegistry, SlashItem } from '../../extensions/SlashCommand';
 import { wikiLinkRegistry, filterWikiCandidates, WikiLinkCandidate } from '../../extensions/WikiLinkSuggestion';
 import { WikiLinkMenu } from './WikiLinkMenu';
 import type { SuggestionProps } from '@tiptap/suggestion';
+import { storeImageFile, persistDataUrl } from '../../utils/pasteImage';
+import { isSingleUrl } from '../../utils/pasteText';
 import '../styles/editor.css';
+
+/** 粘贴网址后异步取到了网页标题：找到刚插入的那条「文字 = 地址」的链接，把文字换成标题 */
+function applyLinkTitle(editor: Editor, url: string, title: string, nearPos: number) {
+  const { doc, schema } = editor.state;
+  let best: { from: number; to: number } | null = null;
+  doc.descendants((node, pos) => {
+    if (!node.isText || node.text !== url) return true;
+    if (!node.marks.some((m) => m.type.name === 'link' && m.attrs.href === url)) return true;
+    if (!best || Math.abs(pos - nearPos) < Math.abs(best.from - nearPos)) best = { from: pos, to: pos + node.nodeSize };
+    return true;
+  });
+  const hit = best as { from: number; to: number } | null;
+  if (!hit) return; // 用户已经改过这条链接，不再动它
+  const link = schema.marks.link.create({ href: url });
+  editor.view.dispatch(editor.state.tr.replaceWith(hit.from, hit.to, schema.text(title, [link])));
+}
 
 /** 把编辑器内的查找状态（匹配数 / 当前项）回写到 store */
 function reportSearchState(editor: Editor) {
@@ -38,6 +57,9 @@ export const TiptapEditor: React.FC = () => {
   } = useAppStore();
   const search = useAppStore((s) => s.search);
   const searchCommand = useAppStore((s) => s.searchCommand);
+  const aiEnabled = useAppStore((s) => s.aiEnabled);
+  const spellcheck = useAppStore((s) => s.spellcheck);
+  const focusMode = useAppStore((s) => s.focusMode);
   const registerEditorFlush = useAppStore((s) => s.registerEditorFlush);
   const activeTab = tabs.find(t => t.id === activeTabId);
   const [prompt, setPrompt] = useState<PromptDialogProps | null>(null);
@@ -122,6 +144,9 @@ export const TiptapEditor: React.FC = () => {
           useAppStore.getState().openWikiLink(link.getAttribute('data-wiki-link') || '');
           return true;
         }
+        // 点击 #标签 → 侧边栏标签视图（光标照常落位，不拦截）
+        const tag = (event.target as HTMLElement).closest('.tag-chip[data-tag]');
+        if (tag) useAppStore.getState().openTag(tag.getAttribute('data-tag'));
         return false;
       },
       handleDoubleClick: (view, pos, event) => {
@@ -218,39 +243,51 @@ export const TiptapEditor: React.FC = () => {
           const file = event.dataTransfer.files[0];
           if (file.type.startsWith('image/')) {
              event.preventDefault();
-             file.arrayBuffer().then(buffer => {
-                window.api.fs.saveImage(activeTabId!, file.name, buffer).then(result => {
-                    if (result.success && result.path) {
-                        const { schema } = view.state;
-                        const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY });
-                        const node = schema.nodes.image.create({ src: result.path });
-                        const transaction = view.state.tr.insert(coordinates?.pos || view.state.selection.to, node);
-                        view.dispatch(transaction);
-                    }
-                });
+             const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY });
+             storeImageFile(file, activeTabIdRef.current).then((stored) => {
+               if (!stored) return;
+               const node = view.state.schema.nodes.image.create({ src: stored, alt: file.name.replace(/\.[^.]+$/, '') });
+               const pos = Math.min(coordinates?.pos ?? view.state.selection.to, view.state.doc.content.size);
+               view.dispatch(view.state.tr.insert(pos, node));
              });
              return true;
           }
         }
         return false;
       },
-      handlePaste: (view, event, slice) => {
-        if (event.clipboardData && event.clipboardData.files && event.clipboardData.files[0]) {
-          const file = event.clipboardData.files[0];
-          if (file.type.startsWith('image/')) {
-             event.preventDefault();
-             file.arrayBuffer().then(buffer => {
-                window.api.fs.saveImage(activeTabId!, file.name, buffer).then(result => {
-                    if (result.success && result.path) {
-                        const { schema } = view.state;
-                        const node = schema.nodes.image.create({ src: result.path });
-                        const transaction = view.state.tr.replaceSelectionWith(node);
-                        view.dispatch(transaction);
-                    }
-                });
-             });
-             return true;
+      handlePaste: (view, event) => {
+        const clipboard = event.clipboardData;
+        if (!clipboard) return false;
+        const file = clipboard.files?.[0];
+        if (file && file.type.startsWith('image/')) {
+          event.preventDefault();
+          storeImageFile(file, activeTabIdRef.current).then((stored) => {
+            if (!stored) return;
+            const node = view.state.schema.nodes.image.create({ src: stored });
+            view.dispatch(view.state.tr.replaceSelectionWith(node));
+          });
+          return true;
+        }
+
+        // 粘贴的就是一个网址：有选区 → 给选区加链接；没有 → 插入链接，再异步把文字换成网页标题
+        const text = clipboard.getData('text/plain').trim();
+        const { selection, schema } = view.state;
+        if (isSingleUrl(text) && !selection.$from.parent.type.spec.code && !selection.$from.marks().some((m) => m.type.name === 'code')) {
+          event.preventDefault();
+          const ed = editorRef.current as Editor | null;
+          if (!selection.empty) {
+            ed?.chain().focus().setLink({ href: text }).run();
+            return true;
           }
+          const at = selection.from;
+          view.dispatch(view.state.tr.replaceSelectionWith(schema.text(text, [schema.marks.link.create({ href: text, autolink: 'bare' })]), false));
+          if (useAppStore.getState().fetchLinkTitle) {
+            window.api.web.fetchTitle(text).then((title) => {
+              const current = editorRef.current as Editor | null;
+              if (title && current && !current.isDestroyed) applyLinkTitle(current, text, title, at);
+            }).catch(() => {});
+          }
+          return true;
         }
         return false;
       }
@@ -339,6 +376,33 @@ export const TiptapEditor: React.FC = () => {
     editorRef.current = editor;
   }, [editor]);
 
+  // 拼写检查开关（设置里改了立即生效）
+  useEffect(() => {
+    if (!editor) return;
+    editor.setOptions({ editorProps: { ...editor.options.editorProps, attributes: { class: 'tiptap-prosemirror', spellcheck: spellcheck ? 'true' : 'false' } } });
+  }, [editor, spellcheck]);
+
+  // 专注模式：当前块高亮 + 打字机滚动（光标所在行保持在视口偏上的位置）
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!editor) return;
+    editor.commands.setFocusMode(focusMode);
+    if (!focusMode) return;
+    const keepCentered = () => {
+      const box = containerRef.current;
+      if (!box || !editor.isFocused) return;
+      try {
+        const caret = editor.view.coordsAtPos(editor.state.selection.head);
+        const rect = box.getBoundingClientRect();
+        const delta = caret.top - (rect.top + rect.height * 0.42);
+        if (Math.abs(delta) > 12) box.scrollBy({ top: delta, behavior: 'smooth' });
+      } catch { /* 位置还没渲染出来 */ }
+    };
+    editor.on('selectionUpdate', keepCentered);
+    keepCentered();
+    return () => { editor.off('selectionUpdate', keepCentered); };
+  }, [editor, focusMode]);
+
   // 组件卸载（切换模式）时把尚未写回的内容刷到 store；没有待同步内容就不动，避免把未编辑的文件标脏
   useEffect(() => {
     return () => { flushSyncRef.current(); };
@@ -388,6 +452,8 @@ export const TiptapEditor: React.FC = () => {
       // 新实例时强制用 store 中的真实内容初始化，确保 data URL 图片不丢失
       lastSyncedMdRef.current = null;
       editor.commands.setContent(newHtml, false);
+      registerSource(editor, activeTab.content);
+      placeCursorAfterFrontmatter(editor);
       return;
     }
 
@@ -410,6 +476,8 @@ export const TiptapEditor: React.FC = () => {
       if (currentHtml2 !== newHtml) {
         if (currentHtml2.replace(/\s/g, '') === newHtml.replace(/\s/g, '')) return;
         editor.commands.setContent(newHtml, false);
+        registerSource(editor, activeTab.content);
+        placeCursorAfterFrontmatter(editor);
       }
       return;
     }
@@ -417,6 +485,9 @@ export const TiptapEditor: React.FC = () => {
     // tab 切换：直接更新内容
     lastSyncedMdRef.current = null;
     editor.commands.setContent(newHtml, false);
+    // 登记原文对照表：保存时没被编辑过的块直接写回原文（见 sourceMap.ts）
+    registerSource(editor, activeTab.content);
+    placeCursorAfterFrontmatter(editor);
   }, [activeTabId, editor, activeTab?.content]);
 
   useEffect(() => {
@@ -483,7 +554,7 @@ export const TiptapEditor: React.FC = () => {
       openLink: () => slashActionsRef.current.openLink(),
       openAI: () => slashActionsRef.current.openAI(),
       openDailyNote: () => useAppStore.getState().openDailyNote(),
-    }), query);
+    }).filter((item) => item.id !== 'ai' || useAppStore.getState().aiEnabled), query);
     slashMenuRegistry.handlers = {
       onStart: (props) => setSlash({ props, index: 0 }),
       onUpdate: (props) => setSlash((prev) => ({ props, index: prev && prev.props.items.length === props.items.length ? prev.index : 0 })),
@@ -577,8 +648,8 @@ export const TiptapEditor: React.FC = () => {
   if (!editor) return null;
 
   return (
-    <div className="tiptap-editor-root">
-      {toolbarVisible && (
+    <div className={`tiptap-editor-root ${focusMode ? 'focus-mode' : ''}`}>
+      {toolbarVisible && !focusMode && (
         <EditorToolbar
           editor={editor}
           onToggleHeading={handleToggleHeading}
@@ -592,7 +663,7 @@ export const TiptapEditor: React.FC = () => {
         />
       )}
 
-      <div className="tiptap-container">
+      <div className="tiptap-container" ref={containerRef}>
         {prompt && <PromptDialog {...prompt} />}
         {wiki && (
           <WikiLinkMenu
@@ -614,8 +685,10 @@ export const TiptapEditor: React.FC = () => {
         )}
         {showImageDialog && (
           <ImageInsertDialog
-            onConfirm={(src, alt) => {
+            onConfirm={async (rawSrc, alt) => {
               setShowImageDialog(false);
+              // 本地上传 / AI 生成拿到的是 data URL：存成笔记旁的文件，Markdown 里只留相对路径，不再把几 MB 的 base64 塞进正文
+              const src = await persistDataUrl(rawSrc, activeTabIdRef.current, alt || 'image');
               requestAnimationFrame(() => {
                 if (!editor) return;
                 editor.commands.focus();
@@ -676,6 +749,7 @@ export const TiptapEditor: React.FC = () => {
           <EditorBubbleMenu
             editor={editor}
             aiGenerating={aiGenerating}
+            aiEnabled={aiEnabled}
             onToggleCodeBlock={toggleSmartCodeBlock}
             onAIAction={handleAIAction}
           />
@@ -698,7 +772,7 @@ export const TiptapEditor: React.FC = () => {
                 const isEmptyLine = $from.parent.textContent.trim() === '';
 
                 // 1. 空格触发 (仅限行首且该行原本为空)
-                if (e.key === ' ' && isAtStart && isEmptyLine && !showAIPalette) {
+                if (e.key === ' ' && isAtStart && isEmptyLine && !showAIPalette && aiEnabled) {
                     e.preventDefault();
                     triggerAIPalette();
                     return;

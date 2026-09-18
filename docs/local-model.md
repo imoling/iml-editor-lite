@@ -1,6 +1,6 @@
 # 本机模型（应用托管的本地推理）
 
-模型配置窗口的第四类服务。编辑器自己下载 llama.cpp 的 `llama-server`，下载并校验 GGUF 模型，在 `127.0.0.1` 上拉起进程，AI 气泡与选区润色等所有请求都走这个端点。用户不需要装 Ollama / LM Studio。
+「智能 → 写作助手」三类服务（本机模型 / 本地模型 / 网络模型服务）里的默认项。编辑器自己下载 llama.cpp 的 `llama-server`，下载并校验 GGUF 模型，在 `127.0.0.1` 上拉起进程，AI 气泡与选区润色等所有请求都走这个端点。用户不需要装 Ollama / LM Studio。
 
 ## 目录布局
 
@@ -18,7 +18,7 @@ local-model/
 └── server.pid              # 运行中的 llama-server 进程号（异常退出后用来清理残留）
 ```
 
-配置存在 `ai-config.json`：`serviceType: 'relay' | 'cloud' | 'local' | 'builtin'`，`local: { modelId, port, autoStart, thinking, ctxSize, threads, gpuLayers, temperature, source, customBase, proxyPrefix, runtimePath, extraArgs, customModels }`。老配置没有 `serviceType` 时按 Base URL 推断（`src/utils/aiService.ts`）。
+配置存在 `ai-config.json`：`serviceType: 'builtin' | 'local' | 'cloud'`，`local: { modelId, port, autoStart, thinking, ctxSize, threads, gpuLayers, temperature, source, customBase, proxyPrefix, runtimePath, extraArgs, customModels }`。老配置没有 `serviceType` 时按 Base URL 推断，什么都没填过则默认 `builtin`；26.1 的 `'relay'`（企业中转站）读入时并入 `'cloud'`（主进程 `electron/localModel/config.ts` 与渲染进程 `src/utils/aiService.ts` 各有一份同样的 `inferServiceType`）。
 
 ## 主进程模块（`electron/localModel/`）
 
@@ -72,3 +72,15 @@ IML_SMOKE_SCRIPT='(async()=>{...})()' npm run dev
 ```
 
 `IML_SMOKE_USERDATA` 指向的目录里可以预先放好 `local-model/runtime/current.json`、`ai-config.json`，脚本会在页面里点「启动」「测试连接」并在 6 秒后截图。
+
+## 语义索引（26.2）
+
+相关笔记与语义搜索用的是第二个 llama-server 进程，跑一个嵌入模型（`--embedding`），与对话用的本机模型互不影响，也不要求对话走本机模型。代码在 `electron/semantic/`。
+
+- **模型**：`catalog.ts`。BGE-small-zh v1.5（26 MB，默认）、BGE-base-zh v1.5（110 MB）、Qwen3-Embedding 0.6B（639 MB），都是 Q8_0 的 GGUF，大小与 SHA256 来自 Hugging Face 元数据，三个都在 llama.cpp b10936 上实测过。下载复用本机模型的下载器（断点续传、校验、下载源设置），文件放在 `<userData>/local-model/embedding/`。
+- **启动参数**：`-c <单条上限 × 4> -b 同 -ub 同 -np 4`，端口从 18180 起找空闲的。上下文在并发槽之间平分，所以单条输入的 token 上限 = `maxTokens`（BGE 为 512）。超长输入 llama-server 会直接 400（`exceed_context_size_error`）并让整批失败，`embedTexts` 会退回逐条处理、对半截断重试。
+- **分块**：`chunk.ts`。按标题分节、节内按空行分段，小段合并、大段按句切开；每块前面带上「笔记标题 › 小节标题」。中文约 1 字 1 token，BGE 的分块上限取 360 字。
+- **向量库**：`store.ts`。一个笔记库 × 一个模型一个 JSON 文件（`<userData>/semantic-index/`），向量是 Float32 的 base64，常驻内存线性扫描；相关笔记比整篇的平均向量（阈值 0.6），语义搜索取每篇最高分的块（下限 0.4，再按最高分做 0.12 的相对截断）。
+- **增量更新**：全文索引建完、目录监听到改动后调用 `syncSemanticIndex()`，按 `mtime + 长度` 判断哪些笔记要重算。
+- **进程清理**：pid 记在 `local-model/embed-server.pid`；应用启动时清掉上次残留的进程，`before-quit` 与 SIGTERM / SIGINT 都会带走子进程。
+- **AI 总开关**：设置里关掉后不建库、不查询，嵌入服务随即停止。

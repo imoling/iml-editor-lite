@@ -13,7 +13,7 @@ interface AIPaletteProps {
 const MODE_BUTTONS: { mode: Mode; label: string; icon: React.ReactNode; tone: string }[] = [
   { mode: 'mermaid', label: '流程图', icon: <Activity size={14} />, tone: '' },
   { mode: 'svg', label: '插图', icon: <FileCode size={14} />, tone: 'pill-toggle--orange' },
-  { mode: 'image', label: 'AI 图片', icon: <ImagePlus size={14} />, tone: 'pill-toggle--green' },
+  { mode: 'image', label: 'AI 配图', icon: <ImagePlus size={14} />, tone: 'pill-toggle--green' },
 ];
 
 /** 空行行首唤起的 AI 气泡 */

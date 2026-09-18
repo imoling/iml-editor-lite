@@ -10,7 +10,8 @@ import { checkRequirement } from './hardware';
 import { pickRuntimeAsset, parseVersionOutput, applyProxy, findServerBinary } from './runtime';
 import { buildServerArgs, splitArgs, findFreePort } from './server';
 import { downloadFile, DownloadError } from './download';
-import { normalizeLocalConfig, DEFAULT_LOCAL_CONFIG } from './config';
+import { normalizeLocalConfig, DEFAULT_LOCAL_CONFIG, inferServiceType } from './config';
+import { inferServiceType as inferInRenderer } from '../../src/utils/aiService';
 
 const GB = 1024 ** 3;
 
@@ -158,6 +159,47 @@ describe('normalizeLocalConfig', () => {
     expect(c.source).toBe('hf-mirror');
     expect(c.customModels).toEqual([{ id: 'custom:1', name: 'b.gguf', path: '/a/b.gguf', size: 0 }]);
   });
+});
+
+/**
+ * 「AI 请求发往哪里」在主进程与渲染进程各判断一次（渲染进程引不了 Node 模块）。
+ * 两份答案必须一样：状态栏按渲染进程那份显示，请求按主进程这份路由 —— 不一致就等于骗用户。
+ * 曾经真的漂过：地址框里只剩空格时，一边算「云端」、一边算「本机模型」。
+ */
+describe('inferServiceType：主进程与渲染进程必须给出同样的答案', () => {
+  const CASES: { config: any; expect: 'builtin' | 'local' | 'cloud'; why: string }[] = [
+    { config: null, expect: 'builtin', why: '全新安装：什么都没有' },
+    { config: {}, expect: 'builtin', why: '全新安装：空配置' },
+    { config: { endpoint: '' }, expect: 'builtin', why: '没填过地址' },
+    { config: { endpoint: '   ' }, expect: 'builtin', why: '地址框里只剩空格，等同没填' },
+    { config: { endpoint: '\n\t ' }, expect: 'builtin', why: '各种空白字符同理' },
+
+    { config: { serviceType: 'builtin' }, expect: 'builtin', why: '显式字段优先' },
+    { config: { serviceType: 'local', endpoint: 'https://api.openai.com/v1' }, expect: 'local', why: '显式字段压过地址' },
+    { config: { serviceType: 'cloud', endpoint: 'http://localhost:11434/v1' }, expect: 'cloud', why: '显式字段压过地址' },
+
+    // 这两条特意让「地址推断」会给出不同答案，才能真正钉住 relay 分支本身
+    { config: { serviceType: 'relay' }, expect: 'cloud', why: '26.1 的企业中转站并入网络模型服务（没地址也不能退回本机模型）' },
+    { config: { serviceType: 'relay', endpoint: 'http://localhost:11434/v1' }, expect: 'cloud', why: '老的中转站配置指向本机地址，仍算网络模型服务' },
+    { config: { serviceType: 'bogus', endpoint: 'http://127.0.0.1:8080/v1' }, expect: 'local', why: '认不出的取值退回按地址推断' },
+
+    { config: { endpoint: 'http://localhost:11434/v1' }, expect: 'local', why: 'Ollama' },
+    { config: { endpoint: 'http://127.0.0.1:18080/v1' }, expect: 'local', why: '本机 llama-server' },
+    { config: { endpoint: 'http://[::1]:1234/v1' }, expect: 'local', why: 'IPv6 回环' },
+    { config: { endpoint: 'http://0.0.0.0:8080' }, expect: 'local', why: '通配地址也算本机' },
+    { config: { endpoint: ' https://api.openai.com/v1 ' }, expect: 'cloud', why: '两端空格不影响判断' },
+    { config: { endpoint: 'https://api.agnes-ai.cn/v1' }, expect: 'cloud', why: 'Agnes 国内站' },
+    { config: { endpoint: 'https://relay.example.com/v1' }, expect: 'cloud', why: '自定义中转地址' },
+    // localhost.evil.com 不是本机：正则要求主机名后面紧跟 : / 或结尾
+    { config: { endpoint: 'https://localhost.evil.com/v1' }, expect: 'cloud', why: '前缀像本机但不是本机' },
+  ];
+
+  for (const c of CASES) {
+    it(`${c.why} → ${c.expect}`, () => {
+      expect(inferServiceType(c.config)).toBe(c.expect);
+      expect(inferInRenderer(c.config)).toBe(c.expect);
+    });
+  }
 });
 
 describe('download', () => {

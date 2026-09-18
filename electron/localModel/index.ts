@@ -4,7 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { execFile } from 'child_process';
 import { MODEL_CATALOG, findModelSpec, resolveModelUrl, type LocalModelSpec } from './catalog';
-import { DEFAULT_LOCAL_CONFIG, normalizeLocalConfig, type AIServiceType, type CustomModel, type LocalModelConfig } from './config';
+import { DEFAULT_LOCAL_CONFIG, normalizeLocalConfig, inferServiceType, type AIServiceType, type CustomModel, type LocalModelConfig } from './config';
 import { getDeviceInfo, checkRequirement, type DeviceInfo, type RequirementCheck } from './hardware';
 import { downloadFile, DownloadError, type DownloadProgress } from './download';
 import { resolveRuntime, installRuntime, type InstallPhase, type RuntimeInfo } from './runtime';
@@ -83,12 +83,11 @@ function localConfig(): LocalModelConfig {
 }
 
 function currentServiceType(): AIServiceType {
-  const t = readConfig().serviceType;
-  return t === 'relay' || t === 'cloud' || t === 'local' || t === 'builtin' ? t : 'cloud';
+  return inferServiceType(readConfig());
 }
 
 export function isBuiltinService(config: any): boolean {
-  return config?.serviceType === 'builtin';
+  return inferServiceType(config) === 'builtin';
 }
 
 function patchConfig(patch: Record<string, unknown>) {
@@ -142,7 +141,19 @@ function buildModelEntries(cfg: LocalModelConfig, dev: DeviceInfo): LocalModelEn
   return entries;
 }
 
-async function getRuntime(force = false): Promise<RuntimeInfo> {
+/** 语义索引（嵌入模型）复用同一套运行时与下载设置 */
+export const localModelPaths = { rootDir, modelsDir };
+export function getDownloadSettings() {
+  const cfg = localConfig();
+  return { source: cfg.source, customBase: cfg.customBase, threads: cfg.threads };
+}
+export function onRuntimeChanged(listener: () => void) {
+  runtimeListeners.add(listener);
+  return () => runtimeListeners.delete(listener);
+}
+const runtimeListeners = new Set<() => void>();
+
+export async function getRuntime(force = false): Promise<RuntimeInfo> {
   if (!runtimeCache || force) runtimeCache = await resolveRuntime(runtimeDir(), localConfig().runtimePath);
   return runtimeCache;
 }
@@ -206,6 +217,7 @@ async function startInstall() {
     // 安装成功后不再使用手动指定的路径
     if (localConfig().runtimePath) saveLocalConfig({ runtimePath: null });
     install = { active: false, phase: 'done', tag: runtimeCache.version, error: null };
+    runtimeListeners.forEach((fn) => fn());
   } catch (err: any) {
     const aborted = err instanceof DownloadError && err.code === 'aborted';
     install = { active: false, phase: null, tag: install.tag, error: aborted ? null : (err?.message || String(err)) };
@@ -296,15 +308,15 @@ function exec(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve) => execFile(cmd, args, { timeout: 5000 }, (err, stdout) => resolve(err ? '' : String(stdout))));
 }
 
-/** 上次异常退出时残留的 llama-server：确认还是它本人再杀掉 */
-async function killStaleServer() {
+/** 上次异常退出时残留的 llama-server：确认还是它本人再杀掉（对话服务与嵌入服务各有一个 pid 文件） */
+export async function killStaleServerAt(file: string) {
   let rec: { pid: number } | null = null;
-  try { rec = JSON.parse(fs.readFileSync(pidFile(), 'utf8')); } catch { return; }
+  try { rec = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return; }
   if (!rec?.pid) return;
   try {
     process.kill(rec.pid, 0);
   } catch {
-    fs.rmSync(pidFile(), { force: true });
+    fs.rmSync(file, { force: true });
     return;
   }
   const name = process.platform === 'win32'
@@ -313,8 +325,10 @@ async function killStaleServer() {
   if (/llama-server/i.test(name)) {
     try { process.kill(rec.pid, 'SIGKILL'); } catch { /* ignore */ }
   }
-  fs.rmSync(pidFile(), { force: true });
+  fs.rmSync(file, { force: true });
 }
+
+const killStaleServer = () => killStaleServerAt(pidFile());
 
 let startPromise: Promise<ServerState> | null = null;
 
@@ -365,6 +379,14 @@ export async function ensureBuiltinEndpoint(): Promise<{ endpoint: string; model
   const { port, alias } = server.state;
   if (!server.isRunning || !port) throw new Error(server.state.error || '本机模型服务未运行');
   return { endpoint: `http://127.0.0.1:${port}/v1`, model: alias || 'local' };
+}
+
+/** 全新安装默认走本机模型，但模型还没下载：报错时指个路，而不是只说「模型尚未下载」 */
+export function builtinNotReadyHint(): string | null {
+  const cfg = localConfig();
+  const model = resolveModel(cfg.modelId, cfg);
+  if (model && fs.existsSync(model.path)) return null;
+  return '还没有下载本机模型：打开「智能 → 写作助手」，下载一个推荐模型（约 1 GB），或改用本地 / 网络模型服务';
 }
 
 async function testConnection(draft?: Partial<LocalModelConfig>) {
@@ -429,12 +451,9 @@ export function setupLocalModel(d: Deps) {
     startServer().catch((err) => console.warn('[local-model] 自动启动失败:', err?.message || err));
   }
 
-  // 退出时带走子进程
-  let quitting = false;
-  app.on('before-quit', (event) => {
-    if (quitting || server.state.status === 'stopped') return;
-    quitting = true;
-    event.preventDefault();
-    stopServer().finally(() => app.quit());
-  });
+}
+
+/** 退出时由 main 统一调用：带走子进程 */
+export function isLocalServerActive() {
+  return server.state.status !== 'stopped';
 }

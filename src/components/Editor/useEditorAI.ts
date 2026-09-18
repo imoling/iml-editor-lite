@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Editor } from '@tiptap/core';
 import { DOMSerializer } from '@tiptap/pm/model';
+import type { Node as PMNode } from '@tiptap/pm/model';
 import { useAppStore, HeadingNode } from '../../stores/appStore';
 import { useAI } from '../../hooks/useAI';
 import { markdownToHtml, htmlToMarkdown } from '../../utils/markdown';
 import { serializeDoc } from '../../utils/incrementalMarkdown';
+import { persistDataUrl } from '../../utils/pasteImage';
 
 export type PaletteMode = 'text' | 'mermaid' | 'svg' | 'image';
 
@@ -29,7 +31,8 @@ export function useEditorAI({ editor, outline, activeTabIdRef, pushToStore }: Pa
   const [palettePos, setPalettePos] = useState<{ top: number; left: number } | null>(null);
   // 触发气泡时立即缓存光标前后的文本，避免提交时编辑器失焦导致位置丢失
   const [paletteContext, setPaletteContext] = useState<{ before: string; after: string }>({ before: '', after: '' });
-  const docSnapshotRef = useRef<string | null>(null);
+  // 快照存文档节点本身而不是 HTML：回滚时放回去的还是原来那批节点对象，「未编辑的块写回原文」的对照关系不会断
+  const docSnapshotRef = useRef<PMNode | null>(null);
   const activeRequestIdRef2 = useRef<string | null>(null);
 
   // 光标移动时关闭 AI 面板（生成中不关闭）
@@ -92,7 +95,7 @@ export function useEditorAI({ editor, outline, activeTabIdRef, pushToStore }: Pa
     setAIStatus({ generating: true, onStop: handleAIPaletteStop });
 
     // 开启生成前保存文档快照，以便由于”停止”时回滚
-    docSnapshotRef.current = editor.getHTML();
+    docSnapshotRef.current = editor.state.doc;
     const rid = Math.random().toString(36).substring(7);
     activeRequestIdRef2.current = rid;
     
@@ -157,7 +160,7 @@ export function useEditorAI({ editor, outline, activeTabIdRef, pushToStore }: Pa
     }
     const snap = docSnapshotRef.current;
     if (snap && editor) {
-      editor.commands.setContent(snap);
+      editor.view.dispatch(editor.state.tr.replaceWith(0, editor.state.doc.content.size, snap.content));
       docSnapshotRef.current = null;
     }
     setAiGenerating(false);
@@ -180,7 +183,8 @@ export function useEditorAI({ editor, outline, activeTabIdRef, pushToStore }: Pa
         const imageGenConfig = useAppStore.getState().imageGenConfig;
         const results = await window.api.ai.generateImage({ prompt, config: imageGenConfig });
         if (results && results.length > 0) {
-          const { url } = results[0]; // data:image/...;base64,... 格式，renderer 可直接渲染
+          // 生成结果是 data URL：存成笔记旁的文件，正文里只留相对路径
+          const url = await persistDataUrl(results[0].url, activeTabIdRef.current, prompt.slice(0, 24));
           const { schema } = editor.state;
           const node = schema.nodes.image.create({ src: url, alt: prompt });
           const tr = editor.state.tr.replaceSelectionWith(node);
@@ -189,11 +193,11 @@ export function useEditorAI({ editor, outline, activeTabIdRef, pushToStore }: Pa
           const tabId = activeTabIdRef.current;
           if (tabId) pushToStore(tabId, serializeDoc(editor).markdown);
         } else {
-          alert('图片生成失败：服务未返回结果，请检查图片配置或稍后重试。');
+          alert('图片生成失败：服务未返回结果，请检查「智能 → AI 配图」或稍后重试。');
         }
       } catch (err: any) {
         console.error('[AI Image] 生成失败:', err);
-        alert(`图片生成失败：${err?.message || '未知错误'}\n\n请检查图片配置中的 API Key 和服务商设置。`);
+        alert(`图片生成失败：${err?.message || '未知错误'}\n\n请检查「智能 → AI 配图」里的 API Key 和服务商。`);
       } finally {
         setAiGenerating(false);
         setAIStatus({ generating: false, onStop: null });
@@ -206,7 +210,7 @@ export function useEditorAI({ editor, outline, activeTabIdRef, pushToStore }: Pa
     setAIStatus({ generating: true, onStop: handleAIPaletteStop });
 
     // 开启生成前保存文档快照，以便由于”停止”时回滚
-    docSnapshotRef.current = editor.getHTML();
+    docSnapshotRef.current = editor.state.doc;
     const requestId = Math.random().toString(36).substring(7);
     activeRequestIdRef2.current = requestId;
 

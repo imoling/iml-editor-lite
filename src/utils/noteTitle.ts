@@ -1,3 +1,5 @@
+import { splitFrontmatter } from '../../electron/shared/noteMeta';
+
 const MAX_TITLE_LENGTH = 30;
 
 /** 围栏 / 公式 / 分隔线 / 表格分隔行 / 注释：这些行本身不是标题素材 */
@@ -9,7 +11,8 @@ const SKIP_LINE = /^(:::|\$\$|```|~~~|---+\s*$|\*\*\*+\s*$|___+\s*$|<!--|\|?\s*:
  * 让调用方决定是等一等还是用时间戳。
  */
 export function deriveNoteTitle(markdown: string): string | null {
-  for (const raw of (markdown || '').split('\n').slice(0, 60)) {
+  // frontmatter 不是标题素材（否则文件名会变成 "title 测试" 之类）
+  for (const raw of splitFrontmatter(markdown || '').body.split('\n').slice(0, 60)) {
     let line = raw.trim();
     if (!line || SKIP_LINE.test(line)) continue;
     line = line

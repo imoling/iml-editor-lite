@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   export: {
     pdf: (htmlContent: string, defaultPath: string, filePath: string) => ipcRenderer.invoke('export:pdf', htmlContent, defaultPath, filePath),
+    html: (htmlContent: string, defaultPath: string, filePath: string) => ipcRenderer.invoke('export:html', htmlContent, defaultPath, filePath),
   },
   ai: {
     getConfig: () => ipcRenderer.invoke('ai:getConfig'),
@@ -79,12 +80,40 @@ contextBridge.exposeInMainWorld('api', {
   },
   library: {
     watch: (dirPath: string): Promise<boolean> => ipcRenderer.invoke('library:watch', dirPath),
+    findOrphanImages: (extraTexts?: string[]) => ipcRenderer.invoke('library:findOrphanImages', extraTexts),
+    trashImages: (paths: string[]) => ipcRenderer.invoke('library:trashImages', paths),
+  },
+  history: {
+    list: (filePath: string) => ipcRenderer.invoke('history:list', filePath),
+    read: (filePath: string, id: string): Promise<string | null> => ipcRenderer.invoke('history:read', filePath, id),
+  },
+  web: {
+    fetchTitle: (url: string): Promise<string | null> => ipcRenderer.invoke('web:fetchTitle', url),
+  },
+  // 语义索引：本机嵌入模型、相关笔记、语义搜索
+  semantic: {
+    getState: () => ipcRenderer.invoke('semantic:getState'),
+    setEnabled: (enabled: boolean) => ipcRenderer.invoke('semantic:setEnabled', enabled),
+    setModel: (modelId: string) => ipcRenderer.invoke('semantic:setModel', modelId),
+    downloadModel: (id: string) => ipcRenderer.invoke('semantic:downloadModel', id),
+    cancelDownload: (id: string) => ipcRenderer.invoke('semantic:cancelDownload', id),
+    deleteModel: (id: string) => ipcRenderer.invoke('semantic:deleteModel', id),
+    rebuild: () => ipcRenderer.invoke('semantic:rebuild'),
+    search: (query: string, limit?: number) => ipcRenderer.invoke('semantic:search', query, limit),
+    related: (filePath: string, limit?: number) => ipcRenderer.invoke('semantic:related', filePath, limit),
+    onState: (callback: (state: any) => void) => {
+      const listener = (_event: any, state: any) => callback(state);
+      ipcRenderer.on('semantic:state', listener);
+      return () => ipcRenderer.removeListener('semantic:state', listener);
+    },
   },
   search: {
     query: (query: string, limit?: number) => ipcRenderer.invoke('search:query', query, limit),
     status: () => ipcRenderer.invoke('search:status'),
     listNotes: () => ipcRenderer.invoke('search:listNotes'),
     backlinks: (title: string) => ipcRenderer.invoke('search:backlinks', title),
+    tags: () => ipcRenderer.invoke('search:tags'),
+    notesByTag: (tag: string) => ipcRenderer.invoke('search:notesByTag', tag),
   },
   events: {
     on: (channel: string, callback: (...args: any[]) => void) => {

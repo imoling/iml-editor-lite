@@ -3,7 +3,7 @@ import { isNewerVersion } from '../utils/version';
 import { formatDate } from '../utils/date';
 import { deriveNoteTitle } from '../utils/noteTitle';
 
-export type DialogId = 'about' | 'shortcuts' | 'ai-config' | 'image-config' | 'settings' | 'whats-new';
+export type DialogId = 'about' | 'shortcuts' | 'ai-config' | 'image-config' | 'semantic-config' | 'settings' | 'whats-new' | 'history' | 'image-cleanup';
 import { DAILY_DIR, TEMPLATE_DIR, DEFAULT_DAILY_TEMPLATE, SAMPLE_TEMPLATES, renderNoteTemplate } from '../utils/noteTemplates';
 
 export interface FileNode {
@@ -87,18 +87,64 @@ export interface NavigationRequest {
 }
 
 export interface ImageGenConfig {
-  provider: 'gemini' | 'gemini-imagen' | 'gemini-flash' | 'volcengine' | 'minimax' | 'custom';
+  provider: 'agnes-cn' | 'agnes' | 'gemini' | 'gemini-imagen' | 'gemini-flash' | 'volcengine' | 'minimax' | 'custom';
   apiKey: string;
   model: string;
   endpoint: string;
 }
 
+// 全新安装默认 Agnes 国内站：有免费额度，填个 Key 就能出图（已保存过配置的用户不受影响）
 export const DEFAULT_IMAGE_GEN_CONFIG: ImageGenConfig = {
-  provider: 'gemini-imagen',
+  provider: 'agnes-cn',
   apiKey: '',
   model: '',
   endpoint: '',
 };
+
+export type SidebarTab = 'library' | 'catalog' | 'tags' | 'search';
+
+/** 正文排版：字体、字号、行距、页宽（富文本与预览共用） */
+export interface EditorPrefs {
+  font: 'system' | 'serif' | 'kai' | 'mono';
+  fontSize: number;
+  lineHeight: number;
+  pageWidth: 'narrow' | 'medium' | 'wide' | 'full';
+}
+
+export const DEFAULT_EDITOR_PREFS: EditorPrefs = { font: 'system', fontSize: 16, lineHeight: 1.6, pageWidth: 'medium' };
+
+export const EDITOR_FONTS: Record<EditorPrefs['font'], { label: string; stack: string }> = {
+  system: { label: '系统默认', stack: 'var(--font-body)' },
+  serif: { label: '宋体 / 衬线', stack: '"Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", "SimSun", Georgia, serif' },
+  kai: { label: '楷体', stack: '"Kaiti SC", "STKaiti", "KaiTi", "BiauKai", serif' },
+  mono: { label: '等宽', stack: 'var(--font-code)' },
+};
+
+export const PAGE_WIDTHS: Record<EditorPrefs['pageWidth'], { label: string; css: string }> = {
+  narrow: { label: '窄', css: '700px' },
+  medium: { label: '适中', css: '820px' },
+  wide: { label: '宽', css: '1040px' },
+  full: { label: '铺满', css: '100%' },
+};
+
+export function normalizeEditorPrefs(raw: any): EditorPrefs {
+  const r = raw && typeof raw === 'object' ? raw : {};
+  return {
+    font: r.font in EDITOR_FONTS ? r.font : DEFAULT_EDITOR_PREFS.font,
+    fontSize: Math.min(22, Math.max(13, Number(r.fontSize) || DEFAULT_EDITOR_PREFS.fontSize)),
+    lineHeight: Math.min(2.4, Math.max(1.3, Number(r.lineHeight) || DEFAULT_EDITOR_PREFS.lineHeight)),
+    pageWidth: r.pageWidth in PAGE_WIDTHS ? r.pageWidth : DEFAULT_EDITOR_PREFS.pageWidth,
+  };
+}
+
+/** 把排版设置写成 CSS 变量（设置弹窗里拖动时实时预览也走这里） */
+export function applyEditorPrefs(prefs: EditorPrefs) {
+  const root = document.documentElement;
+  root.style.setProperty('--editor-font', EDITOR_FONTS[prefs.font].stack);
+  root.style.setProperty('--editor-font-size', `${prefs.fontSize}px`);
+  root.style.setProperty('--editor-line-height', String(prefs.lineHeight));
+  root.style.setProperty('--editor-page-width', PAGE_WIDTHS[prefs.pageWidth].css);
+}
 
 export interface SearchState {
   query: string;
@@ -132,7 +178,13 @@ export interface AppState {
   searchCommand: SearchCommand | null;
   /** 当前编辑器注册的「把未写回的内容立刻同步到 store」钩子（保存 / 导出 / 关窗前调用） */
   editorFlush: (() => void) | null;
-  sidebarTab: 'library' | 'catalog' | 'search';
+  sidebarTab: SidebarTab;
+  /** 标签视图里选中的标签 */
+  selectedTag: string | null;
+  /** 状态栏里一闪而过的提示（图片压缩了多少、恢复了哪个版本……） */
+  notice: { id: number; text: string } | null;
+  /** 专注模式：收起侧边栏与工具栏，当前段落以外的内容淡出，光标所在行保持在屏幕中间 */
+  focusMode: boolean;
   sidebarWidth: number;
   /** 每次 +1 让搜索面板重新聚焦输入框 */
   globalSearchFocus: number;
@@ -160,6 +212,14 @@ export interface AppState {
   defaultLibraryPath: string;
   starredFiles: string[];
   imageGenConfig: ImageGenConfig;
+  /** 粘贴 / 拖入的图片压缩成 WebP 再存盘 */
+  imageCompression: boolean;
+  /** 粘贴网址时自动取网页标题 */
+  fetchLinkTitle: boolean;
+  spellcheck: boolean;
+  /** AI 总开关：关掉后所有 AI 入口隐藏，应用不会向任何模型服务发请求 */
+  aiEnabled: boolean;
+  editorPrefs: EditorPrefs;
 
   // File Management State
   selectedNodePath: string | null;
@@ -213,7 +273,11 @@ export interface AppState {
   /** 编辑器处理完命令后清掉，避免切换编辑模式时新挂载的编辑器重放（例如再来一次「全部替换」） */
   consumeSearchCommand: () => void;
   registerEditorFlush: (fn: (() => void) | null) => void;
-  setSidebarTab: (tab: 'library' | 'catalog' | 'search') => void;
+  setSidebarTab: (tab: SidebarTab) => void;
+  /** 打开侧边栏的标签视图并选中某个标签（点击正文里的 #标签 时调用） */
+  openTag: (tag: string | null) => void;
+  notify: (text: string) => void;
+  toggleFocusMode: () => void;
   /** ⌘⇧F：打开侧边栏搜索面板并聚焦 */
   openGlobalSearch: () => void;
   /** 用给定关键词打开文档内查找（全文搜索结果点开后定位用） */
@@ -299,6 +363,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   searchCommand: null,
   editorFlush: null,
   sidebarTab: 'library',
+  selectedTag: null,
+  notice: null,
+  focusMode: false,
   globalSearchFocus: 0,
   libraryVersion: 0,
   sidebarWidth: 240,
@@ -322,6 +389,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   defaultLibraryPath: '',
   starredFiles: [],
   imageGenConfig: DEFAULT_IMAGE_GEN_CONFIG,
+  imageCompression: true,
+  fetchLinkTitle: true,
+  spellcheck: false,
+  aiEnabled: true,
+  editorPrefs: DEFAULT_EDITOR_PREFS,
 
   toggleStar: (path: string) => set((state) => ({
     starredFiles: state.starredFiles.includes(path)
@@ -666,7 +738,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   registerEditorFlush: (fn) => set({ editorFlush: fn }),
   openGlobalSearch: () => set((state) => ({ sidebarTab: 'search', sidebarVisible: true, globalSearchFocus: state.globalSearchFocus + 1 })),
   showFindWith: (query) => set((state) => ({ findVisible: true, replaceVisible: false, search: { ...state.search, query } })),
-  setSidebarTab: (tab: 'library' | 'catalog' | 'search') => {
+  openTag: (tag) => set({ selectedTag: tag, sidebarTab: 'tags', sidebarVisible: true, focusMode: false }),
+  notify: (text) => {
+    const id = Date.now();
+    set({ notice: { id, text } });
+    setTimeout(() => { if (get().notice?.id === id) set({ notice: null }); }, 5000);
+  },
+  toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
+  setSidebarTab: (tab: SidebarTab) => {
     const { sidebarTab, sidebarVisible } = get();
     if (sidebarVisible && sidebarTab === tab) {
       set({ sidebarVisible: false });
@@ -752,6 +831,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     let filePath = activeTab.id;
     const isTempFile = filePath.startsWith('new-');
+    // 失焦触发的静默保存：没改过就不写盘。否则只是点开看一眼，文件的修改时间也会变，同步盘跟着重传一遍
+    if (isAutoSave && !isTempFile && !activeTab.isDirty) return true;
 
     if (isTempFile || saveAs) {
       if (isTempFile && isAutoSave) {
@@ -944,7 +1025,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           autoSave: settings.autoSave ?? true,
           defaultLibraryPath: settings.defaultLibraryPath || '',
           imageGenConfig: settings.imageGenConfig || DEFAULT_IMAGE_GEN_CONFIG,
+          imageCompression: settings.imageCompression ?? true,
+          fetchLinkTitle: settings.fetchLinkTitle ?? true,
+          spellcheck: !!settings.spellcheck,
+          aiEnabled: settings.aiEnabled ?? true,
+          editorPrefs: normalizeEditorPrefs(settings.editorPrefs),
         });
+        applyEditorPrefs(get().editorPrefs);
         if (settings.themeId) get().setTheme(settings.themeId);
         get().applyAppearance(settings.appearanceMode || 'light');
         // 笔记库路径变化（含设置窗口里改动后广播回来）时重新加载树
@@ -957,9 +1044,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   saveSettings: async () => {
-    const { appearanceMode, startupBehavior, autoSave, defaultLibraryPath, imageGenConfig, theme } = get();
+    const { appearanceMode, startupBehavior, autoSave, defaultLibraryPath, imageGenConfig, theme, imageCompression, fetchLinkTitle, spellcheck, aiEnabled, editorPrefs } = get();
     await window.api.app.saveSettings({
       appearanceMode, startupBehavior, autoSave, defaultLibraryPath, imageGenConfig,
+      imageCompression, fetchLinkTitle, spellcheck, aiEnabled, editorPrefs,
       themeId: theme?.id,
     });
   },

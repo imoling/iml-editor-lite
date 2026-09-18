@@ -1,7 +1,26 @@
 import path from 'path';
 import type { DownloadSource } from './catalog';
 
-export type AIServiceType = 'relay' | 'cloud' | 'local' | 'builtin';
+export type AIServiceType = 'builtin' | 'local' | 'cloud';
+
+const LOCAL_ENDPOINT_RE = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:|\/|$)/i;
+
+/**
+ * 当前用哪种服务：显式字段优先；老配置按地址推断；什么都没填过的全新安装默认本机模型；
+ * 26.1 的 'relay'（企业中转站）并入 'cloud'。
+ *
+ * 渲染进程 src/utils/aiService.ts 有一份**必须等价**的实现（渲染进程引不了 Node 模块，只能各写一份）：
+ * 状态栏按那份显示「AI 发往哪里」，而请求实际发往哪里由这份决定 —— 两边不一致，
+ * 用户看到的就是假的。localModel.test.ts 里对同一张用例表逐例比对两份实现，改任何一份都会被测出来。
+ */
+export function inferServiceType(config: { serviceType?: string | null; endpoint?: string | null } | null | undefined): AIServiceType {
+  const t = config?.serviceType;
+  if (t === 'builtin' || t === 'local' || t === 'cloud') return t;
+  if (t === 'relay') return 'cloud';
+  const endpoint = (config?.endpoint || '').trim();
+  if (!endpoint) return 'builtin';
+  return LOCAL_ENDPOINT_RE.test(endpoint) ? 'local' : 'cloud';
+}
 
 export interface CustomModel { id: string; name: string; path: string; size: number }
 

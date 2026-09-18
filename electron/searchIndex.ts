@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { splitFrontmatter, extractTags, tagMatches } from './shared/noteMeta';
 
 /**
  * 笔记库全文索引（纯 JS，常驻主进程内存）。
@@ -12,6 +13,8 @@ export interface IndexedNote {
   /** 小写副本，用于不区分大小写匹配 */
   lower: string;
   mtime: number;
+  /** frontmatter 的 tags 与正文里的 #标签 */
+  tags: string[];
 }
 
 export interface SearchSnippet {
@@ -82,6 +85,7 @@ export class SearchIndex {
         content,
         lower: content.toLowerCase(),
         mtime: stat.mtimeMs,
+        tags: extractTags(content),
       });
     } catch {
       this.notes.delete(filePath);
@@ -89,7 +93,8 @@ export class SearchIndex {
   }
 
   static titleOf(filePath: string, content: string): string {
-    const m = content.match(/^\s*#\s+(.+?)\s*$/m);
+    // 跳过 frontmatter：YAML 里的 `# 注释` 不是一级标题
+    const m = splitFrontmatter(content).body.match(/^\s*#\s+(.+?)\s*$/m);
     if (m) return m[1].replace(/[*_`]/g, '').trim();
     return path.basename(filePath).replace(NOTE_RE, '');
   }
@@ -127,6 +132,42 @@ export class SearchIndex {
 
   listNotes(): { path: string; title: string }[] {
     return [...this.notes.values()].map((n) => ({ path: n.path, title: n.title })).sort((a, b) => a.title.localeCompare(b.title));
+  }
+
+  /** 全库标签及篇数；层级标签 a/b 同时计入父标签 a */
+  listTags(): { tag: string; count: number }[] {
+    const counts = new Map<string, { tag: string; notes: Set<string> }>();
+    for (const note of this.notes.values()) {
+      for (const tag of note.tags) {
+        const parts = tag.split('/');
+        for (let i = 1; i <= parts.length; i++) {
+          const name = parts.slice(0, i).join('/');
+          const key = name.toLowerCase();
+          if (!counts.has(key)) counts.set(key, { tag: name, notes: new Set() });
+          counts.get(key)!.notes.add(note.path);
+        }
+      }
+    }
+    return [...counts.values()]
+      .map((c) => ({ tag: c.tag, count: c.notes.size }))
+      .sort((a, b) => a.tag.localeCompare(b.tag, 'zh-Hans-CN'));
+  }
+
+  /** 带某个标签（或其子标签）的笔记，最近修改的在前 */
+  notesByTag(tag: string): { path: string; title: string; tags: string[]; mtime: number }[] {
+    return [...this.notes.values()]
+      .filter((n) => n.tags.some((t) => tagMatches(t, tag)))
+      .sort((a, b) => b.mtime - a.mtime)
+      .map((n) => ({ path: n.path, title: n.title, tags: n.tags, mtime: n.mtime }));
+  }
+
+  /** 给定路径的原文与修改时间（语义索引用；不在索引里返回 null） */
+  getNote(filePath: string): IndexedNote | null {
+    return this.notes.get(filePath) ?? null;
+  }
+
+  allNotes(): IndexedNote[] {
+    return [...this.notes.values()];
   }
 
   /** 多个词以空格分隔时要求全部命中；片段按第一个词截取 */

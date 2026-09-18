@@ -15,8 +15,8 @@ const windowParam = new URLSearchParams(window.location.search).get('window');
 const WINDOW_TITLES: Record<string, string> = {
   about: '关于',
   shortcuts: '快捷键',
-  'ai-config': '模型配置',
-  'image-config': '图片生成配置',
+  'ai-config': '写作助手',
+  'image-config': 'AI 配图',
   settings: '全局设置',
 };
 if (windowParam && WINDOW_TITLES[windowParam]) document.title = `${WINDOW_TITLES[windowParam]} — iML Markdown Editor`;

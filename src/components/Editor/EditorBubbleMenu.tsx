@@ -10,12 +10,14 @@ import {
 interface Props {
   editor: Editor;
   aiGenerating: boolean;
+  /** AI 总开关关闭时不显示润色 / 总结 / 扩写 */
+  aiEnabled?: boolean;
   onToggleCodeBlock: () => void;
   onAIAction: (action: 'polish' | 'summarize' | 'expand', style?: string) => void;
 }
 
 /** 选中文本后的浮动菜单：格式、AI 润色 / 总结 / 扩写，以及代码块语言与表格操作 */
-export const EditorBubbleMenu: React.FC<Props> = ({ editor, aiGenerating, onToggleCodeBlock, onAIAction }) => (
+export const EditorBubbleMenu: React.FC<Props> = ({ editor, aiGenerating, aiEnabled = true, onToggleCodeBlock, onAIAction }) => (
     <BubbleMenu 
       editor={editor} 
       tippyOptions={{ 
@@ -26,8 +28,7 @@ export const EditorBubbleMenu: React.FC<Props> = ({ editor, aiGenerating, onTogg
       shouldShow={({ state, editor }) => {
         if (state.selection.empty) return false;
         // Don't show for custom block nodes
-        const { selection } = state;
-        const isCustomBlock = editor.isActive('diagram') || editor.isActive('svgBlock');
+        const isCustomBlock = editor.isActive('diagram') || editor.isActive('svgBlock') || editor.isActive('frontmatter') || editor.isActive('rawBlock') || editor.isActive('toc') || editor.isActive('math');
         return !isCustomBlock;
       }}
     >
@@ -50,10 +51,14 @@ export const EditorBubbleMenu: React.FC<Props> = ({ editor, aiGenerating, onTogg
           <button onClick={() => editor.chain().focus().toggleCode().run()} className={`toolbar-icon-btn ${editor.isActive('code') ? 'active' : ''}`} title="行内代码"><Code size={16} /></button>
           <button onClick={() => onToggleCodeBlock()} className={`toolbar-icon-btn ${editor.isActive('codeBlock') ? 'active' : ''}`} title="代码块"><FileCode size={16} /></button>
           <button onClick={() => editor.chain().focus().toggleBlockquote().run()} className={`toolbar-icon-btn ${editor.isActive('blockquote') ? 'active' : ''}`} title="引用"><Quote size={16} /></button>
-          <div className="toolbar-divider"></div>
-          <button onClick={() => onAIAction('polish')} className="toolbar-icon-btn" title="AI 润色" disabled={aiGenerating}><Wand2 size={16} color="var(--color-accent-indigo)" /></button>
-          <button onClick={() => onAIAction('summarize')} className="toolbar-icon-btn" title="AI 总结" disabled={aiGenerating}><FileText size={16} color="var(--color-accent-green)" /></button>
-          <button onClick={() => onAIAction('expand')} className="toolbar-icon-btn" title="AI 扩写" disabled={aiGenerating}><Sparkles size={16} color="var(--color-accent-orange)" /></button>
+          {aiEnabled && (
+            <>
+              <div className="toolbar-divider"></div>
+              <button onClick={() => onAIAction('polish')} className="toolbar-icon-btn" title="AI 润色" disabled={aiGenerating}><Wand2 size={16} color="var(--color-accent-indigo)" /></button>
+              <button onClick={() => onAIAction('summarize')} className="toolbar-icon-btn" title="AI 总结" disabled={aiGenerating}><FileText size={16} color="var(--color-accent-green)" /></button>
+              <button onClick={() => onAIAction('expand')} className="toolbar-icon-btn" title="AI 扩写" disabled={aiGenerating}><Sparkles size={16} color="var(--color-accent-orange)" /></button>
+            </>
+          )}
         </div>
         {editor.isActive('codeBlock') && (
           <>

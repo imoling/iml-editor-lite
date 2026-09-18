@@ -13,7 +13,10 @@ import { WhatsNewModal } from './components/WhatsNew/WhatsNewModal';
 import { latestWhatsNew, shouldShowWhatsNew } from './data/whatsNew';
 import { extractHeadings } from './utils/outline';
 import { ConfirmDialog } from './components/ConfirmDialog';
-import { exportActiveTabToPdf } from './utils/exportPdf';
+import { exportActiveTabToPdf, exportActiveTabToHtml } from './utils/exportPdf';
+import { HistoryModal } from './components/History/HistoryModal';
+import { ImageCleanupModal } from './components/Library/ImageCleanupModal';
+import { SemanticIndexModal } from './components/AI/SemanticIndexModal';
 import { formatVersion, isNewerVersion } from './utils/version';
 import './styles/layout.css';
 
@@ -61,6 +64,7 @@ const App: React.FC = () => {
     dialog,
     openDialog,
     closeDialog,
+    focusMode,
   } = useAppStore();
 
   const activeTab = tabs.find(t => t.id === activeTabId);
@@ -149,6 +153,20 @@ const App: React.FC = () => {
         return;
       }
 
+      // Cmd+Shift+H：版本历史
+      if (modKey && e.shiftKey && !e.altKey && e.code === 'KeyH') {
+        e.preventDefault();
+        openDialog('history');
+        return;
+      }
+
+      // Cmd+Shift+.：专注模式
+      if (modKey && e.shiftKey && e.code === 'Period') {
+        e.preventDefault();
+        useAppStore.getState().toggleFocusMode();
+        return;
+      }
+
       // Cmd+P：导出 PDF
       if (modKey && !e.shiftKey && e.code === 'KeyP') {
         e.preventDefault();
@@ -181,7 +199,7 @@ const App: React.FC = () => {
         openDialog('shortcuts');
       }
 
-      // Cmd+Shift+M：模型配置
+      // Cmd+Shift+M：写作助手（模型设置）
       if (modKey && e.shiftKey && e.key.toLowerCase() === 'm') {
         e.preventDefault();
         openDialog('ai-config');
@@ -197,6 +215,17 @@ const App: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleMode, openFile, openDirectory, saveActiveFile, toggleSidebar, toggleToolbar, toggleStatusBar, createNewFile, toggleFind, toggleReplace, openDialog]);
+
+  // 专注模式下按 Esc 退出（弹窗、查找面板开着时 Esc 归它们）
+  useEffect(() => {
+    if (!focusMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      const state = useAppStore.getState();
+      if (e.key === 'Escape' && !state.dialog && !state.findVisible && !(e.target as HTMLElement)?.closest?.('textarea, input')) state.toggleFocusMode();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [focusMode]);
 
   // 弹窗打开时按 Esc 关闭
   useEffect(() => {
@@ -215,6 +244,7 @@ const App: React.FC = () => {
     window.api.events.on('menu:new-file', () => createNewFile());
     window.api.events.on('menu:open-file', () => openFile());
     window.api.events.on('menu:save', () => saveActiveFile());
+    window.api.events.on('menu:export', (kind: 'pdf' | 'html') => (kind === 'html' ? exportActiveTabToHtml() : exportActiveTabToPdf()));
     // 原生菜单 / 其他入口要求打开某个弹窗
     window.api.events.on('dialog:open', (id: DialogId) => openDialog(id));
   }, [openFileByPath, createNewFile, openFile, saveActiveFile, openDialog]);
@@ -301,8 +331,8 @@ const App: React.FC = () => {
       <TitleBar />
       
       <div className="main-content">
-        <ActivityBar />
-        {sidebarVisible && <Sidebar />}
+        {!focusMode && <ActivityBar />}
+        {sidebarVisible && !focusMode && <Sidebar />}
         <EditorArea />
       </div>
       
@@ -333,6 +363,9 @@ const App: React.FC = () => {
       {dialog === 'image-config' && <ImageConfigModal onClose={closeDialog} />}
       {dialog === 'settings' && <SettingsModal onClose={closeDialog} />}
       {dialog === 'whats-new' && whatsNewEntry && <WhatsNewModal entry={whatsNewEntry} onClose={closeDialog} />}
+      {dialog === 'history' && <HistoryModal onClose={closeDialog} />}
+      {dialog === 'image-cleanup' && <ImageCleanupModal onClose={closeDialog} />}
+      {dialog === 'semantic-config' && <SemanticIndexModal onClose={closeDialog} />}
 
     </div>
   );

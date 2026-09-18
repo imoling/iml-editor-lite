@@ -17,6 +17,7 @@ const TABS: { id: Tab; label: string }[] = [
 /** 插入图片：本地上传 / 网络链接 / AI 生成 */
 export const ImageInsertDialog: React.FC<ImageInsertDialogProps> = ({ onConfirm, onCancel }) => {
   const imageGenConfig = useAppStore((s) => s.imageGenConfig);
+  const aiEnabled = useAppStore((s) => s.aiEnabled);
   const [tab, setTab] = React.useState<Tab>('upload');
   const [url, setUrl] = React.useState('');
   const [alt, setAlt] = React.useState('');
@@ -85,7 +86,7 @@ export const ImageInsertDialog: React.FC<ImageInsertDialogProps> = ({ onConfirm,
         <div className="image-dialog__head">
           <h3 className="modal-title modal-title--sm">插入图片</h3>
           <div className="segmented">
-            {TABS.map((t) => (
+            {TABS.filter((t) => t.id !== 'ai' || aiEnabled).map((t) => (
               <button key={t.id} onClick={() => setTab(t.id)} className={`segmented__btn ${tab === t.id ? 'segmented__btn--active' : ''}`}>{t.label}</button>
             ))}
           </div>
@@ -163,11 +164,11 @@ export const ImageInsertDialog: React.FC<ImageInsertDialogProps> = ({ onConfirm,
                   {!imageGenConfig.apiKey ? (
                     <span className="image-dialog__tip--warn">
                       需先配置 API Key<br />
-                      <span className="image-dialog__tip-small">菜单「智能」→ 图片生成配置 → 选择提供商并填入 Key</span>
+                      <span className="image-dialog__tip-small">菜单「智能」→ AI 配图 → 选择提供商并填入 Key</span>
                     </span>
                   ) : (
                     <>输入描述后点击「生成」<br />
-                    <span className="image-dialog__tip-small">当前提供商：{imageGenConfig.provider}　可在「智能」→ 图片生成配置中切换</span></>
+                    <span className="image-dialog__tip-small">当前提供商：{imageGenConfig.provider}　可在「智能」→ AI 配图中切换</span></>
                   )}
                 </div>
               )}

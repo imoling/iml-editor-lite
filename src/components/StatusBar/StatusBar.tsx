@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { Minus, Plus, Loader2, ChevronUp } from 'lucide-react';
+import { isLocalEndpoint, inferServiceType } from '../../utils/aiService';
 
 const ZOOM_OPTIONS = [300, 200, 150, 125, 100, 75, 50, 25];
 const CJK_RE = /[一-龥぀-ヿ＀-￯ᄀ-ᇿ㄰-㆏ꓐ-꓿가-힯]/g;
@@ -13,8 +14,30 @@ function countWords(content: string) {
   return { words: cjkCount + westernWords, lines: content.split('\n').length };
 }
 
+/** AI 请求发往哪里：让「笔记内容会不会离开这台电脑」一眼可见 */
+function describeAiDestination(config: any): { label: string; kind: 'local' | 'cloud' } {
+  if (inferServiceType(config) === 'builtin') return { label: '本机模型', kind: 'local' };
+  const endpoint = String(config?.endpoint || '');
+  if (!endpoint) return { label: '未配置', kind: 'local' };
+  if (isLocalEndpoint(endpoint)) return { label: '本地服务', kind: 'local' };
+  let host = endpoint;
+  try { host = new URL(endpoint).host; } catch { /* 保持原样 */ }
+  return { label: `云端 · ${host}`, kind: 'cloud' };
+}
+
 export const StatusBar: React.FC = () => {
   const { mode, toggleMode, activeTabId, tabs, statusBarVisible, aiStatus, zoom, setZoom } = useAppStore();
+  const notice = useAppStore((s) => s.notice);
+  const aiEnabled = useAppStore((s) => s.aiEnabled);
+  const dialog = useAppStore((s) => s.dialog);
+  const openDialog = useAppStore((s) => s.openDialog);
+  const [aiDest, setAiDest] = React.useState<{ label: string; kind: 'local' | 'cloud' } | null>(null);
+
+  // 配置弹窗关掉之后重读一次（可能刚换了服务）
+  useEffect(() => {
+    if (dialog) return;
+    window.api.ai.getConfig().then((cfg) => setAiDest(describeAiDestination(cfg))).catch(() => setAiDest(null));
+  }, [dialog]);
   const [showZoomMenu, setShowZoomMenu] = React.useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const activeTab = tabs.find(t => t.id === activeTabId);
@@ -47,6 +70,10 @@ export const StatusBar: React.FC = () => {
         )}
       </div>
 
+      {notice && !aiStatus.generating && (
+        <div className="statusbar-section statusbar-notice" key={notice.id}>{notice.text}</div>
+      )}
+
       {aiStatus.generating && (
         <div className="statusbar-section statusbar-ai-status">
           <div className="row gap-6 text-brand">
@@ -58,6 +85,14 @@ export const StatusBar: React.FC = () => {
       )}
 
       <div className="statusbar-section statusbar-section--right">
+        <span
+          className="statusbar-ai-dest"
+          onClick={() => openDialog(aiEnabled ? 'ai-config' : 'settings')}
+          title={!aiEnabled ? 'AI 功能已在设置中关闭，应用不会向任何模型服务发请求' : aiDest?.kind === 'cloud' ? '使用 AI 功能时，选中的文字会发往这个云端服务' : 'AI 请求只发往本机，笔记内容不会离开这台电脑'}
+        >
+          <span className={`statusbar-ai-dest__dot ${!aiEnabled ? 'statusbar-ai-dest__dot--off' : aiDest?.kind === 'cloud' ? 'statusbar-ai-dest__dot--cloud' : ''}`} />
+          {aiEnabled ? `AI：${aiDest?.label ?? '…'}` : 'AI 已关闭'}
+        </span>
         <span>UTF-8</span>
 
         <div ref={menuRef} className="zoom-control">

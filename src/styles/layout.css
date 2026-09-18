@@ -217,6 +217,7 @@
 
 .statusbar-section {
   display: flex;
+  align-items: center;
   gap: 16px;
 }
 
@@ -555,3 +556,30 @@
 .search-result__path { font-size: 10px; color: var(--text-muted); margin: 2px 0 4px; }
 .search-result__snippet { font-size: 11px; color: var(--text-secondary); line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .search-result__snippet mark { background: rgba(250, 204, 21, 0.45); color: inherit; border-radius: 2px; padding: 0 1px; }
+
+
+/* ── 标签视图 / 相关笔记 / 语义结果 ── */
+.tags-panel { display: flex; flex-direction: column; min-height: 0; }
+.tags-panel code { font-family: var(--font-code); font-size: 11px; background: var(--bg-code-inline); padding: 1px 4px; border-radius: 4px; }
+.tags-panel__cloud { display: flex; flex-direction: column; gap: 1px; padding: 2px 6px 8px; }
+.tags-panel__tag {
+  display: flex; align-items: center; gap: 6px; border: none; background: none; cursor: pointer; text-align: left;
+  padding: 4px 8px; border-radius: 6px; font-size: 12.5px; color: var(--text-secondary); min-width: 0;
+}
+.tags-panel__tag:hover { background: var(--bg-hover-editor); }
+.tags-panel__tag--active { background: var(--selection-bg-editor); color: var(--color-brand-indigo); font-weight: 600; }
+.tags-panel__count { margin-left: auto; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.tags-panel__notes { border-top: 1px solid var(--border-subtle); margin-top: 4px; padding-top: 6px; }
+.tags-panel__notes-head { display: flex; align-items: center; gap: 4px; }
+.related__score { font-size: 10.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.related .btn-link { margin-left: 4px; }
+.search-panel__semantic-title { display: flex; align-items: center; gap: 4px; margin-top: 10px; }
+.semantic-card { margin-top: 24px; }
+
+/* 状态栏提示 */
+.statusbar-notice { color: var(--color-brand-indigo); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw; animation: notice-in 0.2s ease-out; }
+.statusbar-ai-dest { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.statusbar-ai-dest__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent-green); }
+.statusbar-ai-dest__dot--cloud { background: var(--color-accent-orange); }
+.statusbar-ai-dest__dot--off { background: var(--text-muted); }
+@keyframes notice-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }

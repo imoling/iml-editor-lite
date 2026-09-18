@@ -7,8 +7,19 @@ import wikiImg from '../../assets/whats-new/wiki.png';
 import searchImg from '../../assets/whats-new/search.png';
 import dailyImg from '../../assets/whats-new/daily.png';
 import localImg from '../../assets/whats-new/local.png';
+import v262Hero from '../../assets/whats-new/v262-hero.webp';
+import v262Source from '../../assets/whats-new/v262-source.webp';
+import v262Compat from '../../assets/whats-new/v262-compat.webp';
+import v262Paste from '../../assets/whats-new/v262-paste.webp';
+import v262History from '../../assets/whats-new/v262-history.webp';
+import v262Semantic from '../../assets/whats-new/v262-semantic.webp';
+import v262Focus from '../../assets/whats-new/v262-focus.webp';
 
-const IMAGES: Record<WhatsNewImage, string> = { hero: heroImg, slash: slashImg, wiki: wikiImg, search: searchImg, daily: dailyImg, local: localImg };
+const IMAGES: Record<WhatsNewImage, string> = {
+  hero: heroImg, slash: slashImg, wiki: wikiImg, search: searchImg, daily: dailyImg, local: localImg,
+  'v262-hero': v262Hero, 'v262-source': v262Source, 'v262-compat': v262Compat, 'v262-paste': v262Paste,
+  'v262-history': v262History, 'v262-semantic': v262Semantic, 'v262-focus': v262Focus,
+};
 
 interface Props {
   entry: WhatsNewEntry;

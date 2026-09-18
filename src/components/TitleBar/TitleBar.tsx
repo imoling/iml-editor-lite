@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import {
-  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles,
+  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles, History, Focus, ImageOff, Network, Wand2,
 } from 'lucide-react';
-import { exportActiveTabToPdf } from '../../utils/exportPdf';
+import { exportActiveTabToPdf, exportActiveTabToHtml } from '../../utils/exportPdf';
 import { isNewerVersion } from '../../utils/version';
 
 type MenuId = 'file' | 'edit' | 'view' | 'intel' | 'help';
@@ -30,6 +30,7 @@ export const TitleBar: React.FC = () => {
     toggleSidebar, toggleToolbar, toggleStatusBar, createNewFile,
     sidebarVisible, toolbarVisible, statusBarVisible,
     openFile, saveActiveFile, refreshWorkspace, setTabToClose, updateStatus, checkUpdates, openDailyNote, openDialog,
+    focusMode, toggleFocusMode, aiEnabled,
   } = useAppStore();
 
   const hasUpdate = isNewerVersion(updateStatus.latestVersion, window.api.appVersion);
@@ -88,7 +89,10 @@ export const TitleBar: React.FC = () => {
           <MenuItem icon={<Save size={14} />} label="保存" hint="⌘S" disabled={!activeTab} onClick={run(() => saveActiveFile())} />
           <MenuItem icon={<Save size={14} />} label="另存为..." hint="⇧⌘S" disabled={!activeTab} onClick={run(() => saveActiveFile(true))} />
           <MenuDivider />
+          <MenuItem icon={<History size={14} />} label="版本历史…" hint="⇧⌘H" disabled={!activeTab} onClick={run(() => openDialog('history'))} />
+          <MenuDivider />
           <MenuItem icon={<FileDown size={14} />} label="导出为 PDF" hint="⌘P" disabled={!activeTab} onClick={run(exportActiveTabToPdf)} />
+          <MenuItem icon={<FileDown size={14} />} label="导出为 HTML" disabled={!activeTab} onClick={run(exportActiveTabToHtml)} />
         </Menu>
 
         <Menu id="edit" label="编辑">
@@ -103,17 +107,21 @@ export const TitleBar: React.FC = () => {
 
         <Menu id="view" label="视图" width={180}>
           <MenuItem icon={<SidebarIcon size={14} />} label={sidebarVisible ? '隐藏侧边栏' : '显示侧边栏'} hint="⌘\" onClick={run(toggleSidebar)} />
+          <MenuItem icon={<Focus size={14} />} label={focusMode ? '退出专注模式' : '专注模式'} hint="⇧⌘." onClick={run(toggleFocusMode)} />
           <MenuDivider />
           <MenuItem icon={<Layout size={14} />} label={toolbarVisible ? '隐藏工具栏' : '显示工具栏'} dim={!toolbarVisible} onClick={run(toggleToolbar)} />
           <MenuItem icon={<Layout size={14} />} label={statusBarVisible ? '隐藏状态栏' : '显示状态栏'} dim={!statusBarVisible} onClick={run(toggleStatusBar)} />
           <MenuDivider />
           <MenuItem icon={<RotateCw size={14} />} label="刷新笔记库" onClick={run(refreshWorkspace)} />
+          <MenuItem icon={<ImageOff size={14} />} label="清理未引用的图片…" onClick={run(() => openDialog('image-cleanup'))} />
         </Menu>
 
+        {/* 按功能命名：每一项打开对应功能的设置（用哪个模型 / 服务） */}
         <Menu id="intel" label="智能">
-          <MenuItem icon={<Layout size={14} />} label="模型配置" hint="⇧⌘M" onClick={run(() => openDialog('ai-config'))} />
+          <MenuItem icon={<Wand2 size={14} />} label="写作助手…" hint="⇧⌘M" onClick={run(() => openDialog('ai-config'))} />
+          <MenuItem icon={<Network size={14} />} label="相关笔记…" disabled={!aiEnabled} onClick={run(() => openDialog('semantic-config'))} />
           <MenuDivider />
-          <MenuItem icon={<Image size={14} />} label="图片生成配置" onClick={run(() => openDialog('image-config'))} />
+          <MenuItem icon={<Image size={14} />} label="AI 配图…" onClick={run(() => openDialog('image-config'))} />
         </Menu>
 
         <Menu id="help" label="帮助" width={180} badge={hasUpdate}>

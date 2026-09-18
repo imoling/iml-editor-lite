@@ -84,7 +84,7 @@ export const MODEL_CATALOG: LocalModelSpec[] = [
     minCores: 4,
     maxContext: 131072,
     supportsThinking: true,
-    description: '面壁「小钢炮」，端侧速度快，128k 上下文',
+    description: '面壁「小钢炮」，端侧速度快',
   },
   {
     id: 'minicpm5-1b-q4km',

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Building2, Cloud, MonitorSmartphone, Cpu } from 'lucide-react';
-import { SERVICE_TYPES, PRESETS, DEFAULT_LOCAL_CONFIG, inferServiceType, fallbackServiceType, findPreset, isLocalEndpoint, type AIServiceType, type Protocol, type Preset } from '../../utils/aiService';
+import { X, Cloud, MonitorSmartphone, Cpu } from 'lucide-react';
+import { SERVICE_TYPES, PRESETS, DEFAULT_LOCAL_CONFIG, DEFAULT_SERVICE_TYPE, inferServiceType, fallbackServiceType, findPreset, isLocalEndpoint, type AIServiceType, type Protocol, type Preset } from '../../utils/aiService';
 import type { LocalModelConfig } from '../../types/window';
 import { LocalModelPanel } from './LocalModelPanel';
 
@@ -14,10 +14,9 @@ interface AIConfig {
 }
 
 const SERVICE_ICONS: Record<AIServiceType, React.ReactNode> = {
-  relay: <Building2 size={14} />,
-  cloud: <Cloud size={14} />,
-  local: <MonitorSmartphone size={14} />,
   builtin: <Cpu size={14} />,
+  local: <MonitorSmartphone size={14} />,
+  cloud: <Cloud size={14} />,
 };
 
 /** invoke 抛出的错误会被 Electron 加上 "Error invoking remote method" 前缀，展示前去掉 */
@@ -29,7 +28,9 @@ interface Props {
 }
 
 const ModelConfigModal: React.FC<Props> = ({ isOpen, onClose }) => {
-  const [config, setConfig] = useState<AIConfig>({ serviceType: 'cloud', protocol: 'openai', endpoint: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o', local: DEFAULT_LOCAL_CONFIG });
+  // 全新安装默认本机模型；网络模型服务那一栏预填第一个预设（Agnes 国内站，有免费额度），切过去就能直接填 Key
+  const firstCloud = PRESETS.find((p) => p.type === 'cloud')!;
+  const [config, setConfig] = useState<AIConfig>({ serviceType: DEFAULT_SERVICE_TYPE, protocol: firstCloud.protocol, endpoint: firstCloud.endpoint, apiKey: '', model: firstCloud.model, local: DEFAULT_LOCAL_CONFIG });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -74,7 +75,7 @@ const ModelConfigModal: React.FC<Props> = ({ isOpen, onClose }) => {
     setModels([]);
     setConfig((prev) => ({
       ...prev,
-      // 中转/自定义不覆盖 protocol，让用户自行选择
+      // 自定义不覆盖 protocol，让用户自行选择
       protocol: preset.endpoint === '' ? prev.protocol : preset.protocol,
       endpoint: preset.endpoint || '',
       model: preset.model || '',
@@ -85,9 +86,10 @@ const ModelConfigModal: React.FC<Props> = ({ isOpen, onClose }) => {
     setMessage(null);
     setConfig((prev) => {
       if (type === 'builtin' || type === prev.serviceType) return { ...prev, serviceType: type };
-      // 换到另一类服务时，如果当前地址不属于这一类，套用这一类的第一个预设
+      // 换到另一类服务时，如果当前地址不属于这一类，套用这一类的第一个预设；
+      // 匹配不到预设的非本机地址就是「自定义」，属于网络模型服务，切过去时原样保留
       const current = findPreset(prev.endpoint);
-      if (current?.type === type || (type === 'relay' && !current)) return { ...prev, serviceType: type };
+      if (current?.type === type || (type === 'cloud' && !current && prev.endpoint && !isLocalEndpoint(prev.endpoint))) return { ...prev, serviceType: type };
       const first = PRESETS.find((p) => p.type === type);
       return first
         ? { ...prev, serviceType: type, protocol: first.endpoint ? first.protocol : prev.protocol, endpoint: first.endpoint, model: first.model }
@@ -158,7 +160,7 @@ const ModelConfigModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const isBuiltin = config.serviceType === 'builtin';
   const presets = PRESETS.filter((p) => p.type === config.serviceType);
   const currentPreset = findPreset(config.endpoint);
-  const currentPresetKey = currentPreset?.label ?? '中转 / 自定义';
+  const currentPresetKey = currentPreset?.label ?? '自定义';
   const isLocal = isLocalEndpoint(config.endpoint);
   const requestUrl = config.protocol === 'anthropic'
     ? `${(config.endpoint || 'https://api.anthropic.com/v1').replace(/\/$/, '')}/messages`
@@ -169,7 +171,10 @@ const ModelConfigModal: React.FC<Props> = ({ isOpen, onClose }) => {
       {isStandalone && <div className="standalone-drag" />}
       <div className={isStandalone ? 'standalone-card model-config' : 'modal-card modal-card--wide modal-card--flush model-config'} onClick={(e) => e.stopPropagation()}>
         <header className={`modal-head ${isStandalone ? 'modal-head--standalone' : ''}`}>
-          <h1 className="modal-title">模型配置</h1>
+          <div>
+            <h1 className="modal-title">写作助手</h1>
+            <p className="modal-subtitle">续写、润色、总结、扩写和流程图用哪个模型</p>
+          </div>
           {(!isStandalone || !isMac) && (
             <button onClick={onClose} className="icon-btn" title="关闭"><X size={20} /></button>
           )}
@@ -260,11 +265,12 @@ const ModelConfigModal: React.FC<Props> = ({ isOpen, onClose }) => {
                       <span>
                         {config.protocol === 'anthropic'
                           ? 'Anthropic Messages API，Base URL 须填到 /v1。实际请求：'
-                          : 'OpenAI Chat Completions 格式，适用于 OpenAI、DeepSeek、Gemini、中转站与本地服务。实际请求：'}
+                          : 'OpenAI Chat Completions 格式，适用于 OpenAI、DeepSeek、Gemini、本地服务与各类兼容接口。实际请求：'}
                       </span>
                       <br />
                       <span className="text-brand model-config__url">{requestUrl}</span>
                     </div>
+                    {currentPreset?.hint && <div className="info-box__row">{currentPreset.hint}</div>}
                     <div className="info-box__row">🔒 API Key 加密后保存在本机（macOS 钥匙串 / Windows DPAPI），不会上传。</div>
                     {isLocal && (
                       <div className="info-box__row">

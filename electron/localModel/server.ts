@@ -17,6 +17,8 @@ export interface ServerOptions {
   temperature?: number | null;
   /** 高级用户追加的原始参数，按 shell 规则切分 */
   extraArgs?: string;
+  /** 嵌入模式：只提供 /v1/embeddings，不加对话相关参数 */
+  embedding?: { slots: number };
 }
 
 /** 把 "--flash-attn on -b 512 --name 'a b'" 这样的字符串切成参数数组 */
@@ -29,6 +31,24 @@ export function splitArgs(input: string): string[] {
 }
 
 export function buildServerArgs(o: ServerOptions): string[] {
+  if (o.embedding) {
+    // 上下文在各并发槽之间平分：-c 必须是「单条上限 × 槽数」；-b / -ub 与之相同，一批输入才能一次算完
+    const args = [
+      '-m', o.modelPath,
+      '-a', o.alias,
+      '--host', '127.0.0.1',
+      '--port', String(o.port),
+      '--embedding',
+      '-c', String(o.ctxSize),
+      '-b', String(o.ctxSize),
+      '-ub', String(o.ctxSize),
+      '-np', String(o.embedding.slots),
+      '--no-webui',
+      '-ngl', String(o.gpuLayers ?? 99),
+    ];
+    if (o.threads && o.threads > 0) args.push('-t', String(o.threads));
+    return args;
+  }
   const args = [
     '-m', o.modelPath,
     '-a', o.alias,
@@ -62,7 +82,7 @@ export function findFreePort(preferred: number, attempts = 20): Promise<number> 
   })();
 }
 
-function httpJson(method: 'GET' | 'POST', url: string, body?: unknown, timeoutMs = 5000): Promise<{ status: number; json: any }> {
+export function httpJson(method: 'GET' | 'POST', url: string, body?: unknown, timeoutMs = 5000): Promise<{ status: number; json: any }> {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
     const req = http.request(url, {

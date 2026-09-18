@@ -32,7 +32,7 @@ const formatEta = (remaining: number, speed: number) => {
 const SOURCE_LABEL: Record<string, string> = { managed: '编辑器托管', system: '系统已安装', custom: '手动指定' };
 const STATUS_LABEL: Record<string, string> = { stopped: '已停止', starting: '启动中…', running: '运行中', error: '启动失败' };
 
-/** 「本机模型」面板：设备信息、llama-server 运行时、推荐模型、运行状态与高级参数 */
+/** 「本机模型」面板：运行状态、推荐模型、llama-server 运行时、设备信息与高级参数 */
 export const LocalModelPanel: React.FC<Props> = ({ draft, onChange, onSwitchBack, notify }) => {
   const [state, setState] = useState<LocalState | null>(null);
   const [logsOpen, setLogsOpen] = useState(false);
@@ -125,7 +125,7 @@ export const LocalModelPanel: React.FC<Props> = ({ draft, onChange, onSwitchBack
             <span>{m.vendor}</span>
             <span>约 {formatSize(m.size)}</span>
             {!m.custom && <span>建议 {m.minRamGB}GB 内存 · {m.minCores} 核</span>}
-            {!m.custom && m.maxContext >= 131072 && <span>{formatCtx(m.maxContext)} 上下文</span>}
+            {!m.custom && <span title="模型原生支持的上限；实际预留多少在上方「分配上下文」里选">最长 {formatCtx(m.maxContext)} 上下文</span>}
           </div>
           {m.description && <div className="lm-model__desc">{m.description}</div>}
           {m.requirement.level !== 'ok' && <div className={`lm-line ${m.requirement.level === 'fail' ? 'lm-line--error' : ''}`}>{m.requirement.message}</div>}
@@ -165,22 +165,92 @@ export const LocalModelPanel: React.FC<Props> = ({ draft, onChange, onSwitchBack
     <div>
       <div className="lm-notice">
         <ShieldCheck size={16} />
-        <span>模型权重与推理全部在本机运行，编辑器只向 127.0.0.1 发请求；笔记内容不会离开这台电脑。</span>
+        <span>全部在本机运行，笔记不会离开这台电脑。</span>
       </div>
 
-      {/* 本机设备 */}
+      {/* 顺序按「打开就想看什么」排：在不在跑 → 用哪个模型 → 运行时 → 设备信息 */}
+      {/* 运行状态 */}
       <section className="lm-section">
         <div className="lm-card">
           <div className="lm-card__head">
-            <div className="lm-card__title"><Laptop size={14} /> 本机设备</div>
-            {requirement && <span className={`lm-badge lm-badge--${requirement.level}`}>{requirement.level === 'ok' ? '满足所选模型要求' : requirement.level === 'warn' ? '配置偏紧' : '不满足要求'}</span>}
+            <div className="lm-card__title"><Activity size={14} /> 运行状态</div>
+            <span className={`lm-badge ${server.status === 'running' ? 'lm-badge--run' : server.status === 'error' ? 'lm-badge--fail' : server.status === 'starting' ? 'lm-badge--info' : 'lm-badge--muted'}`}>{STATUS_LABEL[server.status]}</span>
           </div>
-          <div className="lm-kv">
-            <div><span className="lm-kv__k">系统</span><span className="lm-kv__v">{device.osName} {device.osVersion}</span></div>
-            <div><span className="lm-kv__k">芯片</span><span className="lm-kv__v">{device.chip}</span></div>
-            <div><span className="lm-kv__k">内存</span><span className="lm-kv__v">{ramGB} GB</span></div>
-            <div><span className="lm-kv__k">核心</span><span className="lm-kv__v">{device.cores} 核 · {device.arch}</span></div>
-            <div><span className="lm-kv__k">加速</span><span className="lm-kv__v">{device.accelLabel}</span></div>
+          {server.status !== 'stopped' && (
+            <div className="lm-kv">
+              <div><span className="lm-kv__k">模型</span><span className="lm-kv__v">{server.modelName}</span></div>
+              <div><span className="lm-kv__k">地址</span><span className="lm-kv__v">127.0.0.1:{server.port}</span></div>
+              <div><span className="lm-kv__k">PID</span><span className="lm-kv__v">{server.pid ?? '—'}</span></div>
+              <div><span className="lm-kv__k">模型名</span><span className="lm-kv__v">{server.alias}</span></div>
+            </div>
+          )}
+          {/* 停止状态只提示还缺什么（运行时卡片排在后面，这里直接给安装入口）；都齐了就不说话 */}
+          {server.status === 'stopped' && (!selected || !runtime.installed || !selected.downloaded) && (
+            <div className="lm-line lm-line--muted">
+              {!runtime.installed ? (
+                install.active ? installPhaseText() : (
+                  <>
+                    还没有安装推理运行时（约 11 MB）。
+                    <button className="btn-link" onClick={() => run('install', () => window.api.local.installRuntime({ proxyPrefix: draft.proxyPrefix }))}>现在安装</button>
+                  </>
+                )
+              ) : !selected ? '先在下面选一个模型。' : '所选模型还没下载，在下面点「下载」。'}
+            </div>
+          )}
+          {server.status === 'starting' && (
+            <div className="lm-line lm-line--muted">
+              正在加载模型，已等待 {Math.max(0, Math.round((now - (server.startedAt || now)) / 1000))} 秒（首次运行要多等十几秒）。
+            </div>
+          )}
+          {server.status === 'error' && server.error && <div className="lm-line lm-line--error">{server.error}</div>}
+          <div className="lm-actions">
+            {server.status === 'running' || server.status === 'starting' ? (
+              <button className="btn btn-secondary btn-xs" disabled={busy === 'stop'} onClick={() => run('stop', () => window.api.local.stop(), '已停止本机模型')}>停止</button>
+            ) : (
+              <button className="btn btn-primary btn-xs" disabled={!canStart} onClick={() => run('start', () => window.api.local.start(draft), '本机模型已就绪')}>{busy === 'start' ? '启动中…' : '启动'}</button>
+            )}
+            <button className="btn btn-ghost btn-xs" onClick={onSwitchBack}>切回模型服务</button>
+            {/* 模型卡片上的「最长」是原生上限；这里是本次启动实际预留多少，越大越占内存，所以最多开到 128k */}
+            <span className="lm-line lm-line--muted" style={{ marginLeft: 'auto' }} title="启动时预留的上下文长度，越大越占内存。写作场景 32k 已够用，128k 能装下一整本书">
+              分配上下文
+              <select className="lm-select" value={ctxValue} onChange={(e) => onChange({ ctxSize: Number(e.target.value) })} style={{ marginLeft: 6 }}>
+                {ctxOptions.map((c) => <option key={c} value={c}>{formatCtx(c)}</option>)}
+              </select>
+            </span>
+          </div>
+          <div className="lm-actions">
+            <label className="lm-check"><input type="checkbox" checked={draft.autoStart} onChange={(e) => onChange({ autoStart: e.target.checked })} /> 随客户端启动</label>
+            <label className="lm-check" title="开启后模型会先推理再作答，质量更好但明显变慢；关闭时直接输出">
+              <input type="checkbox" checked={draft.thinking} disabled={selected ? !selected.supportsThinking : false} onChange={(e) => onChange({ thinking: e.target.checked })} /> 思考模式（慢）
+            </label>
+            {server.status === 'running' && <span className="lm-line lm-line--muted">改动下次启动生效</span>}
+            <button className="lm-toggle-btn" style={{ marginLeft: 'auto' }} onClick={() => setLogsOpen((v) => !v)}>
+              {logsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />} 查看运行日志
+            </button>
+          </div>
+          {logsOpen && <pre ref={logRef} className="lm-log">{logs.length ? logs.join('\n') : '（启动后这里显示 llama-server 的输出）'}</pre>}
+        </div>
+      </section>
+
+      {/* 推荐模型 */}
+      <section className="lm-section">
+        <div className="lm-card">
+          <div className="lm-card__head">
+            <div className="lm-card__title"><Boxes size={14} /> 推荐模型</div>
+            <select className="lm-select" value={draft.source} onChange={(e) => onChange({ source: e.target.value as LocalModelConfig['source'] })} title="模型下载源">
+              <option value="hf-mirror">下载源：国内镜像</option>
+              <option value="huggingface">下载源：Hugging Face</option>
+              <option value="custom">下载源：自定义</option>
+            </select>
+          </div>
+          {draft.source === 'custom' && (
+            <input className="field-input field-input--xs" placeholder="自定义地址前缀，如 https://mirror.example.com" value={draft.customBase} onChange={(e) => onChange({ customBase: e.target.value })} />
+          )}
+          <div className="lm-models">{models.map(renderModel)}</div>
+          {models.some((m) => m.download?.active) && <div className="lm-line lm-line--muted">下载在后台进行，可以关掉这个窗口。</div>}
+          <div className="lm-actions">
+            <button className="btn-link" onClick={() => run('import', async () => { const m = await window.api.local.importModel(); if (m) { onChange({ modelId: m.id }); notify('success', `已导入 ${m.name}`); } })}><FileInput size={12} /> 导入本地 GGUF…</button>
+            <button className="btn-link" onClick={() => window.api.local.openModelsFolder()}><FolderOpen size={12} /> 打开模型目录</button>
           </div>
         </div>
       </section>
@@ -208,11 +278,11 @@ export const LocalModelPanel: React.FC<Props> = ({ draft, onChange, onSwitchBack
             <>
               {runtime.installed ? (
                 <>
-                  <div className="lm-line">{SOURCE_LABEL[runtime.source || ''] || ''} · 来自 llama.cpp 官方发布包，Apple Silicon 自带 Metal 加速</div>
+                  <div className="lm-line">{SOURCE_LABEL[runtime.source || ''] || ''}</div>
                   <div className="lm-path">{runtime.path}</div>
                 </>
               ) : (
-                <div className="lm-line">运行本机模型需要 llama.cpp 的 llama-server，约 11 MB。点「安装」会从 GitHub 下载适合本机的最新发布包，放在编辑器自己的数据目录里，不影响系统。</div>
+                <div className="lm-line">约 11 MB，从 GitHub 下载到编辑器自己的数据目录，不影响系统。</div>
               )}
               {install.error && <div className="lm-line lm-line--error">安装失败：{install.error}</div>}
               <div className="lm-actions">
@@ -227,82 +297,20 @@ export const LocalModelPanel: React.FC<Props> = ({ draft, onChange, onSwitchBack
         </div>
       </section>
 
-      {/* 推荐模型 */}
+      {/* 本机设备 */}
       <section className="lm-section">
         <div className="lm-card">
           <div className="lm-card__head">
-            <div className="lm-card__title"><Boxes size={14} /> 推荐模型</div>
-            <select className="lm-select" value={draft.source} onChange={(e) => onChange({ source: e.target.value as LocalModelConfig['source'] })} title="模型下载源">
-              <option value="hf-mirror">下载源：国内镜像</option>
-              <option value="huggingface">下载源：Hugging Face</option>
-              <option value="custom">下载源：自定义</option>
-            </select>
+            <div className="lm-card__title"><Laptop size={14} /> 本机设备</div>
+            {requirement && <span className={`lm-badge lm-badge--${requirement.level}`}>{requirement.level === 'ok' ? '满足所选模型要求' : requirement.level === 'warn' ? '配置偏紧' : '不满足要求'}</span>}
           </div>
-          {draft.source === 'custom' && (
-            <input className="field-input field-input--xs" placeholder="自定义地址前缀，如 https://mirror.example.com" value={draft.customBase} onChange={(e) => onChange({ customBase: e.target.value })} />
-          )}
-          <div className="lm-models">{models.map(renderModel)}</div>
-          <div className="lm-line lm-line--muted">模型只需下载一次，支持断点续传，下载完成后按 SHA256 校验完整性；下载中可以关掉这个窗口。</div>
-          <div className="lm-actions">
-            <button className="btn-link" onClick={() => run('import', async () => { const m = await window.api.local.importModel(); if (m) { onChange({ modelId: m.id }); notify('success', `已导入 ${m.name}`); } })}><FileInput size={12} /> 导入本地 GGUF…</button>
-            <button className="btn-link" onClick={() => window.api.local.openModelsFolder()}><FolderOpen size={12} /> 打开模型目录</button>
+          <div className="lm-kv">
+            <div><span className="lm-kv__k">系统</span><span className="lm-kv__v">{device.osName} {device.osVersion}</span></div>
+            <div><span className="lm-kv__k">芯片</span><span className="lm-kv__v">{device.chip}</span></div>
+            <div><span className="lm-kv__k">内存</span><span className="lm-kv__v">{ramGB} GB</span></div>
+            <div><span className="lm-kv__k">核心</span><span className="lm-kv__v">{device.cores} 核 · {device.arch}</span></div>
+            <div><span className="lm-kv__k">加速</span><span className="lm-kv__v">{device.accelLabel}</span></div>
           </div>
-        </div>
-      </section>
-
-      {/* 运行状态 */}
-      <section className="lm-section">
-        <div className="lm-card">
-          <div className="lm-card__head">
-            <div className="lm-card__title"><Activity size={14} /> 运行状态</div>
-            <span className={`lm-badge ${server.status === 'running' ? 'lm-badge--run' : server.status === 'error' ? 'lm-badge--fail' : server.status === 'starting' ? 'lm-badge--info' : 'lm-badge--muted'}`}>{STATUS_LABEL[server.status]}</span>
-          </div>
-          {server.status !== 'stopped' && (
-            <div className="lm-kv">
-              <div><span className="lm-kv__k">模型</span><span className="lm-kv__v">{server.modelName}</span></div>
-              <div><span className="lm-kv__k">地址</span><span className="lm-kv__v">127.0.0.1:{server.port}</span></div>
-              <div><span className="lm-kv__k">PID</span><span className="lm-kv__v">{server.pid ?? '—'}</span></div>
-              <div><span className="lm-kv__k">模型名</span><span className="lm-kv__v">{server.alias}</span></div>
-            </div>
-          )}
-          {server.status === 'stopped' && (
-            <div className="lm-line lm-line--muted">
-              {selected ? `将运行 ${selected.name}${selected.quant ? ` · ${selected.quant}` : ''}，上下文 ${formatCtx(ctxValue)}。` : '先在上方选择一个模型。'}
-              {!runtime.installed && ' 请先安装推理运行时。'}
-              {selected && !selected.downloaded && ' 请先下载模型。'}
-            </div>
-          )}
-          {server.status === 'starting' && (
-            <div className="lm-line lm-line--muted">
-              正在加载模型，已等待 {Math.max(0, Math.round((now - (server.startedAt || now)) / 1000))} 秒。首次运行刚下载的运行时，系统会先做安全扫描，可能需要十几秒；大模型加载也需要一些时间。
-            </div>
-          )}
-          {server.status === 'error' && server.error && <div className="lm-line lm-line--error">{server.error}</div>}
-          <div className="lm-actions">
-            {server.status === 'running' || server.status === 'starting' ? (
-              <button className="btn btn-secondary btn-xs" disabled={busy === 'stop'} onClick={() => run('stop', () => window.api.local.stop(), '已停止本机模型')}>停止</button>
-            ) : (
-              <button className="btn btn-primary btn-xs" disabled={!canStart} onClick={() => run('start', () => window.api.local.start(draft), '本机模型已就绪')}>{busy === 'start' ? '启动中…' : '启动'}</button>
-            )}
-            <button className="btn btn-ghost btn-xs" onClick={onSwitchBack}>切回模型服务</button>
-            <span className="lm-line lm-line--muted" style={{ marginLeft: 'auto' }}>
-              上下文
-              <select className="lm-select" value={ctxValue} onChange={(e) => onChange({ ctxSize: Number(e.target.value) })} style={{ marginLeft: 6 }}>
-                {ctxOptions.map((c) => <option key={c} value={c}>{formatCtx(c)}</option>)}
-              </select>
-            </span>
-          </div>
-          <div className="lm-actions">
-            <label className="lm-check"><input type="checkbox" checked={draft.autoStart} onChange={(e) => onChange({ autoStart: e.target.checked })} /> 随客户端启动</label>
-            <label className="lm-check" title="开启后模型会先推理再作答，质量更好但明显变慢；关闭时直接输出">
-              <input type="checkbox" checked={draft.thinking} disabled={selected ? !selected.supportsThinking : false} onChange={(e) => onChange({ thinking: e.target.checked })} /> 思考模式（慢）
-            </label>
-            {server.status === 'running' && <span className="lm-line lm-line--muted">上下文 / 思考模式改动在下次启动时生效</span>}
-            <button className="lm-toggle-btn" style={{ marginLeft: 'auto' }} onClick={() => setLogsOpen((v) => !v)}>
-              {logsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />} 查看运行日志
-            </button>
-          </div>
-          {logsOpen && <pre ref={logRef} className="lm-log">{logs.length ? logs.join('\n') : '（暂无日志：启动本机模型后这里会显示 llama-server 的输出）'}</pre>}
         </div>
       </section>
 

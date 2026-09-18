@@ -5,7 +5,10 @@ import https from 'https';
 import http from 'http';
 import { setupFileSystemIPC } from './ipc/fileSystem';
 import { SearchIndex } from './searchIndex';
-import { setupLocalModel, ensureBuiltinEndpoint, isBuiltinService } from './localModel';
+import { setupLocalModel, ensureBuiltinEndpoint, builtinNotReadyHint, isBuiltinService, isLocalServerActive, stopServer as stopLocalServer } from './localModel';
+import { setupSemantic, syncSemanticIndex, stopSemanticServer, isSemanticServerActive } from './semantic';
+import { NoteHistory } from './history';
+import { registerAssetScheme, handleAssetProtocol, findOrphanImages, filterTrashable, fetchPageTitle } from './assets';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -15,6 +18,9 @@ app.setName('iML Markdown Editor');
 
 // 冒烟测试：IML_SMOKE_USERDATA 指向临时目录，配置 / 运行时 / 模型都不碰用户的真实数据
 if (isDev && process.env.IML_SMOKE_USERDATA) app.setPath('userData', process.env.IML_SMOKE_USERDATA);
+
+// 笔记里的本地图片走 iml-asset://（必须在 ready 之前登记协议）
+registerAssetScheme();
 
 // ── Node.js 原生 HTTP helpers（不经过 Chromium WebIDL，不校验 ByteString）──────
 function nodePost(
@@ -174,14 +180,23 @@ function getAppSettings() {
   return settings;
 }
 
+/** 拼写检查默认关：中文笔记里满屏红色波浪线弊大于利，需要的人在设置里打开 */
+function applySpellcheck(enabled: boolean) {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.session.setSpellCheckerEnabled(enabled);
+  }
+}
+
 function saveAppSettings(settings: any) {
   const { userDataPath } = getPaths();
   const settingsPath = path.join(userDataPath, 'app-settings.json');
   try {
-    const toWrite = settings?.imageGenConfig
-      ? { ...settings, imageGenConfig: encryptSecrets(settings.imageGenConfig, ['apiKey']) }
-      : settings;
-    fs.writeFileSync(settingsPath, JSON.stringify(toWrite, null, 2), 'utf8');
+    // 合并写入：各个设置入口只传自己管的字段，不能把别人的字段（如图片生成配置里的 API Key）冲掉
+    let existing: any = {};
+    try { existing = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) || {}; } catch { /* 首次保存 */ }
+    const merged = { ...existing, ...(settings || {}) };
+    if (settings?.imageGenConfig) merged.imageGenConfig = encryptSecrets(settings.imageGenConfig, ['apiKey']);
+    fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2), 'utf8');
     return { success: true };
   } catch (err) {
     console.error('Failed to save settings:', err);
@@ -276,10 +291,15 @@ const libraryChanged = new Set<string>();
 const searchIndex = new SearchIndex();
 
 function createWindow() {
+  // 冒烟测试：IML_SMOKE_OFFSCREEN=1 时用离屏渲染（不显示窗口，按定时器出帧），显示器休眠、无人值守时也能截图；
+  // IML_SMOKE_SIZE=1440x900 指定窗口大小
+  const smokeOffscreen = isDev && process.env.IML_SMOKE_OFFSCREEN === '1';
+  const [smokeW, smokeH] = (isDev ? process.env.IML_SMOKE_SIZE || '' : '').split('x').map((n) => Number(n));
 
   mainWindow = new BrowserWindow({
-    width: 1024,
-    height: 768,
+    width: smokeW > 0 ? smokeW : 1024,
+    height: smokeH > 0 ? smokeH : 768,
+    show: !smokeOffscreen,
     minWidth: 800,
     minHeight: 600,
     title: 'iML Markdown Editor',
@@ -291,9 +311,12 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      ...(smokeOffscreen ? { offscreen: true } : {}),
     },
     icon: path.join(__dirname, '../assets/logo.png'),
   });
+  if (smokeOffscreen) mainWindow.webContents.setFrameRate(30);
+  mainWindow.webContents.session.setSpellCheckerEnabled(!!getAppSettings().spellcheck);
 
   if (isDev) {
     // 开发模式：把渲染进程的控制台输出转发到终端，方便在命令行里看到 React / 编辑器的报错
@@ -344,7 +367,7 @@ function createWindow() {
  * 配置 / 关于 / 快捷键都是主窗口里的浮层，不再新开 BrowserWindow：
  * 多开窗口会让 Dock 与调度中心里出现好几个同名窗口。主窗口不在时先建出来再打开。
  */
-function openDialogInMain(id: 'about' | 'shortcuts' | 'ai-config' | 'image-config' | 'settings') {
+function openDialogInMain(id: 'about' | 'shortcuts' | 'ai-config' | 'image-config' | 'semantic-config' | 'settings') {
   if (!mainWindow || mainWindow.isDestroyed()) {
     createWindow();
     mainWindow?.webContents.once('did-finish-load', () => {
@@ -400,6 +423,21 @@ function setupAppMenu() {
           click: () => mainWindow?.webContents.send('menu:save'),
         },
         { type: 'separator' },
+        {
+          label: '版本历史…',
+          accelerator: 'Cmd+Shift+H',
+          click: () => mainWindow?.webContents.send('dialog:open', 'history'),
+        },
+        {
+          label: '导出为 PDF…',
+          accelerator: 'Cmd+P',
+          click: () => mainWindow?.webContents.send('menu:export', 'pdf'),
+        },
+        {
+          label: '导出为 HTML…',
+          click: () => mainWindow?.webContents.send('menu:export', 'html'),
+        },
+        { type: 'separator' },
         { role: 'close', label: '关闭窗口' },
       ],
     },
@@ -434,14 +472,19 @@ function setupAppMenu() {
     {
       label: '智能',
       submenu: [
+        // 与应用内的「智能」菜单保持一致：按功能命名，每项打开该功能的设置
         {
-          label: '模型配置',
+          label: '写作助手…',
           accelerator: 'Cmd+Shift+M',
           click: () => openDialogInMain('ai-config'),
         },
+        {
+          label: '相关笔记…',
+          click: () => openDialogInMain('semantic-config'),
+        },
         { type: 'separator' },
         {
-          label: '图片生成配置',
+          label: 'AI 配图…',
           click: () => openDialogInMain('image-config'),
         },
       ],
@@ -465,16 +508,29 @@ function setupAppMenu() {
 }
 
 app.whenReady().then(() => {
-  // 1. 注册核心 IPC 句柄
+  // 0. 本地图片协议
   try {
-    setupFileSystemIPC();
+    handleAssetProtocol();
+  } catch (err) {
+    console.error('Failed to register asset protocol:', err);
+  }
+
+  // 1. 注册核心 IPC 句柄
+  const history = new NoteHistory(path.join(getPaths().userDataPath, 'history'));
+  try {
+    setupFileSystemIPC({ history });
   } catch (err) {
     console.error('Failed to setup FileSystem IPC:', err);
   }
+
+  // 版本历史
+  ipcMain.handle('history:list', (_event, filePath: string) => history.list(String(filePath || '')));
+  ipcMain.handle('history:read', (_event, filePath: string, id: string) => history.read(String(filePath || ''), String(id || '')));
   
   // AI Config IPC
   ipcMain.handle('ai:getConfig', () => getConfig());
-  ipcMain.handle('ai:saveConfig', (_event, config) => saveConfig(config));
+  // semantic 字段由语义索引模块自己维护；配置弹窗里那份可能是打开时的旧值，保存时以磁盘上的为准
+  ipcMain.handle('ai:saveConfig', (_event, config) => saveConfig({ ...config, semantic: getConfig().semantic }));
 
   // 本机模型（编辑器托管的 llama-server）：硬件信息、运行时安装、模型下载、进程管理
   try {
@@ -482,6 +538,25 @@ app.whenReady().then(() => {
   } catch (err) {
     console.error('Failed to setup local model IPC:', err);
   }
+
+  // 语义索引（本机嵌入模型）：相关笔记与语义搜索
+  try {
+    setupSemantic({ getConfig, saveConfig, searchIndex, isAiEnabled: () => getAppSettings().aiEnabled !== false });
+  } catch (err) {
+    console.error('Failed to setup semantic index:', err);
+  }
+
+  // 被信号结束（终端 Ctrl+C、系统关机时的 SIGTERM）也走正常退出流程，否则 before-quit 不触发，子进程会变成孤儿
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => app.quit());
+
+  // 退出时带走托管的子进程（对话服务 + 嵌入服务）
+  let quitting = false;
+  app.on('before-quit', (event) => {
+    if (quitting || (!isLocalServerActive() && !isSemanticServerActive())) return;
+    quitting = true;
+    event.preventDefault();
+    Promise.allSettled([stopLocalServer(), stopSemanticServer()]).finally(() => app.quit());
+  });
 
   // 测试连接：按表单里的（未保存的）配置发一条极短的对话，返回耗时
   ipcMain.handle('ai:testConnection', async (_event, cfg: { protocol?: string; endpoint?: string; apiKey?: string; model?: string }) => {
@@ -538,12 +613,13 @@ app.whenReady().then(() => {
           const paths = [...libraryChanged];
           libraryChanged.clear();
           await searchIndex.refresh(paths).catch(() => {});
+          void syncSemanticIndex();
           if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('library:changed', paths);
         }, 400);
       });
       libraryWatcher.on('error', (err) => console.warn('[library:watch]', err));
       // 监听开始的同时后台建索引
-      searchIndex.build(dirPath).catch((err) => console.warn('[search] index build failed:', err));
+      searchIndex.build(dirPath).then(() => syncSemanticIndex()).catch((err) => console.warn('[search] index build failed:', err));
       return true;
     } catch (err) {
       console.warn('[library:watch] failed:', err);
@@ -556,6 +632,28 @@ app.whenReady().then(() => {
   ipcMain.handle('search:status', () => searchIndex.status());
   ipcMain.handle('search:listNotes', () => searchIndex.listNotes());
   ipcMain.handle('search:backlinks', (_event, title: string) => searchIndex.backlinks(String(title || '')));
+  ipcMain.handle('search:tags', () => searchIndex.listTags());
+  ipcMain.handle('search:notesByTag', (_event, tag: string) => searchIndex.notesByTag(String(tag || '')));
+
+  // ── 图片整理：找出没有任何笔记引用的图片；确认后移入废纸篓（可恢复）──
+  ipcMain.handle('library:findOrphanImages', (_event, extraTexts?: string[]) => {
+    const root = searchIndex.status().root;
+    if (!root) return [];
+    return findOrphanImages(root, Array.isArray(extraTexts) ? extraTexts.map(String) : []);
+  });
+  ipcMain.handle('library:trashImages', async (_event, paths: string[]) => {
+    const root = searchIndex.status().root;
+    if (!root || !Array.isArray(paths)) return { trashed: 0, failed: [] as string[] };
+    const failed: string[] = [];
+    let trashed = 0;
+    for (const p of filterTrashable(root, paths)) {
+      try { await shell.trashItem(p); trashed++; } catch { failed.push(p); }
+    }
+    return { trashed, failed };
+  });
+
+  // 粘贴链接时取网页标题
+  ipcMain.handle('web:fetchTitle', (_event, url: string) => fetchPageTitle(String(url || '')));
 
   // iCloud Drive 下的笔记库路径（不存在 iCloud Drive 时返回 null）；选用时自动建目录
   ipcMain.handle('app:getICloudLibraryPath', () => {
@@ -617,6 +715,12 @@ app.whenReady().then(() => {
   ipcMain.handle('app:getSettings', () => getAppSettings());
   ipcMain.handle('app:saveSettings', (_event, settings) => {
     const result = saveAppSettings(settings);
+    if (result.success) applySpellcheck(!!getAppSettings().spellcheck);
+    // AI 总开关：关掉就把嵌入服务停了；重新打开则补上期间落下的索引
+    if (result.success && settings && 'aiEnabled' in settings) {
+      if (settings.aiEnabled === false) void stopSemanticServer();
+      else void syncSemanticIndex();
+    }
     if (result.success && mainWindow) {
       mainWindow.webContents.send('settings:changed', settings);
     }
@@ -647,6 +751,11 @@ app.whenReady().then(() => {
   });
 
   ipcMain.on('ai:chat', async (event, { messages, requestId, maxTokens }) => {
+    // 界面上的 AI 入口已经随总开关隐藏；这里再兜一道，保证关掉之后真的不发请求
+    if (getAppSettings().aiEnabled === false) {
+      event.sender.send(`ai:chat-error-${requestId}`, 'AI 功能已在设置中关闭');
+      return;
+    }
     const config = getConfig();
     let apiKey: string = config.apiKey || '';
     let endpoint = (config.endpoint || '').replace(/\/$/, '');
@@ -655,6 +764,11 @@ app.whenReady().then(() => {
 
     // 本机模型：请求只发往 127.0.0.1 上由编辑器托管的 llama-server；没启动就先拉起来
     if (isBuiltinService(config)) {
+      const hint = builtinNotReadyHint();
+      if (hint) {
+        event.sender.send(`ai:chat-error-${requestId}`, hint);
+        return;
+      }
       try {
         const local = await ensureBuiltinEndpoint();
         endpoint = local.endpoint;
@@ -668,11 +782,11 @@ app.whenReady().then(() => {
     }
 
     if (!endpoint) {
-      event.sender.send(`ai:chat-error-${requestId}`, '请先在「模型配置」中填写服务地址（Base URL）');
+      event.sender.send(`ai:chat-error-${requestId}`, '请先在「智能 → 写作助手」中填写服务地址（Base URL）');
       return;
     }
     if (protocol === 'anthropic' && !apiKey) {
-      event.sender.send(`ai:chat-error-${requestId}`, 'Anthropic 协议需要 API Key，请在「模型配置」中填写');
+      event.sender.send(`ai:chat-error-${requestId}`, 'Anthropic 协议需要 API Key，请在「智能 → 写作助手」中填写');
       return;
     }
 
@@ -830,12 +944,21 @@ app.whenReady().then(() => {
     }
   });
 
-  // ── AI 图片生成（插入图片对话框 / AI 气泡「AI 图片」模式）──────────────────
+  // ── AI 图片生成（插入图片对话框 / AI 气泡「AI 配图」模式）──────────────────
   ipcMain.handle(
     'ai:generateImage',
     async (_, { prompt, config: cfg }: { prompt: string; config: any }): Promise<{ url: string }[]> => {
       function bufToDataUrl(buf: Buffer, mimeType: string): string {
         return `data:${mimeType};base64,${buf.toString('base64')}`;
+      }
+
+      /** 按文件头认图片格式；认不出来按 PNG（data URL 的 MIME 决定落盘时的扩展名） */
+      function sniffImageMime(buf: Buffer): string {
+        if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+        if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+        if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+        if (buf.length >= 6 && /^GIF8[79]a/.test(buf.toString('ascii', 0, 6))) return 'image/gif';
+        return 'image/png';
       }
 
       function assertAsciiHeader(value: string, label: string) {
@@ -852,7 +975,34 @@ app.whenReady().then(() => {
 
       const results: { url: string }[] = [];
 
-      if (cfg.provider === 'gemini' || cfg.provider === 'gemini-imagen' || cfg.provider === 'gemini-flash') {
+      if (cfg.provider === 'agnes-cn' || cfg.provider === 'agnes') {
+        // Agnes：OpenAI 兼容的 /images/generations；国内站与国际站只是域名不同（与写作助手里的 Base URL 同源）
+        const site = cfg.provider === 'agnes-cn' ? '国内站' : '国际站';
+        const base = cfg.provider === 'agnes-cn' ? 'https://api.agnes-ai.cn/v1' : 'https://apihub.agnes-ai.com/v1';
+        const model = cfg.model || 'agnes-image-2.0-flash';
+        const { status, text: rawText } = await nodePost(
+          `${base}/images/generations`,
+          JSON.stringify({ model, prompt, n: 1 }),
+          { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+        );
+        let data: any = null;
+        try { data = JSON.parse(rawText); } catch { /* 下面按状态码报错 */ }
+        if (status < 200 || status >= 300) throw new Error(`Agnes ${site} HTTP ${status}（${model}）: ${data?.error?.message || rawText.slice(0, 300) || '(empty)'}`);
+        if (!data) throw new Error(`Agnes ${site} 返回非 JSON: ${rawText.slice(0, 200)}`);
+        if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+        // 回执按 OpenAI 形状为主（data[].url / b64_json），也认几种见过的变体
+        const items: any[] = Array.isArray(data.data) ? data.data : Array.isArray(data.output) ? data.output : Array.isArray(data.results) ? data.results : [];
+        for (const item of items) {
+          const b64 = item?.b64_json || item?.base64;
+          const url = typeof item === 'string' ? item : item?.url || item?.image_url;
+          if (b64) results.push({ url: bufToDataUrl(Buffer.from(b64, 'base64'), 'image/png') });
+          else if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+            const buf = await nodeGetBuffer(url);
+            results.push({ url: bufToDataUrl(buf, sniffImageMime(buf)) });
+          }
+        }
+        if (results.length === 0) throw new Error(`Agnes ${site} 未返回图片（${model}）: ${rawText.slice(0, 200)}`);
+      } else if (cfg.provider === 'gemini' || cfg.provider === 'gemini-imagen' || cfg.provider === 'gemini-flash') {
         // 未指定模型时默认走 Imagen，与「图片生成配置」界面默认高亮的选项一致
         const useImagen = cfg.provider === 'gemini-imagen'
           || (cfg.provider !== 'gemini-flash' && (!cfg.model || cfg.model.includes('imagen')));
@@ -947,7 +1097,7 @@ app.whenReady().then(() => {
           }
         }
       } else {
-        throw new Error(`未知图片生成提供商「${cfg.provider || '(未配置)'}」，请在「图片生成配置」中选择提供商并填入 API Key`);
+        throw new Error(`未知图片生成提供商「${cfg.provider || '(未配置)'}」，请在「智能 → AI 配图」中选择提供商并填入 API Key`);
       }
 
       if (results.length === 0) {

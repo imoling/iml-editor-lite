@@ -1,5 +1,4 @@
 import StarterKit from '@tiptap/starter-kit';
-import Image from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
@@ -10,7 +9,6 @@ import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
 import { ListItem } from '@tiptap/extension-list-item';
 import { Underline } from '@tiptap/extension-underline';
-import { Link } from '@tiptap/extension-link';
 import { TextAlign } from '@tiptap/extension-text-align';
 import { all, createLowlight } from 'lowlight';
 import { MathExtension } from '../../extensions/MathExtension';
@@ -21,6 +19,15 @@ import { CustomHeadingEnter, ShortcutOverrides } from '../../extensions/EditorKe
 import { SlashCommand } from '../../extensions/SlashCommand';
 import { WikiLink } from '../../extensions/WikiLink';
 import { WikiLinkSuggestion } from '../../extensions/WikiLinkSuggestion';
+import { Frontmatter } from '../../extensions/Frontmatter';
+import { Callout } from '../../extensions/Callout';
+import { Toc } from '../../extensions/Toc';
+import { RawBlock, RawInline } from '../../extensions/RawHtml';
+import { InlineMath } from '../../extensions/InlineMath';
+import { TagHighlight } from '../../extensions/TagHighlight';
+import { Kbd, Subscript, Superscript, Highlight, SoftAwareHardBreak, NoteLink } from '../../extensions/InlineMarks';
+import { NoteImage } from '../../extensions/NoteImage';
+import { FocusMode } from '../../extensions/FocusMode';
 
 const lowlight = createLowlight(all);
 
@@ -32,14 +39,29 @@ export const editorExtensions = [
   SlashCommand,
   WikiLink,
   WikiLinkSuggestion,
+  // 兼容包：frontmatter / 提示块 / [TOC] / 原样保留的 HTML 与脚注 / 行内公式 / #标签 高亮
+  Frontmatter,
+  Callout,
+  Toc,
+  RawBlock,
+  RawInline,
+  InlineMath,
+  TagHighlight,
+  FocusMode,
+  Kbd,
+  Subscript,
+  Superscript,
+  Highlight,
   StarterKit.configure({
     codeBlock: false, 
     listItem: false,
+    hardBreak: false,
   }), 
+  SoftAwareHardBreak,
   ListItem.extend({
     content: 'block+',
   }),
-  Image.configure({ allowBase64: true }),
+  NoteImage.configure({ allowBase64: true }),
   Table.configure({
     resizable: true,
   }),
@@ -59,8 +81,10 @@ export const editorExtensions = [
     nested: true,
   }),
   Underline,
-  Link.configure({
+  NoteLink.configure({
     openOnClick: false,
+    // obsidian:// zotero:// 这类应用链接也要留住；只挡掉能执行脚本的协议
+    isAllowedUri: (url) => !/^\s*(javascript|vbscript|data):/i.test(url || ''),
   }),
   TextAlign.configure({
     types: ['heading', 'paragraph', 'tableCell', 'tableHeader'],

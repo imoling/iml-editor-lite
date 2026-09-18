@@ -66,4 +66,18 @@ describe('SearchIndex', () => {
     expect(links[0].snippets).toHaveLength(2);
     expect(index.backlinks('不存在')).toEqual([]);
   });
+
+  it('标签：正文 #标签 与 frontmatter tags 合并统计，层级标签计入父标签', async () => {
+    write('tagged/one.md', '---\ntags: [读书, 项目/甲]\n---\n\n# 一\n\n正文 #想法 #项目/乙\n\n```\n#不是标签\n```');
+    write('tagged/two.md', '# 二\n\n#读书 和 #想法');
+    const index = new SearchIndex();
+    await index.build(root);
+    const tags = Object.fromEntries(index.listTags().map((t) => [t.tag, t.count]));
+    expect(tags).toMatchObject({ 读书: 2, 想法: 2, 项目: 1, '项目/甲': 1, '项目/乙': 1 });
+    expect(tags['不是标签']).toBeUndefined();
+    expect(index.notesByTag('项目').map((n) => n.title)).toEqual(['一']);
+    expect(index.notesByTag('读书').map((n) => n.title).sort()).toEqual(['一', '二']);
+    // frontmatter 里的 # 注释不会被当成标题
+    expect(SearchIndex.titleOf('/x/文件名.md', '---\n# 注释\ntags: []\n---\n\n正文')).toBe('文件名');
+  });
 });

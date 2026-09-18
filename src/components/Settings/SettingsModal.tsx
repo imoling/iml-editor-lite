@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Moon, Sun, Monitor, Palette, Power, Save, Trash2, AlertTriangle, FolderOpen, Coffee } from 'lucide-react';
-import { useAppStore, THEME_PRESETS } from '../../stores/appStore';
+import { X, Moon, Sun, Monitor, Palette, Power, Save, Trash2, AlertTriangle, FolderOpen, Coffee, Type, ImageDown, Link2, SpellCheck, ShieldCheck, ImageOff } from 'lucide-react';
+import { useAppStore, THEME_PRESETS, EDITOR_FONTS, PAGE_WIDTHS, DEFAULT_EDITOR_PREFS, normalizeEditorPrefs, applyEditorPrefs, type EditorPrefs } from '../../stores/appStore';
 
 type AppearanceMode = 'light' | 'dark' | 'system' | 'eye-protection';
 
@@ -20,7 +20,7 @@ interface Props {
 export const SettingsModal: React.FC<Props> = ({ onClose }) => {
   const isStandalone = new URLSearchParams(window.location.search).get('window') === 'settings';
   const isMac = window.api.app.platform === 'darwin';
-  const { setTheme, applyAppearance, loadSettings } = useAppStore();
+  const { setTheme, applyAppearance, loadSettings, openDialog } = useAppStore();
   const isOpen = isStandalone || !!onClose;
 
   const [local, setLocal] = useState({
@@ -29,6 +29,11 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
     autoSave: true,
     defaultLibraryPath: '',
     themeId: 'indigo',
+    editorPrefs: DEFAULT_EDITOR_PREFS as EditorPrefs,
+    imageCompression: true,
+    fetchLinkTitle: true,
+    spellcheck: false,
+    aiEnabled: true,
   });
 
   // 从磁盘加载并预览
@@ -42,6 +47,11 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
         autoSave: settings.autoSave ?? true,
         defaultLibraryPath: settings.defaultLibraryPath || '',
         themeId: settings.themeId || 'indigo',
+        editorPrefs: normalizeEditorPrefs(settings.editorPrefs),
+        imageCompression: settings.imageCompression ?? true,
+        fetchLinkTitle: settings.fetchLinkTitle ?? true,
+        spellcheck: !!settings.spellcheck,
+        aiEnabled: settings.aiEnabled ?? true,
       });
       applyAppearance(settings.appearanceMode || 'light');
       setTheme(settings.themeId || 'indigo');
@@ -70,6 +80,27 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
     setTheme(themeId);
     window.api.app.previewSettings(next);
   };
+  // 排版改动实时预览；取消时 loadSettings 会从磁盘恢复
+  const setPrefs = (patch: Partial<EditorPrefs>) => {
+    const editorPrefs = normalizeEditorPrefs({ ...local.editorPrefs, ...patch });
+    setLocal((s) => ({ ...s, editorPrefs }));
+    applyEditorPrefs(editorPrefs);
+  };
+  const toggleRow = (key: 'imageCompression' | 'fetchLinkTitle' | 'spellcheck' | 'aiEnabled', icon: React.ReactNode, title: string, desc: string) => (
+    <div className="settings-row">
+      <div className="settings-row__label">
+        {icon}
+        <div>
+          <div className="settings-row__title">{title}</div>
+          <div className="settings-row__desc">{desc}</div>
+        </div>
+      </div>
+      <label className={`toggle ${local[key] ? 'toggle--on' : ''}`}>
+        <input type="checkbox" checked={local[key]} onChange={(e) => setLocal((s) => ({ ...s, [key]: e.target.checked }))} />
+        <span className="toggle__track"><span className="toggle__thumb" /></span>
+      </label>
+    </div>
+  );
   const handleSelectLibrary = async () => {
     const result = await window.api.dialog.open({ properties: ['openDirectory'] });
     if (result && result.length > 0) setLocal((s) => ({ ...s, defaultLibraryPath: result[0] }));
@@ -131,6 +162,65 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
             </section>
 
             <section>
+              <h3 className="settings-section-title"><Type size={14} /> 正文排版</h3>
+              <div className="settings-card">
+                <div className="settings-row">
+                  <div>
+                    <div className="settings-row__title">正文字体</div>
+                    <div className="settings-row__desc">富文本与预览的正文；代码始终用等宽字体</div>
+                  </div>
+                  <select className="settings-select" value={local.editorPrefs.font} onChange={(e) => setPrefs({ font: e.target.value as EditorPrefs['font'] })}>
+                    {(Object.keys(EDITOR_FONTS) as EditorPrefs['font'][]).map((id) => <option key={id} value={id}>{EDITOR_FONTS[id].label}</option>)}
+                  </select>
+                </div>
+                <div className="settings-divider" />
+                <div className="settings-row">
+                  <div><div className="settings-row__title">字号</div></div>
+                  <div className="settings-range">
+                    <input type="range" min={13} max={22} step={1} value={local.editorPrefs.fontSize} onChange={(e) => setPrefs({ fontSize: Number(e.target.value) })} />
+                    <span className="settings-range__value">{local.editorPrefs.fontSize}px</span>
+                  </div>
+                </div>
+                <div className="settings-divider" />
+                <div className="settings-row">
+                  <div><div className="settings-row__title">行距</div></div>
+                  <div className="settings-range">
+                    <input type="range" min={1.3} max={2.4} step={0.1} value={local.editorPrefs.lineHeight} onChange={(e) => setPrefs({ lineHeight: Number(e.target.value) })} />
+                    <span className="settings-range__value">{local.editorPrefs.lineHeight.toFixed(1)}</span>
+                  </div>
+                </div>
+                <div className="settings-divider" />
+                <div className="settings-row">
+                  <div><div className="settings-row__title">页面宽度</div></div>
+                  <div className="seg-switch">
+                    {(Object.keys(PAGE_WIDTHS) as EditorPrefs['pageWidth'][]).map((id) => (
+                      <button key={id} onClick={() => setPrefs({ pageWidth: id })} className={`seg-switch__btn ${local.editorPrefs.pageWidth === id ? 'seg-switch__btn--active' : ''}`}>{PAGE_WIDTHS[id].label}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <h3 className="settings-section-title">粘贴与输入</h3>
+              <div className="settings-card">
+                {toggleRow('imageCompression', <ImageDown size={18} color="var(--text-muted)" />, '粘贴图片时压缩', '截图等大图转成 WebP 再存进笔记旁的 assets/，体积通常小一半以上；动图、矢量图不动')}
+                <div className="settings-divider" />
+                {toggleRow('fetchLinkTitle', <Link2 size={18} color="var(--text-muted)" />, '粘贴网址时取网页标题', '贴进来的只是一个网址时，访问它一次取标题，变成 [标题](网址)')}
+                <div className="settings-divider" />
+                {toggleRow('spellcheck', <SpellCheck size={18} color="var(--text-muted)" />, '拼写检查', '用系统词典给拼错的英文单词标红；中文笔记建议关闭')}
+              </div>
+            </section>
+
+            <section>
+              <h3 className="settings-section-title"><ShieldCheck size={14} /> AI 与隐私</h3>
+              <div className="settings-card">
+                {toggleRow('aiEnabled', <ShieldCheck size={18} color="var(--text-muted)" />, '启用 AI 功能', '关闭后所有 AI 入口隐藏（写作助手、AI 配图、相关笔记、语义搜索），应用不向任何模型服务发请求')}
+                <div className="hint">状态栏右侧始终显示 AI 请求发往哪里：本机（不出这台电脑）还是云端服务。</div>
+              </div>
+            </section>
+
+            <section>
               <h3 className="settings-section-title">常规选项</h3>
               <div className="settings-card">
                 <div className="settings-row">
@@ -182,6 +272,18 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
                 </div>
                 <div className="path-box">{local.defaultLibraryPath || '未设置'}</div>
                 <div className="hint">放在 iCloud Drive 或其他同步盘目录里即可多设备共用；外部改动会自动刷新，未保存的标签页会用橙点提示。</div>
+                {!isStandalone && (
+                  <>
+                    <div className="settings-divider" />
+                    <div className="settings-row">
+                      <div>
+                        <div className="settings-row__title">清理未引用的图片</div>
+                        <div className="settings-row__desc">找出没有任何笔记用到的图片，确认后移入废纸篓</div>
+                      </div>
+                      <button onClick={() => { handleCancel(); openDialog('image-cleanup'); }} className="btn-link"><ImageOff size={12} /> 开始扫描</button>
+                    </div>
+                  </>
+                )}
               </div>
             </section>
 

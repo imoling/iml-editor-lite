@@ -11,7 +11,7 @@
 
 .tiptap-page {
   width: calc(100% - 64px);
-  max-width: 820px;
+  max-width: var(--editor-page-width, 820px);
   min-height: calc(100vh - 128px);
   margin: 32px 0;
   padding: 60px 80px;
@@ -31,9 +31,10 @@
 
 .tiptap-prosemirror {
   outline: none;
-  font-family: var(--font-body);
+  font-family: var(--editor-font, var(--font-body));
+  font-size: var(--editor-font-size, 16px);
   color: var(--text-primary);
-  line-height: 1.6;
+  line-height: var(--editor-line-height, 1.6);
   width: 100%;
   flex: 1 0 auto; /* Allow full expansion and prohibit shrinking */
 }
@@ -49,7 +50,7 @@
 
 .tiptap-prosemirror p {
   margin-bottom: 0.5em;
-  font-size: 16px;
+  font-size: var(--editor-font-size, 16px);
   color: var(--text-primary);
 }
 
@@ -819,3 +820,143 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
 .wiki-link::after { content: ']]'; opacity: 0.45; font-size: 0.8em; margin-left: 1px; }
 .ProseMirror-selectednode.wiki-link { outline: 2px solid var(--color-brand-indigo); }
 .backlinks { margin-top: 16px; border-top: 1px solid var(--border-subtle); padding: 12px 8px 0; }
+
+
+/* ── 26.2 兼容包：frontmatter / 提示块 / 目录 / 原样保留 / 行内公式 / 标签 ─────────────────── */
+
+/* 原文编辑态（frontmatter、HTML、公式共用） */
+.source-node__input {
+  display: block; width: 100%; box-sizing: border-box; resize: vertical;
+  font-family: var(--font-code); font-size: 13px; line-height: 1.6;
+  color: var(--text-primary); background: var(--bg-page);
+  border: 1px solid var(--color-brand-indigo); border-radius: 6px; padding: 8px 10px; outline: none;
+  box-shadow: 0 0 0 3px var(--selection-bg-editor);
+}
+span > .source-node__input { display: inline-block; width: auto; min-width: 160px; vertical-align: middle; resize: none; padding: 2px 6px; }
+.is-editing { cursor: text; }
+
+/* Frontmatter 属性卡片 */
+.frontmatter-card {
+  margin: 0 0 1.5em; padding: 8px 14px 10px; border: 1px solid var(--border-subtle); border-radius: 10px;
+  background: var(--bg-surface); font-size: 13px; color: var(--text-secondary); font-family: var(--font-body);
+}
+.frontmatter-card--editable { cursor: default; }
+.ProseMirror-focused .frontmatter-card--editable.ProseMirror-selectednode { outline: 2px solid var(--color-brand-indigo); }
+.frontmatter-card__head { display: flex; align-items: center; justify-content: space-between; }
+.frontmatter-card__toggle, .frontmatter-card__edit {
+  border: none; background: none; cursor: pointer; font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--text-muted); padding: 2px 4px; border-radius: 4px;
+}
+.frontmatter-card__toggle:hover, .frontmatter-card__edit:hover { color: var(--color-brand-indigo); background: var(--bg-hover-editor); }
+.frontmatter-card__body { margin-top: 4px; }
+.frontmatter-card__row { display: flex; gap: 12px; line-height: 1.9; align-items: baseline; }
+.frontmatter-card__row--empty { color: var(--text-muted); font-style: italic; }
+.frontmatter-card__key { flex: 0 0 96px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frontmatter-card__value { flex: 1; min-width: 0; color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
+.frontmatter-card__chip {
+  display: inline-block; margin: 0 6px 2px 0; padding: 0 8px; border-radius: 10px; line-height: 1.6;
+  background: var(--bg-elevated); color: var(--text-secondary); font-size: 12px;
+}
+
+/* 提示块 */
+.callout {
+  --callout-color: var(--color-brand-indigo);
+  --callout-bg: rgba(99, 102, 241, 0.08);
+  position: relative; margin: 1.2em 0; padding: 10px 14px 10px 16px; border-radius: 8px;
+  border-left: 4px solid var(--callout-color); background: var(--callout-bg);
+}
+.callout--tip { --callout-color: #10B981; --callout-bg: rgba(16, 185, 129, 0.09); }
+.callout--important { --callout-color: #8B5CF6; --callout-bg: rgba(139, 92, 246, 0.09); }
+.callout--warning { --callout-color: #F59E0B; --callout-bg: rgba(245, 158, 11, 0.10); }
+.callout--caution { --callout-color: #EF4444; --callout-bg: rgba(239, 68, 68, 0.09); }
+.callout__title {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-weight: 600; font-size: 14px;
+  color: var(--callout-color); user-select: none; position: relative;
+}
+.callout__badge {
+  border: none; background: none; padding: 1px 4px; margin-left: -4px; border-radius: 4px; cursor: pointer;
+  font: inherit; color: inherit; white-space: nowrap;
+}
+.callout__badge:hover { background: var(--bg-hover-editor); }
+.callout__title-input {
+  flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; color: inherit; padding: 0;
+}
+.callout__title-input::placeholder { color: var(--text-muted); font-weight: 400; opacity: 0.55; }
+.callout__menu {
+  position: absolute; top: 100%; left: -4px; z-index: 30; min-width: 120px; padding: 4px; border-radius: 8px;
+  background: var(--bg-card); border: 1px solid var(--border-subtle); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  display: flex; flex-direction: column;
+}
+.callout__menu-item { border: none; background: none; text-align: left; padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 13px; color: var(--text-primary); }
+.callout__menu-item:hover { background: var(--bg-hover-editor); }
+.callout__body > :first-child { margin-top: 0; }
+.callout__body > :last-child { margin-bottom: 0; }
+.tiptap-prosemirror .callout blockquote { font-style: normal; }
+
+/* [TOC] 自动目录 */
+.toc-block {
+  margin: 1.2em 0; padding: 12px 16px; border: 1px solid var(--border-subtle); border-radius: 10px;
+  background: var(--bg-surface); font-size: 14px; font-family: var(--font-body);
+}
+.ProseMirror-focused .toc-block.ProseMirror-selectednode { outline: 2px solid var(--color-brand-indigo); }
+.toc-block__label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 4px; }
+.toc-block__empty { color: var(--text-muted); font-style: italic; }
+.tiptap-prosemirror .toc-block__item, .toc-block__item {
+  display: block; line-height: 1.9; color: var(--color-accent-indigo); text-decoration: none; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.toc-block__item:hover { text-decoration: underline; }
+
+/* 原样保留块 */
+.raw-block {
+  position: relative; margin: 1em 0; padding: 8px 12px; border-radius: 8px;
+  border: 1px dashed var(--border-strong); background: var(--bg-zebra-editor);
+}
+.ProseMirror-focused .raw-block.ProseMirror-selectednode { outline: 2px solid var(--color-brand-indigo); border-style: solid; }
+.raw-block__badge {
+  position: absolute; top: -9px; right: 10px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.06em; color: var(--text-muted); background: var(--bg-page); border: 1px solid var(--border-subtle);
+  font-family: var(--font-body); line-height: 16px; user-select: none;
+}
+.raw-block__source { font-family: var(--font-code); font-size: 12.5px; color: var(--text-tertiary); white-space: pre-wrap; word-break: break-word; }
+.raw-block--footnote .raw-block__source { font-family: var(--font-body); font-size: 13.5px; color: var(--text-secondary); }
+.raw-block__preview > :first-child { margin-top: 0; }
+.raw-block__preview > :last-child { margin-bottom: 0; }
+.raw-block__preview img { max-width: 100%; }
+.raw-inline { border-bottom: 1px dashed var(--border-strong); cursor: default; }
+.raw-inline img { max-height: 1.6em; vertical-align: middle; margin: 0; border-radius: 3px; display: inline; }
+.ProseMirror-focused .raw-inline.ProseMirror-selectednode { outline: 2px solid var(--color-brand-indigo); border-radius: 3px; }
+.raw-inline__source { font-family: var(--font-code); font-size: 0.85em; color: var(--text-muted); }
+
+/* 行内公式 */
+.math-inline { cursor: pointer; padding: 0 2px; border-radius: 4px; }
+.math-inline:hover { background: var(--selection-bg-editor); }
+.ProseMirror-focused .math-inline.ProseMirror-selectednode { outline: 2px solid var(--color-brand-indigo); }
+.math-inline .katex-display { margin: 0; display: inline-block; }
+.ProseMirror-focused .math-block-container.ProseMirror-selectednode { border-color: var(--color-accent-indigo); }
+.math-block-container.is-editing { text-align: left; cursor: text; }
+
+/* #标签 */
+.tag-chip {
+  color: var(--color-brand-indigo); background: rgba(99, 102, 241, 0.10); border-radius: 10px; padding: 1px 7px;
+  font-size: 0.92em; cursor: pointer; white-space: nowrap;
+}
+.tag-chip:hover { background: rgba(99, 102, 241, 0.18); }
+
+/* 行内标记 */
+.tiptap-prosemirror mark { background: rgba(250, 204, 21, 0.4); color: inherit; padding: 0 2px; border-radius: 3px; }
+.tiptap-prosemirror kbd {
+  font-family: var(--font-code); font-size: 0.82em; padding: 1px 6px; border-radius: 5px;
+  border: 1px solid var(--border-strong); border-bottom-width: 2px; background: var(--bg-surface); color: var(--text-secondary);
+}
+
+/* 脚注（预览） */
+.footnotes { margin-top: 2em; padding-top: 0.8em; border-top: 1px solid var(--border-subtle); font-size: 0.9em; color: var(--text-secondary); }
+.footnote-def { line-height: 1.8; }
+.footnote-ref { color: var(--color-accent-indigo); font-weight: 600; }
+
+/* 专注模式：当前块以外的内容淡出；打字机滚动由编辑器脚本完成 */
+.focus-mode .tiptap-prosemirror > *:not(.is-focus-block) { opacity: 0.32; transition: opacity 0.2s; }
+.focus-mode .tiptap-prosemirror > .is-focus-block { opacity: 1; transition: opacity 0.2s; }
+.focus-mode .tiptap-page { box-shadow: none; }
+.focus-mode .tiptap-container { background-color: var(--bg-page); }

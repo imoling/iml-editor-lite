@@ -6,13 +6,19 @@ interface Props {
   onClose: () => void;
 }
 
+// Agnes 有免费额度，排最前；国内站 (.cn) 与国际站 (.com) 域名不同、Key 不通用（与写作助手里的一致）
 const PROVIDERS = [
+  { id: 'agnes-cn', name: 'Agnes 国内站', desc: '有免费额度，国内直连' },
+  { id: 'agnes', name: 'Agnes 国际站', desc: '有免费额度，需境外访问' },
   { id: 'gemini', name: 'Google Gemini', desc: 'Imagen / Flash，需境外访问' },
   { id: 'volcengine', name: '火山引擎 豆包', desc: 'Seedream 系列，国内稳定' },
   { id: 'minimax', name: 'MiniMax 海螺', desc: '国产文生图大模型' },
   { id: 'custom', name: '自定义端点', desc: 'OpenAI 兼容接口' },
 ] as const;
 
+const AGNES_MODELS = [
+  { id: 'agnes-image-2.0-flash', name: 'Image 2.0 Flash（免费档）' },
+];
 const GEMINI_MODELS = [
   { id: 'imagen-4.0-generate-001', name: 'Imagen 4.0' },
   { id: 'imagen-4.0-ultra-generate-001', name: 'Imagen 4.0 Ultra' },
@@ -46,10 +52,13 @@ export const ImageConfigModal: React.FC<Props> = ({ onClose }) => {
 
   const isGemini = cfg.provider === 'gemini' || cfg.provider === 'gemini-imagen' || cfg.provider === 'gemini-flash';
   const isVolc = cfg.provider === 'volcengine';
+  const isAgnes = cfg.provider === 'agnes-cn' || cfg.provider === 'agnes';
 
-  const apiKeyPlaceholder = isGemini ? 'AIza...' : cfg.provider === 'minimax' ? 'eyJ...' : isVolc ? '火山方舟 API Key' : 'Bearer token';
-  const apiKeyHint = isGemini
-    ? 'aistudio.google.com → Get API key'
+  const apiKeyPlaceholder = isAgnes ? `Agnes ${cfg.provider === 'agnes-cn' ? '国内站' : '国际站'}的 API Key` : isGemini ? 'AIza...' : cfg.provider === 'minimax' ? 'eyJ...' : isVolc ? '火山方舟 API Key' : 'Bearer token';
+  const apiKeyHint = cfg.provider === 'agnes-cn'
+    ? 'www.agnes-ai.cn → API Key（与国际站不通用；和写作助手里的 Agnes 国内站是同一个 Key）'
+    : cfg.provider === 'agnes' ? 'apihub.agnes-ai.com → API Key（与国内站不通用；和写作助手里的 Agnes 国际站是同一个 Key）'
+    : isGemini ? 'aistudio.google.com → Get API key'
     : isVolc ? 'console.volcengine.com → 火山方舟 → API Key 管理'
     : cfg.provider === 'minimax' ? 'platform.minimaxi.com → API Key 管理' : '';
 
@@ -61,8 +70,8 @@ export const ImageConfigModal: React.FC<Props> = ({ onClose }) => {
     window.close();
   };
 
-  const presets = isGemini ? GEMINI_MODELS : isVolc ? VOLC_MODELS : null;
-  const defaultModel = isGemini ? 'imagen-4.0-generate-001' : 'doubao-seedream-5-0-260128';
+  const presets = isAgnes ? AGNES_MODELS : isGemini ? GEMINI_MODELS : isVolc ? VOLC_MODELS : null;
+  const defaultModel = isAgnes ? 'agnes-image-2.0-flash' : isGemini ? 'imagen-4.0-generate-001' : 'doubao-seedream-5-0-260128';
   const currentModel = cfg.model || defaultModel;
 
   return (
@@ -75,7 +84,8 @@ export const ImageConfigModal: React.FC<Props> = ({ onClose }) => {
           )}
 
           <header className="modal-header">
-            <h1 className="modal-title">图片生成配置</h1>
+            <h1 className="modal-title">AI 配图</h1>
+            <p className="modal-subtitle">AI 气泡和插入图片对话框里生成图片用哪个服务</p>
           </header>
 
           <label className="field-label">模型提供商</label>

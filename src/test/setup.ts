@@ -51,7 +51,7 @@ export function createMockApi(initialFiles: Record<string, string> = {}) {
       saveImage: vi.fn(),
     },
     dialog: { open: vi.fn(async () => null), save: vi.fn(async () => null) },
-    export: { pdf: vi.fn() },
+    export: { pdf: vi.fn(), html: vi.fn() },
     ai: { getConfig: vi.fn(async () => ({})), saveConfig: vi.fn(async () => ({ success: true })), chat: vi.fn(), stop: vi.fn(), generateImage: vi.fn(), listModels: vi.fn(), testConnection: vi.fn() },
     local: {
       getState: vi.fn(async () => null), installRuntime: vi.fn(), cancelInstall: vi.fn(), pickRuntime: vi.fn(), clearRuntimePath: vi.fn(),
@@ -59,8 +59,14 @@ export function createMockApi(initialFiles: Record<string, string> = {}) {
       getLogs: vi.fn(async () => []), test: vi.fn(), openModelsFolder: vi.fn(), onState: vi.fn(() => () => {}), onLog: vi.fn(() => () => {}),
     },
     shell: { openExternal: vi.fn(), showItemInFolder: vi.fn() },
-    library: { watch: vi.fn(async () => true) },
-    search: { query: vi.fn(async () => []), status: vi.fn(async () => ({ root: null, count: 0, building: false })), listNotes: vi.fn(async () => []), backlinks: vi.fn(async () => []) },
+    library: { watch: vi.fn(async () => true), findOrphanImages: vi.fn(async () => []), trashImages: vi.fn(async () => ({ trashed: 0, failed: [] })) },
+    history: { list: vi.fn(async () => []), read: vi.fn(async () => null) },
+    web: { fetchTitle: vi.fn(async () => null) },
+    semantic: {
+      getState: vi.fn(async () => null), setEnabled: vi.fn(), setModel: vi.fn(), downloadModel: vi.fn(), cancelDownload: vi.fn(), deleteModel: vi.fn(),
+      rebuild: vi.fn(), search: vi.fn(async () => []), related: vi.fn(async () => []), onState: vi.fn(() => () => {}),
+    },
+    search: { query: vi.fn(async () => []), status: vi.fn(async () => ({ root: null, count: 0, building: false })), listNotes: vi.fn(async () => []), backlinks: vi.fn(async () => []), tags: vi.fn(async () => []), notesByTag: vi.fn(async () => []) },
     events: { on: vi.fn(), send: vi.fn() },
     app: {
       checkUpdates: vi.fn(async () => ({ success: false })),

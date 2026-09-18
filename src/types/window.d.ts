@@ -3,6 +3,16 @@ export {};
 import type { LocalState, LocalModelConfig, CustomModel, ServerState } from '../../electron/localModel/index';
 export type { LocalState, LocalModelConfig, CustomModel, ServerState, LocalModelEntry, InstallState } from '../../electron/localModel/index';
 
+import type { SemanticState, SemanticHit } from '../../electron/semantic/index';
+import type { HistoryEntry } from '../../electron/history';
+import type { OrphanImage } from '../../electron/assets';
+export type { SemanticState, SemanticHit, EmbedModelEntry } from '../../electron/semantic/index';
+export type { HistoryEntry } from '../../electron/history';
+export type { OrphanImage } from '../../electron/assets';
+
+export interface TagCount { tag: string; count: number }
+export interface TaggedNote { path: string; title: string; tags: string[]; mtime: number }
+
 export interface ConnectionTestResult {
   ok: boolean;
   latencyMs: number;
@@ -40,7 +50,7 @@ declare global {
         readFile: (filePath: string) => Promise<{ success: boolean; content?: string; error?: string; filePath?: string }>;
         writeFile: (filePath: string, content: string) => Promise<{ success: boolean; error?: string; filePath?: string }>;
         readDir: (dirPath: string) => Promise<{ success: boolean; files?: any[]; error?: string; path?: string }>;
-        saveImage: (activeFilePath: string, fileName: string, buffer: ArrayBuffer) => Promise<{ success: boolean; path?: string; error?: string }>;
+        saveImage: (activeFilePath: string, fileName: string, buffer: ArrayBuffer) => Promise<{ success: boolean; path?: string; bytes?: number; error?: string }>;
         rename: (oldPath: string, newPath: string) => Promise<{ success: boolean; oldPath?: string; newPath?: string; error?: string }>;
         copy: (sourcePath: string, targetPath: string) => Promise<{ success: boolean; sourcePath?: string; targetPath?: string; error?: string }>;
         delete: (path: string) => Promise<{ success: boolean; path?: string; permanently?: boolean; error?: string }>;
@@ -49,6 +59,7 @@ declare global {
       };
       export: {
         pdf: (htmlContent: string, defaultPath: string, filePath: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
+        html: (htmlContent: string, defaultPath: string, filePath: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
       };
       ai: {
         getConfig: () => Promise<any>;
@@ -84,12 +95,35 @@ declare global {
       };
       library: {
         watch: (dirPath: string) => Promise<boolean>;
+        findOrphanImages: (extraTexts?: string[]) => Promise<OrphanImage[]>;
+        trashImages: (paths: string[]) => Promise<{ trashed: number; failed: string[] }>;
+      };
+      history: {
+        list: (filePath: string) => Promise<HistoryEntry[]>;
+        read: (filePath: string, id: string) => Promise<string | null>;
+      };
+      web: {
+        fetchTitle: (url: string) => Promise<string | null>;
+      };
+      semantic: {
+        getState: () => Promise<SemanticState>;
+        setEnabled: (enabled: boolean) => Promise<SemanticState>;
+        setModel: (modelId: string) => Promise<SemanticState>;
+        downloadModel: (id: string) => Promise<boolean>;
+        cancelDownload: (id: string) => Promise<boolean>;
+        deleteModel: (id: string) => Promise<boolean>;
+        rebuild: () => Promise<boolean>;
+        search: (query: string, limit?: number) => Promise<SemanticHit[]>;
+        related: (filePath: string, limit?: number) => Promise<SemanticHit[]>;
+        onState: (callback: (state: SemanticState) => void) => () => void;
       };
       search: {
         query: (query: string, limit?: number) => Promise<SearchResult[]>;
         status: () => Promise<{ root: string | null; count: number; building: boolean }>;
         listNotes: () => Promise<{ path: string; title: string }[]>;
         backlinks: (title: string) => Promise<BacklinkResult[]>;
+        tags: () => Promise<TagCount[]>;
+        notesByTag: (tag: string) => Promise<TaggedNote[]>;
       };
       events: {
         on: (channel: string, callback: (...args: any[]) => void) => void;

@@ -1,9 +1,11 @@
 import React from 'react';
 import { useAppStore, FileNode, HeadingNode, readLibraryDir } from '../../stores/appStore';
 import { SearchPanel } from './SearchPanel';
+import { TagsPanel } from './TagsPanel';
+import { RelatedPanel } from './RelatedPanel';
 import {
   ChevronDown, ChevronRight, FolderOpen, FileText, FileCode, FolderClosed,
-  List, RotateCw, Star, BookOpen, Settings, FilePlus, FolderPlus, CalendarDays, LayoutTemplate, FolderOpen as FolderOpenIcon, Search,
+  List, RotateCw, Star, BookOpen, Settings, FilePlus, FolderPlus, CalendarDays, LayoutTemplate, FolderOpen as FolderOpenIcon, Search, Hash,
 } from 'lucide-react';
 
 const isMac = window.api.app.platform === 'darwin';
@@ -14,7 +16,8 @@ export const ActivityBar: React.FC = () => {
   const { sidebarTab, setSidebarTab, sidebarVisible } = useAppStore();
   const tabs = [
     { id: 'library' as const, icon: <BookOpen size={16} />, label: '笔记库', title: '笔记库（所有笔记与文件夹）' },
-    { id: 'catalog' as const, icon: <List size={16} />, label: '目录', title: '当前文档目录' },
+    { id: 'catalog' as const, icon: <List size={16} />, label: '目录', title: '当前文档目录、反向链接与相关笔记' },
+    { id: 'tags' as const, icon: <Hash size={16} />, label: '标签', title: '所有标签' },
     { id: 'search' as const, icon: <Search size={16} />, label: '搜索', title: '搜索所有笔记 (⇧⌘F)' },
   ];
   return (
@@ -350,10 +353,13 @@ export const Sidebar: React.FC = () => {
       <div className="sidebar-content" onContextMenu={sidebarTab === 'library' ? openRootMenu : undefined}>
         {sidebarTab === 'search' ? (
           <SearchPanel />
+        ) : sidebarTab === 'tags' ? (
+          <TagsPanel />
         ) : sidebarTab === 'catalog' ? (
           <div className="catalog-view">
             {outline.length === 0 ? <div className="empty-state">暂无目录层级</div> : outline.map((item) => <OutlineItem key={item.id} node={item} />)}
             <BacklinksPanel />
+            <RelatedPanel />
           </div>
         ) : !workspacePath ? (
           <div className="empty-state">

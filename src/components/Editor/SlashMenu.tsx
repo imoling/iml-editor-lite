@@ -2,13 +2,13 @@ import React, { useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import {
   Heading1, Heading2, Heading3, Type, List, ListOrdered, SquareCheck, Quote, FileCode, Minus,
-  Table, Image, Link, Sigma, Activity, PenTool, Calendar, Clock, Sparkles, CalendarDays,
+  Table, Image, Link, Sigma, Activity, PenTool, Calendar, Clock, Sparkles, CalendarDays, Info, TriangleAlert, ListTree, Tags,
 } from 'lucide-react';
 import type { SlashItem } from '../../extensions/SlashCommand';
 
 const ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
   Heading1, Heading2, Heading3, Type, List, ListOrdered, SquareCheck, Quote, FileCode, Minus,
-  Table, Image, Link, Sigma, Activity, PenTool, Calendar, Clock, Sparkles, CalendarDays,
+  Table, Image, Link, Sigma, Activity, PenTool, Calendar, Clock, Sparkles, CalendarDays, Info, TriangleAlert, ListTree, Tags,
 };
 
 interface Props {
