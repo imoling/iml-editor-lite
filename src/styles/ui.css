@@ -236,6 +236,31 @@
 .menu-item--dim { opacity: 0.6; }
 .menu-hint { margin-left: auto; opacity: 0.4; font-size: 11px; }
 .menu-divider { height: 1px; background-color: var(--border-subtle); margin: 6px 4px; }
+/* ── 快速打开（⌘T）── 面板靠上悬浮，实底（同右键菜单：压在正文上不能半透明） */
+.quick-open-backdrop { position: fixed; inset: 0; z-index: 9000; background-color: rgba(0, 0, 0, 0.18); display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh; }
+.quick-open {
+  width: 580px; max-width: calc(100vw - 48px); max-height: 62vh; display: flex; flex-direction: column; overflow: hidden;
+  background-color: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 14px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28); animation: paletteIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.quick-open__input-wrap { position: relative; flex-shrink: 0; border-bottom: 1px solid var(--border-subtle); }
+.quick-open__icon { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); color: var(--text-muted); }
+.quick-open__input { width: 100%; padding: 16px 18px 16px 46px; border: none; outline: none; background: transparent; font-size: 16px; color: var(--text-primary); font-family: inherit; box-sizing: border-box; }
+.quick-open__list { flex: 1; overflow-y: auto; padding: 6px; }
+.quick-open__section { padding: 6px 12px 4px; font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.04em; }
+.quick-open__row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--text-primary); }
+.quick-open__row--active { background-color: rgba(99, 102, 241, 0.1); }
+.quick-open__row-icon { flex-shrink: 0; color: var(--text-muted); }
+.quick-open__row--active .quick-open__row-icon { color: var(--color-brand-indigo); }
+.quick-open__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-open__hl { background: none; color: var(--color-brand-indigo); font-weight: 700; }
+.quick-open__folder { flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-muted); }
+.quick-open__enter { flex-shrink: 0; display: flex; color: var(--text-muted); }
+.quick-open__empty { padding: 28px 16px; text-align: center; font-size: 13px; color: var(--text-muted); }
+.quick-open__foot { flex-shrink: 0; display: flex; align-items: center; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--border-subtle); background-color: var(--bg-elevated); font-size: 11px; color: var(--text-muted); }
+.quick-open__foot kbd { display: inline-block; min-width: 16px; padding: 1px 5px; margin-right: 4px; border-radius: 4px; border: 1px solid var(--border-subtle); background-color: var(--bg-card); font-family: inherit; font-size: 10px; text-align: center; }
+.quick-open__foot-tip { margin-left: auto; }
+
 /* 不用玻璃拟态：菜单压在正文上，半透明会让底下的字透上来，条目读不清。
    与 .dropdown-menu / .popover-menu 保持一致，都是实底 */
 .context-menu {

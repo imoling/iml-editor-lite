@@ -18,6 +18,7 @@ import { HistoryModal } from './components/History/HistoryModal';
 import { ImageCleanupModal } from './components/Library/ImageCleanupModal';
 import { SemanticIndexModal } from './components/AI/SemanticIndexModal';
 import { AiSetupModal } from './components/AI/AiSetupModal';
+import { QuickOpenModal } from './components/QuickOpen/QuickOpenModal';
 import { formatVersion, isNewerVersion } from './utils/version';
 import './styles/layout.css';
 
@@ -191,6 +192,14 @@ const App: React.FC = () => {
         if (modalOpen || !ts.activeTabId) return;
         if (e.altKey) ts.closeOtherTabs(ts.activeTabId);
         else ts.requestCloseTab(ts.activeTabId);
+        return;
+      }
+
+      // Cmd+T：快速打开（敲几个字跳到笔记）。再按一次收起
+      if (modKey && !e.shiftKey && !e.altKey && e.code === 'KeyT') {
+        e.preventDefault();
+        if (ts.dialog === 'quick-open') ts.closeDialog();
+        else if (!ts.tabToClose) ts.openDialog('quick-open');
         return;
       }
 
@@ -441,6 +450,7 @@ const App: React.FC = () => {
       {dialog === 'image-cleanup' && <ImageCleanupModal onClose={closeDialog} />}
       {dialog === 'semantic-config' && <SemanticIndexModal onClose={closeDialog} />}
       {dialog === 'ai-setup' && <AiSetupModal onClose={closeDialog} />}
+      {dialog === 'quick-open' && <QuickOpenModal onClose={closeDialog} />}
 
     </div>
   );

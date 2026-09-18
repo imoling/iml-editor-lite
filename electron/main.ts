@@ -416,6 +416,11 @@ function setupAppMenu() {
           accelerator: 'Cmd+O',
           click: () => mainWindow?.webContents.send('menu:open-file'),
         },
+        {
+          label: '快速打开笔记…',
+          accelerator: 'Cmd+T',
+          click: () => mainWindow?.webContents.send('dialog:open', 'quick-open'),
+        },
         { type: 'separator' },
         {
           label: '保存',

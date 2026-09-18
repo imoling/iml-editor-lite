@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore, needsSavePrompt } from '../../stores/appStore';
 import {
-  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles, History, Focus, ImageOff, Network, Wand2,
+  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles, History, Focus, ImageOff, Network, Wand2, Search,
 } from 'lucide-react';
 import { exportActiveTabToPdf, exportActiveTabToHtml } from '../../utils/exportPdf';
 import { isNewerVersion } from '../../utils/version';
@@ -111,6 +111,7 @@ export const TitleBar: React.FC = () => {
         <Menu id="file" label="文件" width={220}>
           <MenuItem icon={<Plus size={14} />} label="新建文档" hint="⌘N" onClick={run(createNewFile)} />
           <MenuItem icon={<FileUp size={14} />} label="打开..." hint="⌘O" onClick={run(openFile)} />
+          <MenuItem icon={<Search size={14} />} label="快速打开笔记…" hint="⌘T" onClick={run(() => openDialog('quick-open'))} />
           <MenuItem icon={<CalendarDays size={14} />} label="今日日记" hint="⇧⌘D" onClick={run(openDailyNote)} />
           <MenuDivider />
           <MenuItem icon={<Save size={14} />} label="保存" hint="⌘S" disabled={!activeTab} onClick={run(() => saveActiveFile())} />
