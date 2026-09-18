@@ -446,6 +446,19 @@ function setupAppMenu() {
           click: () => mainWindow?.webContents.send('menu:close-tab'),
         },
         {
+          label: '关闭其他标签页',
+          accelerator: 'Alt+Cmd+W',
+          click: () => mainWindow?.webContents.send('menu:close-other-tabs'),
+        },
+        {
+          label: '关闭已保存的标签页',
+          click: () => mainWindow?.webContents.send('menu:close-saved-tabs'),
+        },
+        {
+          label: '关闭全部标签页',
+          click: () => mainWindow?.webContents.send('menu:close-all-tabs'),
+        },
+        {
           label: '重开刚关的标签页',
           accelerator: 'Cmd+Shift+T',
           click: () => mainWindow?.webContents.send('menu:reopen-tab'),

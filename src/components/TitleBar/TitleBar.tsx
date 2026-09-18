@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useAppStore } from '../../stores/appStore';
+import { useAppStore, needsSavePrompt } from '../../stores/appStore';
 import {
   FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles, History, Focus, ImageOff, Network, Wand2,
 } from 'lucide-react';
@@ -24,6 +24,44 @@ const MenuItem: React.FC<{
 
 const MenuDivider = () => <div className="menu-divider" />;
 
+/** 标签页右键菜单：一次关掉一批，省得挨个点小叉 */
+const TabContextMenu: React.FC<{ tabId: string; x: number; y: number; onDone: () => void }> = ({ tabId, x, y, onDone }) => {
+  const { tabs, requestCloseTab, closeOtherTabs, closeTabsToRight, closeSavedTabs, closeAllTabs } = useAppStore();
+  const isMac = window.api.app.platform === 'darwin';
+  const mod = isMac ? '⌘' : 'Ctrl+';
+
+  useEffect(() => {
+    const close = () => onDone();
+    document.addEventListener('click', close);
+    window.addEventListener('blur', close);
+    return () => { document.removeEventListener('click', close); window.removeEventListener('blur', close); };
+  }, [onDone]);
+
+  const at = tabs.findIndex((t) => t.id === tabId);
+  const rightCount = at < 0 ? 0 : tabs.length - at - 1;
+  const savedCount = tabs.filter((t) => !needsSavePrompt(t)).length;
+  const run = (fn: () => void) => () => { onDone(); fn(); };
+
+  return (
+    <div className="context-menu" style={{ left: x, top: y }} onClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>
+      <div className="context-menu__item" onClick={run(() => requestCloseTab(tabId))}>
+        关闭 <span className="context-menu__hint">{mod}W</span>
+      </div>
+      <div className={`context-menu__item ${tabs.length < 2 ? 'context-menu__item--disabled' : ''}`} onClick={tabs.length < 2 ? undefined : run(() => closeOtherTabs(tabId))}>
+        关闭其他 <span className="context-menu__hint">{isMac ? '⌥⌘W' : 'Alt+Ctrl+W'}</span>
+      </div>
+      <div className={`context-menu__item ${rightCount === 0 ? 'context-menu__item--disabled' : ''}`} onClick={rightCount === 0 ? undefined : run(() => closeTabsToRight(tabId))}>
+        关闭右侧标签页{rightCount > 0 && ` · ${rightCount}`}
+      </div>
+      <div className={`context-menu__item ${savedCount === 0 ? 'context-menu__item--disabled' : ''}`} onClick={savedCount === 0 ? undefined : run(closeSavedTabs)}>
+        关闭已保存的{savedCount > 0 && ` · ${savedCount}`}
+      </div>
+      <div className="context-menu__divider" />
+      <div className="context-menu__item" onClick={run(closeAllTabs)}>全部关闭</div>
+    </div>
+  );
+};
+
 export const TitleBar: React.FC = () => {
   const {
     tabs, activeTabId, setActiveTab, requestCloseTab,
@@ -35,6 +73,7 @@ export const TitleBar: React.FC = () => {
 
   const hasUpdate = isNewerVersion(updateStatus.latestVersion, window.api.appVersion);
   const [activeMenu, setActiveMenu] = useState<MenuId | null>(null);
+  const [tabMenu, setTabMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
   const activeTab = tabs.find(t => t.id === activeTabId);
   const tabsRef = useRef<HTMLDivElement>(null);
   const isMac = window.api.app.platform === 'darwin';
@@ -128,7 +167,14 @@ export const TitleBar: React.FC = () => {
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           return (
-            <div key={tab.id} className={`titlebar-tab ${isActive ? 'active' : ''}`} onClick={() => setActiveTab(tab.id)}>
+            <div
+              key={tab.id}
+              className={`titlebar-tab ${isActive ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+              onContextMenu={(e) => { e.preventDefault(); setTabMenu({ tabId: tab.id, x: e.clientX, y: e.clientY }); }}
+              // 中键关闭：浏览器习惯
+              onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); requestCloseTab(tab.id); } }}
+            >
               <FileCode size={14} color={isActive ? 'var(--color-accent-indigo)' : 'var(--text-muted)'} />
               {tab.externallyModified && (
                 <span className="dot-indicator dot-indicator--warn" title="这个文件在磁盘上已被外部修改或删除；保存会覆盖磁盘版本" />
@@ -141,6 +187,8 @@ export const TitleBar: React.FC = () => {
           );
         })}
       </div>
+
+      {tabMenu && <TabContextMenu {...tabMenu} onDone={() => setTabMenu(null)} />}
 
       {/* Windows 窗口控制按钮 */}
       {!isMac && (

@@ -343,3 +343,63 @@ describe('标签页：关闭与重开', () => {
     expect(stack).not.toContain('/lib/0.md');   // 最旧的被挤出去
   });
 });
+
+describe('标签页：批量关闭', () => {
+  const tab = (id: string, extra: any = {}) => ({ id, title: id.split('/').pop()!, content: 'x', isDirty: false, mode: 'word' as const, ...extra });
+  const ids = () => useAppStore.getState().tabs.map((t) => t.id);
+
+  it('关闭其他：干净的立刻关掉，只留下自己', () => {
+    useAppStore.setState({ tabs: [tab('/lib/a.md'), tab('/lib/b.md'), tab('/lib/c.md')], activeTabId: '/lib/b.md' });
+    useAppStore.getState().closeOtherTabs('/lib/b.md');
+    expect(ids()).toEqual(['/lib/b.md']);
+    expect(useAppStore.getState().tabToClose).toBeNull();
+  });
+
+  it('关闭右侧：只关右边的，左边和自己不动', () => {
+    useAppStore.setState({ tabs: [tab('/lib/a.md'), tab('/lib/b.md'), tab('/lib/c.md'), tab('/lib/d.md')] });
+    useAppStore.getState().closeTabsToRight('/lib/b.md');
+    expect(ids()).toEqual(['/lib/a.md', '/lib/b.md']);
+  });
+
+  it('关闭已保存的：改过的留着，永远不弹确认框', () => {
+    useAppStore.setState({ tabs: [tab('/lib/a.md'), tab('/lib/b.md', { isDirty: true }), tab('new-1', { content: '草稿' }), tab('new-2', { content: '  ' })] });
+    useAppStore.getState().closeSavedTabs();
+    expect(ids()).toEqual(['/lib/b.md', 'new-1']);   // 空白的 new-2 也算已保存，被关掉
+    expect(useAppStore.getState().tabToClose).toBeNull();
+  });
+
+  it('全部关闭：脏的排队逐个问，干净的直接没了', () => {
+    useAppStore.setState({ tabs: [tab('/lib/a.md'), tab('/lib/b.md', { isDirty: true }), tab('/lib/c.md', { isDirty: true })] });
+    useAppStore.getState().closeAllTabs();
+    expect(ids()).toEqual(['/lib/b.md', '/lib/c.md']);
+    expect(useAppStore.getState().tabToClose).toBe('/lib/b.md');
+    expect(useAppStore.getState().pendingCloseIds).toEqual(['/lib/c.md']);
+
+    // 「不保存」→ 关掉当前这个，轮到下一个
+    useAppStore.getState().closeTab('/lib/b.md');
+    useAppStore.getState().advanceCloseQueue();
+    expect(useAppStore.getState().tabToClose).toBe('/lib/c.md');
+    expect(useAppStore.getState().pendingCloseIds).toEqual([]);
+
+    useAppStore.getState().closeTab('/lib/c.md');
+    useAppStore.getState().advanceCloseQueue();
+    expect(useAppStore.getState().tabToClose).toBeNull();
+    expect(ids()).toEqual([]);
+  });
+
+  it('确认框上点「取消」= 放弃整批，不是只跳过这一个', () => {
+    useAppStore.setState({ tabs: [tab('/lib/a.md', { isDirty: true }), tab('/lib/b.md', { isDirty: true })] });
+    useAppStore.getState().closeAllTabs();
+    expect(useAppStore.getState().pendingCloseIds).toEqual(['/lib/b.md']);
+    useAppStore.getState().cancelCloseQueue();
+    expect(useAppStore.getState().tabToClose).toBeNull();
+    expect(useAppStore.getState().pendingCloseIds).toEqual([]);
+    expect(ids()).toEqual(['/lib/a.md', '/lib/b.md']);   // 一个都没关
+  });
+
+  it('批量关掉的文件都进重开栈，⌘⇧T 能一个个开回来', () => {
+    useAppStore.setState({ tabs: [tab('/lib/a.md'), tab('/lib/b.md'), tab('/lib/c.md')], closedTabs: [] });
+    useAppStore.getState().closeOtherTabs('/lib/c.md');
+    expect(useAppStore.getState().closedTabs).toEqual(['/lib/a.md', '/lib/b.md']);
+  });
+});

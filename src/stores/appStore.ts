@@ -23,6 +23,15 @@ export interface Tab {
   externallyModified?: boolean;
 }
 
+/**
+ * 关掉这个标签页之前要不要先问一句。
+ * 空白的未命名文档直接关（用户并没有写下任何东西）；写了内容的未命名文档、
+ * 以及改过还没存的已有文件，都要问。关闭标签页的所有入口共用这一条规则。
+ */
+export function needsSavePrompt(tab: Tab): boolean {
+  return tab.id.startsWith('new-') ? !!tab.content.trim() : tab.isDirty;
+}
+
 export interface HeadingNode {
   level: number;
   text: string;
@@ -233,6 +242,16 @@ export interface AppState {
   closeTab: (id: string) => void;
   /** 关标签页的统一入口：脏文档先弹确认，干净的直接关 */
   requestCloseTab: (id: string) => void;
+  closeTabs: (ids: string[]) => void;
+  closeOtherTabs: (id: string) => void;
+  closeTabsToRight: (id: string) => void;
+  /** 关掉所有没有未保存修改的标签页 */
+  closeSavedTabs: () => void;
+  closeAllTabs: () => void;
+  /** 批量关闭时还在排队等用户决定的标签页 */
+  pendingCloseIds: string[];
+  advanceCloseQueue: () => void;
+  cancelCloseQueue: () => void;
   /** 最近关掉的文件路径（栈顶是最后关的），供 ⌘⇧T 用 */
   closedTabs: string[];
   /** ⌘⇧T：重新打开最近关掉的那个标签页 */
@@ -378,6 +397,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   expandedPaths: [],
   navigationRequest: null,
   tabToClose: null,
+  pendingCloseIds: [],
   closedTabs: [],
   
   // File Management Default State
@@ -436,14 +456,46 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().setActiveTab(tab.id);
   },
   
-  requestCloseTab: (id: string) => {
-    const tab = get().tabs.find((t) => t.id === id);
-    if (!tab) return;
-    const isTemp = id.startsWith('new-');
-    // 空白的未命名文档直接关，有内容的未命名 / 已修改文档才询问是否保存
-    if ((isTemp && !!tab.content.trim()) || (!isTemp && tab.isDirty)) set({ tabToClose: id });
-    else get().closeTab(id);
+  requestCloseTab: (id: string) => get().closeTabs([id]),
+
+  /**
+   * 批量关闭：干净的立刻关掉，需要问的排成队列逐个弹确认框。
+   * 「关闭其他 / 右侧 / 全部」都走这里，省得每处各写一遍脏文档的判断。
+   */
+  closeTabs: (ids: string[]) => {
+    const state = get();
+    const asking: string[] = [];
+    for (const id of ids) {
+      const tab = state.tabs.find((t) => t.id === id);
+      if (!tab) continue;
+      if (needsSavePrompt(tab)) asking.push(id);
+      else get().closeTab(id);
+    }
+    if (asking.length > 0) set({ tabToClose: asking[0], pendingCloseIds: asking.slice(1) });
   },
+
+  /** 确认框处理完一个后叫一次，轮到队列里的下一个 */
+  advanceCloseQueue: () => set((state) => ({
+    tabToClose: state.pendingCloseIds[0] ?? null,
+    pendingCloseIds: state.pendingCloseIds.slice(1),
+  })),
+
+  /** 在确认框上点「取消」= 放弃整批，而不是只跳过这一个 */
+  cancelCloseQueue: () => set({ tabToClose: null, pendingCloseIds: [] }),
+
+  closeOtherTabs: (id: string) => get().closeTabs(get().tabs.filter((t) => t.id !== id).map((t) => t.id)),
+
+  closeTabsToRight: (id: string) => {
+    const tabs = get().tabs;
+    const at = tabs.findIndex((t) => t.id === id);
+    if (at < 0) return;
+    get().closeTabs(tabs.slice(at + 1).map((t) => t.id));
+  },
+
+  /** 只关没有未保存修改的，永远不会弹确认框 */
+  closeSavedTabs: () => get().closeTabs(get().tabs.filter((t) => !needsSavePrompt(t)).map((t) => t.id)),
+
+  closeAllTabs: () => get().closeTabs(get().tabs.map((t) => t.id)),
 
   reopenClosedTab: async () => {
     const stack = [...get().closedTabs];

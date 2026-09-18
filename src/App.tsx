@@ -52,7 +52,7 @@ const App: React.FC = () => {
     openDirectory,
     saveActiveFile,
     tabToClose,
-    setTabToClose,
+    pendingCloseIds,
     closeTab,
     setActiveTab,
     autoCheckUpdates,
@@ -89,16 +89,16 @@ const App: React.FC = () => {
   const handleConfirmSave = async () => {
     if (!tabToClose) return;
     const currentActiveId = activeTabId;
-    
+
     // If it's not the active tab, we need to switch to it to save
     if (currentActiveId !== tabToClose) {
       setActiveTab(tabToClose);
     }
-    
+
     const saved = await saveActiveFile();
     if (saved) {
       closeTab(tabToClose);
-      setTabToClose(null);
+      useAppStore.getState().advanceCloseQueue();
     }
   };
 
@@ -185,10 +185,12 @@ const App: React.FC = () => {
       const ts = useAppStore.getState();
       const modalOpen = !!ts.dialog || !!ts.tabToClose;
 
-      // Cmd+W：关闭当前标签页（原生菜单里「关闭窗口」已让到 Cmd+Shift+W）
+      // Cmd+W 关闭当前 / ⌥⌘W 关闭其他（原生菜单里「关闭窗口」已让到 Cmd+Shift+W）
       if (modKey && !e.shiftKey && e.code === 'KeyW') {
         e.preventDefault();
-        if (!modalOpen && ts.activeTabId) ts.requestCloseTab(ts.activeTabId);
+        if (modalOpen || !ts.activeTabId) return;
+        if (e.altKey) ts.closeOtherTabs(ts.activeTabId);
+        else ts.requestCloseTab(ts.activeTabId);
         return;
       }
 
@@ -296,6 +298,21 @@ const App: React.FC = () => {
       if (s.dialog || s.tabToClose || !s.activeTabId) return;
       s.requestCloseTab(s.activeTabId);
     });
+    window.api.events.on('menu:close-other-tabs', () => {
+      const s = useAppStore.getState();
+      if (s.dialog || s.tabToClose || !s.activeTabId) return;
+      s.closeOtherTabs(s.activeTabId);
+    });
+    window.api.events.on('menu:close-saved-tabs', () => {
+      const s = useAppStore.getState();
+      if (s.dialog || s.tabToClose) return;
+      s.closeSavedTabs();
+    });
+    window.api.events.on('menu:close-all-tabs', () => {
+      const s = useAppStore.getState();
+      if (s.dialog || s.tabToClose) return;
+      s.closeAllTabs();
+    });
     window.api.events.on('menu:reopen-tab', () => {
       const s = useAppStore.getState();
       if (s.dialog || s.tabToClose) return;
@@ -397,13 +414,14 @@ const App: React.FC = () => {
       {tabToClose && (
         <ConfirmDialog
           title="保存更改？"
-          message={`文件 "${tabs.find(t => t.id === tabToClose)?.title}" 已修改，是否在关闭前保存？`}
+          // 批量关闭时逐个问，顺带说清楚后面还排着几个，免得用户以为点不完
+          message={`文件 "${tabs.find(t => t.id === tabToClose)?.title}" 已修改，是否在关闭前保存？${pendingCloseIds.length > 0 ? `（后面还有 ${pendingCloseIds.length} 个待处理）` : ''}`}
           onConfirm={handleConfirmSave}
           onDiscard={() => {
             closeTab(tabToClose);
-            setTabToClose(null);
+            useAppStore.getState().advanceCloseQueue();
           }}
-          onCancel={() => setTabToClose(null)}
+          onCancel={() => useAppStore.getState().cancelCloseQueue()}
         />
       )}
 

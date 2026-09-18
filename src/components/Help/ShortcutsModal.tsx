@@ -39,6 +39,8 @@ const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose }) => {
         title: '标签页',
         shortcuts: [
           { label: '关闭当前标签页', keys: [modKey, 'W'] },
+          { label: '关闭其他标签页', keys: [altKey, modKey, 'W'] },
+          { label: '关闭右侧 / 已保存 / 全部', keys: ['标签页上右键'] },
           { label: '重开刚关的标签页', keys: [modKey, '⇧', 'T'] },
           { label: '下一个 / 上一个', keys: ['⌃', 'Tab', '·', '⌃', '⇧', 'Tab'] },
           { label: '第 1~8 个 / 最后一个', keys: [modKey, '1~8', '·', modKey, '9'] },
