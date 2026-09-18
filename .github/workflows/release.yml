@@ -71,13 +71,20 @@ jobs:
             NOTES="release-notes.generated.md"
             printf '## %s\n\n见 README 的「版本历史」。\n' "$TAG" > "$NOTES"
           fi
+          # Release 标题取发布说明的第一个标题（「## 26.2.0 — 放心把笔记搬进来」→「v26.2.0 — 放心把笔记搬进来」），
+          # 不写死在这里：上一版的口号留到下一版就成了笑话
+          SLOGAN=$(grep -m1 '^#' "$NOTES" | sed -E 's/^#+[[:space:]]*v?[0-9.]+[[:space:]]*(—|-)*[[:space:]]*//')
+          NAME="$TAG"
+          if [ -n "$SLOGAN" ] && [ "$SLOGAN" != "$TAG" ]; then NAME="$TAG — $SLOGAN"; fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "file=$NOTES" >> "$GITHUB_OUTPUT"
+          echo "Release 标题：$NAME"
           ls -la artifacts
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.notes.outputs.tag }}
-          name: ${{ steps.notes.outputs.tag }} — 回归纯粹编辑器
+          name: ${{ steps.notes.outputs.name }}
           body_path: ${{ steps.notes.outputs.file }}
           draft: false
           prerelease: false
