@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { AsrState, AsrEvent } from '../types/window';
-import { startMicCapture, type MicCapture } from '../utils/micCapture';
+import { startMicCapture, MIC_SILENCE_LEVEL, type MicCapture } from '../utils/micCapture';
 import { getPreferredMic, setPreferredMic, listMics, type MicList } from '../utils/micDevices';
 import { useAppStore } from './appStore';
 import {
@@ -27,6 +27,8 @@ interface TranscribeState {
   /** 用户选的麦克风（空串 = 跟随系统）和当前能看到的设备 */
   micId: string;
   mics: MicList;
+  /** 这次运行里真的从麦克风收到过声音：有这个事实在，就不管系统 API 怎么说授权状态 */
+  heardSignal: boolean;
   /** 这次录音实际在用的麦克风 */
   deviceLabel: string;
   /** 连续几秒一点信号都没有（不是「没人说话」，是数字静音）：多半是麦克风被静音了，或者选错了设备 */
@@ -54,8 +56,6 @@ const cleanError = (err: any) => String(err?.message || err).replace(/^Error inv
 
 let capture: MicCapture | null = null;
 
-/** 显示用的电平（micCapture 压缩过的 0~1）低于它算「没有信号」：约 -78 dBFS，真实麦克风的底噪都比这高 */
-const SILENCE_LEVEL = 0.02;
 const SILENCE_MS = 4000;
 
 /**
@@ -72,6 +72,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
   level: 0,
   micId: getPreferredMic(),
   mics: { systemDefault: '', mics: [], labelsAvailable: false },
+  heardSignal: false,
   deviceLabel: '',
   silent: false,
   error: null,
@@ -96,7 +97,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
         window.api.asr.sendPcm(samples);
         if (Math.abs(level - get().level) > 0.04) set({ level });
         // 再安静的房间也有底噪；电平贴着 0 超过几秒，说明根本没有声音进来
-        if (level > SILENCE_LEVEL) lastSignalAt = Date.now();
+        if (level > MIC_SILENCE_LEVEL) { lastSignalAt = Date.now(); if (!get().heardSignal) set({ heardSignal: true }); }
         const silent = Date.now() - lastSignalAt > SILENCE_MS;
         if (silent !== get().silent) set({ silent });
       }, get().micId);

@@ -3,7 +3,7 @@ import { Mic, MicOff, Square, FileDown, FilePlus, ListChecks, Copy, Check, Erase
 import { useAppStore } from '../../stores/appStore';
 import { useTranscribeStore } from '../../stores/transcribeStore';
 import { useAiReadiness } from '../../utils/aiReadiness';
-import { currentMicLabel } from '../../utils/micDevices';
+import { currentMicLabel, micPermission } from '../../utils/micDevices';
 import { formatClock, transcriptText } from '../../utils/transcript';
 import { LevelBars } from '../AI/MicLevel';
 import { PanelIntro } from './PanelIntro';
@@ -104,7 +104,7 @@ export const TranscribePanel: React.FC = () => {
     );
   }
 
-  const denied = asr.micAccess === 'denied' || asr.micAccess === 'restricted';
+  const denied = micPermission(asr.micAccess, t.heardSignal) === 'blocked';
   const micName = live && t.deviceLabel ? t.deviceLabel : currentMicLabel(t.micId, t.mics);
   const device = (
     <button className={`rec-device ${denied || t.silent ? 'rec-device--warn' : ''}`} onClick={openConfig} title="换麦克风、试音">

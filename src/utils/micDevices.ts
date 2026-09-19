@@ -63,3 +63,17 @@ export function currentMicLabel(preferred: string, list: MicList): string {
   if (chosen) return chosen.label;
   return list.systemDefault || (list.labelsAvailable ? '系统默认麦克风' : '');
 }
+
+export type MicPermission = 'ok' | 'ask' | 'blocked';
+
+/**
+ * 界面上用的授权三态 = 系统 API 的说法 + 我们亲眼看到的事实。
+ * 真的收到过声音，就一定是有权限的，比系统 API 可靠；状态读不到（平台没有这道关、或主进程还是没有这个字段的旧版本）
+ * 一律当作放行 —— 宁可让用户点开始之后看到真实的报错，也不能在能用的时候说「权限被关掉了」
+ */
+export function micPermission(access: string | null | undefined, heardSignal: boolean): MicPermission {
+  if (heardSignal) return 'ok';
+  if (access === 'not-determined') return 'ask';
+  if (access === 'denied' || access === 'restricted') return 'blocked';
+  return 'ok';
+}

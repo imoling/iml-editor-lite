@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { describeMics, cleanMicLabel, resolveMic, currentMicLabel, getPreferredMic, setPreferredMic } from './micDevices';
+import { describeMics, cleanMicLabel, resolveMic, currentMicLabel, getPreferredMic, setPreferredMic, micPermission } from './micDevices';
 
 const dev = (deviceId: string, label: string, kind: MediaDeviceKind = 'audioinput') => ({ deviceId, label, kind });
 
@@ -29,6 +29,18 @@ describe('收音设备', () => {
     expect(list.labelsAvailable).toBe(false);
     expect(list.mics).toEqual([{ id: 'a1', label: '麦克风 1' }]);
     expect(currentMicLabel('', list)).toBe('');
+  });
+
+  it('授权状态：读不到不等于被拒绝；真的收到过声音，以事实为准', () => {
+    expect(micPermission('granted', false)).toBe('ok');
+    expect(micPermission('not-determined', false)).toBe('ask');
+    expect(micPermission('denied', false)).toBe('blocked');
+    expect(micPermission('restricted', false)).toBe('blocked');
+    // 主进程还是没有这个字段的旧版本（界面热更新了、主进程没重启）、或平台没有这道关
+    expect(micPermission(undefined, false)).toBe('ok');
+    expect(micPermission('unknown', false)).toBe('ok');
+    // 系统 API 说拒绝，但刚刚明明录到了声音
+    expect(micPermission('denied', true)).toBe('ok');
   });
 
   it('选的那个拔掉了就暂时跟随系统，但不忘掉用户的选择', () => {

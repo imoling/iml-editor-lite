@@ -8,6 +8,9 @@ import { cleanMicLabel } from './micDevices';
 
 const CHUNK = 1600;   // 100 ms @ 16 kHz
 
+/** 显示用的电平（压缩过的 0~1）低于它算「没有信号」：约 -78 dBFS，真实麦克风的底噪都比这高 */
+export const MIC_SILENCE_LEVEL = 0.02;
+
 const WORKLET = `
 class Tap extends AudioWorkletProcessor {
   constructor() { super(); this.buf = new Float32Array(${CHUNK}); this.n = 0; }

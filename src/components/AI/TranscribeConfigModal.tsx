@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Activity, AudioLines, Mic, Check, CircleAlert, Play, Square } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useTranscribeStore } from '../../stores/transcribeStore';
-import { startMicCapture, type MicCapture } from '../../utils/micCapture';
-import { currentMicLabel, resolveMic } from '../../utils/micDevices';
+import { startMicCapture, MIC_SILENCE_LEVEL, type MicCapture } from '../../utils/micCapture';
+import { currentMicLabel, resolveMic, micPermission } from '../../utils/micDevices';
 import { formatClock } from '../../utils/transcript';
 import { stripIpcError } from './ModelConfigModal';
 import { LevelBars } from './MicLevel';
@@ -56,8 +56,8 @@ export const TranscribeConfigModal: React.FC<Props> = ({ onClose }) => {
 
   if (!asr) return null;
 
-  const access = asr.micAccess;
-  const micOk = access === 'granted' || access === 'unknown';
+  const permission = micPermission(asr.micAccess, t.heardSignal);
+  const micOk = permission === 'ok';
   const dl = asr.install;
   const pct = dl?.active && dl.total ? Math.round((dl.received / dl.total) * 100) : 0;
   const { missing } = resolveMic(t.micId, t.mics);
@@ -66,7 +66,10 @@ export const TranscribeConfigModal: React.FC<Props> = ({ onClose }) => {
 
   const startTest = async () => {
     try {
-      const cap = await startMicCapture((_s, level) => { testLevel.current = level; }, t.micId);
+      const cap = await startMicCapture((_s, level) => {
+        testLevel.current = level;
+        if (level > MIC_SILENCE_LEVEL && !useTranscribeStore.getState().heardSignal) useTranscribeStore.setState({ heardSignal: true });
+      }, t.micId);
       testRef.current = cap;
       setTestLabel(cap.label);
       setTesting(true);
@@ -115,7 +118,7 @@ export const TranscribeConfigModal: React.FC<Props> = ({ onClose }) => {
               {asr.supported && (
                 <div className="tc-checks">
                   <CheckRow ok={asr.installed}>{asr.installed ? '语音模型已就绪' : dl?.active ? `语音模型下载中 ${pct}%` : '语音模型还没下载'}</CheckRow>
-                  <CheckRow ok={micOk}>{micOk ? `麦克风${micName ? `：${micName}` : '已授权'}` : access === 'not-determined' ? '还没允许使用麦克风' : '麦克风权限被关掉了'}</CheckRow>
+                  <CheckRow ok={micOk}>{micOk ? `麦克风${micName ? `：${micName}` : '已授权'}` : permission === 'ask' ? '还没允许使用麦克风' : '麦克风权限被关掉了'}</CheckRow>
                 </div>
               )}
               {(t.error || asr.error) && <div className="lm-line lm-line--error">{t.error || asr.error}</div>}
@@ -139,7 +142,7 @@ export const TranscribeConfigModal: React.FC<Props> = ({ onClose }) => {
                 <div className="lm-model lm-model--static">
                   <div className="lm-model__body">
                     <div className="lm-model__title">SenseVoice 多语种 <span className="lm-model__quant">· int8</span></div>
-                    <div className="lm-model__meta"><span>阿里通义</span><span>约 {formatSize(asr.downloadBytes)}</span><span>识别组件 sherpa-onnx {asr.runtimeVersion}</span></div>
+                    <div className="lm-model__meta"><span>阿里通义</span><span>约 {formatSize(asr.downloadBytes)}</span><span>识别组件 sherpa-onnx{asr.runtimeVersion ? ` ${asr.runtimeVersion}` : ''}</span></div>
                     <div className="lm-model__desc">中文、英语、粤语、日语、韩语，自动加标点。</div>
                     {dl?.active && (
                       <>
@@ -166,16 +169,16 @@ export const TranscribeConfigModal: React.FC<Props> = ({ onClose }) => {
               <div className="lm-card">
                 <div className="lm-card__head">
                   <div className="lm-card__title"><Mic size={14} /> 收音设备</div>
-                  {micOk ? <span className="lm-badge lm-badge--ok">已授权</span> : access === 'not-determined' ? <span className="lm-badge lm-badge--warn">还没授权</span> : <span className="lm-badge lm-badge--fail">权限被关掉了</span>}
+                  {micOk ? <span className="lm-badge lm-badge--ok">{asr.micAccess === 'granted' || t.heardSignal ? '已授权' : '可用'}</span> : permission === 'ask' ? <span className="lm-badge lm-badge--warn">还没授权</span> : <span className="lm-badge lm-badge--fail">权限被关掉了</span>}
                 </div>
 
-                {access === 'not-determined' && (
+                {permission === 'ask' && (
                   <div className="lm-actions">
                     <button className="btn btn-primary btn-xs" onClick={() => void allow()}>允许使用麦克风</button>
                     <span className="lm-line lm-line--muted">系统会弹一次授权框；声音只用来在本机识别成文字。</span>
                   </div>
                 )}
-                {(access === 'denied' || access === 'restricted') && (
+                {permission === 'blocked' && (
                   <div className="lm-actions">
                     <button className="btn btn-primary btn-xs" onClick={() => void window.api.asr.openMicSettings()}>打开系统设置</button>
                     <span className="lm-line lm-line--muted">在「隐私与安全性 → 麦克风」里打开 iML Markdown Editor，回来就能用。</span>
