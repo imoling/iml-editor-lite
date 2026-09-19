@@ -22,3 +22,43 @@ export function isNewerVersion(latest: string | undefined | null, current: strin
   }
   return false;
 }
+
+export interface ReleaseSummary {
+  /** 「26.3.0 — 一句话」里的那句话 */
+  slogan: string;
+  /** 开头那段说明 */
+  lead: string;
+  /** 各小节的标题：这一版做了哪几件事 */
+  highlights: string[];
+}
+
+const plain = (s: string) => s.replace(/`([^`]*)`/g, '$1').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/\s+/g, ' ').trim();
+
+/**
+ * 从发布说明里摘出更新提醒要用的几行。发布说明的写法是固定的（docs/release-notes-*.md）：
+ * 「## 版本 — 一句话」、一段说明、「### 下载」表格，然后每件事一个「### 小节」。
+ * 小节标题就是最好的要点；「下载」「其它」「已知问题」这类不算
+ */
+export function summarizeReleaseNotes(notes: string | undefined | null, max = 6): ReleaseSummary {
+  const lines = (notes || '').replace(/\r\n/g, '\n').split('\n');
+  let slogan = '';
+  let lead = '';
+  const highlights: string[] = [];
+  let seenSection = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    const heading = /^(#{1,3})\s+(.*)$/.exec(line);
+    if (heading) {
+      const text = plain(heading[2]);
+      if (heading[1].length <= 2 && !slogan && !seenSection) {
+        slogan = text.replace(/^v?[\d.]+\s*(?:[—–-]+\s*)?/, '');
+      } else if (heading[1].length === 3) {
+        seenSection = true;
+        if (!/^(下载|其它|其他|已知问题|升级说明|安装|致谢)/.test(text) && highlights.length < max) highlights.push(text);
+      }
+      continue;
+    }
+    if (!seenSection && !lead && line && !/^[|>\-*]/.test(line)) lead = plain(line);
+  }
+  return { slogan, lead, highlights };
+}

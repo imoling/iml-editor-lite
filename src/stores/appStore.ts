@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { isNewerVersion } from '../utils/version';
+import type { UpdateInfo } from '../types/window';
 import { formatDate } from '../utils/date';
 import { deriveNoteTitle } from '../utils/noteTitle';
 import { useAskStore } from './askStore';
@@ -209,6 +210,8 @@ export interface AppState {
     loading: boolean;
     latestVersion: string | null;
     error: string | null;
+    /** 最新版本的说明、Release 页面、这台电脑对应的安装包 */
+    release?: Pick<UpdateInfo, 'notes' | 'releaseUrl' | 'download'> | null;
   };
   /** 当前打开的弹窗（配置 / 关于 / 快捷键都在主窗口内以浮层显示，不再新开窗口） */
   dialog: DialogId | null;
@@ -1252,9 +1255,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           show: true,
           loading: false,
           latestVersion: result.latestVersion || null,
-          error: null
+          error: null,
+          release: { notes: result.notes, releaseUrl: result.releaseUrl, download: result.download },
         }
       });
+      // 用户自己点开看过了，自动检查就不用再为这个版本弹一次
+      if (result.latestVersion) markUpdateAnnounced(result.latestVersion);
     } catch (err: any) {
       set({
         updateStatus: {
@@ -1268,26 +1274,32 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   autoCheckUpdates: async () => {
-    // Only set loading if we want to show it, but for autoCheck we do it silently
+    // 静默检查：没有新版本、或者检查失败，都不打扰
     try {
       const result = await window.api.app.checkUpdates();
-      if (result.success && result.latestVersion) {
-        if (isNewerVersion(result.latestVersion, window.api.appVersion)) {
-          set({
-            updateStatus: {
-              show: true,
-              loading: false,
-              latestVersion: result.latestVersion,
-              error: null
-            }
-          });
+      if (!result.success || !result.latestVersion || !isNewerVersion(result.latestVersion, window.api.appVersion)) return;
+      // 同一个版本只主动弹一次；之后靠「帮助」菜单上的小红点提醒，不再每次启动都打断
+      const firstTime = !wasUpdateAnnounced(result.latestVersion);
+      if (firstTime) markUpdateAnnounced(result.latestVersion);
+      set((state) => ({
+        updateStatus: {
+          show: firstTime || state.updateStatus.show,
+          loading: false,
+          latestVersion: result.latestVersion!,
+          error: null,
+          release: { notes: result.notes, releaseUrl: result.releaseUrl, download: result.download },
         }
-      }
+      }));
     } catch (err) {
       console.error('Auto update check failed:', err);
     }
   }
 }));
+
+// 已经主动提醒过的版本：同一个版本只弹一次
+const UPDATE_ANNOUNCED_KEY = 'iml.update.announced';
+function wasUpdateAnnounced(version: string): boolean { try { return localStorage.getItem(UPDATE_ANNOUNCED_KEY) === version; } catch { return false; } }
+function markUpdateAnnounced(version: string) { try { localStorage.setItem(UPDATE_ANNOUNCED_KEY, version); } catch { /* 存不了就下次再弹 */ } }
 
 // ── 会话持久化（防抖写入 localStorage）──
 // 未保存的修改（脏标签页 / 新建未命名文档）连同内容一起保存，重启后可恢复；超大内容跳过以免撑爆 localStorage

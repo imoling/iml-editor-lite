@@ -340,13 +340,14 @@ const App: React.FC = () => {
     window.api.events.on('dialog:open', (id: DialogId) => openDialog(id));
   }, [openFileByPath, createNewFile, openFile, saveActiveFile, openDialog]);
 
-  // Handle auto-update check on mount
+  // 自动检查更新：启动后稍等一下查一次；应用一直开着不关的，每天再查一次。
+  // 用「每小时看一眼距上次多久」而不是一个 24 小时的定时器 —— 电脑睡眠时定时器不走
   useEffect(() => {
-    // Only auto-check after a short delay to not block initial rendering and show it as a premium background task
-    const timer = setTimeout(() => {
-      autoCheckUpdates();
-    }, 3000);
-    return () => clearTimeout(timer);
+    let lastCheck = 0;
+    const check = () => { lastCheck = Date.now(); void autoCheckUpdates(); };
+    const first = setTimeout(check, 3000);
+    const hourly = setInterval(() => { if (Date.now() - lastCheck > 24 * 3600 * 1000) check(); }, 3600 * 1000);
+    return () => { clearTimeout(first); clearInterval(hourly); };
   }, [autoCheckUpdates]);
 
   // Apply theme on mount and load session & settings
@@ -467,52 +468,81 @@ const App: React.FC = () => {
 };
 
 // 提取 UpdateModal 组件以保持 App 组件整洁
-import { RotateCw, X, Layout } from 'lucide-react';
+import { RotateCw, X, Download, ArrowUpCircle, CircleCheck } from 'lucide-react';
+import { summarizeReleaseNotes } from './utils/version';
 
+const formatMB = (bytes: number) => `${Math.round(bytes / 1024 / 1024)} MB`;
+
+/**
+ * 更新提醒。应用没有签名，做不了应用内自动更新；这里能做到的是：说清楚新版本有什么，
+ * 并把人直接送到这台电脑该下的那个安装包，而不是一个要自己挑文件的页面。
+ */
 const UpdateModal: React.FC = () => {
   const { updateStatus, setUpdateStatus } = useAppStore();
   const close = () => setUpdateStatus({ ...updateStatus, show: false });
   const current = window.api.appVersion;
   const hasUpdate = isNewerVersion(updateStatus.latestVersion, current);
+  const release = updateStatus.release;
+  const summary = summarizeReleaseNotes(release?.notes);
+  const releasePage = release?.releaseUrl || 'https://github.com/imoling/iml-markdown-editor/releases';
+  const open = (url: string) => { close(); window.api.shell.openExternal(url); };
+
+  if (updateStatus.loading || updateStatus.error || !hasUpdate) {
+    return (
+      <div className="modal-backdrop modal-backdrop--top" onClick={updateStatus.loading ? undefined : close}>
+        <div className="modal-card modal-card--compact" onClick={(e) => e.stopPropagation()}>
+          {updateStatus.loading ? (
+            <>
+              <RotateCw size={32} className="animate-spin" color="var(--color-accent-indigo)" />
+              <p className="update-modal__text">正在检查更新...</p>
+            </>
+          ) : updateStatus.error ? (
+            <>
+              <X size={32} color="var(--color-accent-coral)" />
+              <p className="update-modal__text">{updateStatus.error}</p>
+              <button onClick={close} className="btn btn-surface btn-sm mt-8">关闭</button>
+            </>
+          ) : (
+            <>
+              <CircleCheck size={32} color="#10b981" />
+              <div className="text-center">
+                <p className="update-modal__title">已是最新版本</p>
+                <p className="update-modal__sub">当前版本 {formatVersion(current)}</p>
+              </div>
+              <button onClick={close} className="btn btn-surface btn-sm btn-block mt-8">关闭</button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="modal-backdrop modal-backdrop--top">
-      <div className="modal-card modal-card--compact">
-        {updateStatus.loading ? (
-          <>
-            <RotateCw size={32} className="animate-spin" color="var(--color-accent-indigo)" />
-            <p className="update-modal__text">正在检查更新...</p>
-          </>
-        ) : updateStatus.error ? (
-          <>
-            <X size={32} color="var(--color-accent-coral)" />
-            <p className="update-modal__text">{updateStatus.error}</p>
-            <button onClick={close} className="btn btn-surface btn-sm mt-8">关闭</button>
-          </>
-        ) : (
-          <>
-            <Layout size={32} color={hasUpdate ? 'var(--color-accent-indigo)' : 'var(--text-muted)'} />
-            <div className="text-center">
-              <p className="update-modal__title">{hasUpdate ? '发现新版本！' : '已是最新版本'}</p>
-              <p className="update-modal__sub">
-                {hasUpdate
-                  ? `最新版本: ${formatVersion(updateStatus.latestVersion)} (当前: ${formatVersion(current)})`
-                  : `当前版本 ${formatVersion(current)} 已是最新`}
-              </p>
-            </div>
-            <div className="row gap-12 mt-8 btn-block">
-              <button onClick={close} className="btn btn-surface btn-sm btn-block">关闭</button>
-              {hasUpdate && (
-                <button
-                  onClick={() => { close(); window.api.shell.openExternal('https://github.com/imoling/iml-markdown-editor/releases'); }}
-                  className="btn btn-primary btn-sm btn-block"
-                >
-                  前往下载
-                </button>
-              )}
-            </div>
-          </>
+    <div className="modal-backdrop modal-backdrop--top" onClick={close}>
+      <div className="modal-card update-card" onClick={(e) => e.stopPropagation()}>
+        <div className="update-card__head">
+          <div className="update-card__badge"><ArrowUpCircle size={22} /></div>
+          <div>
+            <p className="update-card__title">新版本 {formatVersion(updateStatus.latestVersion)}{summary.slogan ? ` · ${summary.slogan}` : ''}</p>
+            <p className="update-card__sub">你现在用的是 {formatVersion(current)}</p>
+          </div>
+        </div>
+        {summary.lead && <p className="update-card__lead">{summary.lead}</p>}
+        {summary.highlights.length > 0 && (
+          <ul className="update-card__list">{summary.highlights.map((h) => <li key={h}>{h}</li>)}</ul>
         )}
+        <button className="btn-link update-card__more" onClick={() => open(releasePage)}>查看完整的更新说明</button>
+        <div className="update-card__actions">
+          <button onClick={close} className="btn btn-surface btn-sm">以后再说</button>
+          {release?.download ? (
+            <button onClick={() => open(release.download!.url)} className="btn btn-primary btn-sm update-card__download" title={release.download.name}>
+              <Download size={14} /> 下载 {release.download.label} 安装包{release.download.size ? ` · ${formatMB(release.download.size)}` : ''}
+            </button>
+          ) : (
+            <button onClick={() => open(releasePage)} className="btn btn-primary btn-sm update-card__download">前往下载</button>
+          )}
+        </div>
+        <p className="update-card__note">下载后退出应用、装上新的即可，笔记和设置都不受影响。这个版本不会再主动弹出，「帮助」菜单上的红点会一直留到你更新。</p>
       </div>
     </div>
   );

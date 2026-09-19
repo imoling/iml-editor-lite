@@ -492,6 +492,19 @@
 .update-modal__text { font-size: 14px; color: var(--text-primary); margin: 0; }
 .update-modal__title { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
 .update-modal__sub { font-size: 13px; color: var(--text-secondary); margin: 0; }
+/* 发现新版本：说清楚有什么、直接给对的安装包 */
+.update-card { width: 440px; max-width: calc(100vw - 48px); padding: 26px 28px 22px; gap: 14px; align-items: stretch; }
+.update-card__head { display: flex; align-items: center; gap: 14px; }
+.update-card__badge { flex-shrink: 0; width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--color-brand-indigo); background-color: color-mix(in srgb, var(--color-brand-indigo) 12%, transparent); }
+.update-card__title { margin: 0 0 3px; font-size: 16px; font-weight: 700; line-height: 1.35; color: var(--text-primary); }
+.update-card__sub { margin: 0; font-size: 12px; color: var(--text-muted); }
+.update-card__lead { margin: 0; font-size: 13px; line-height: 1.65; color: var(--text-secondary); }
+.update-card__list { margin: 0; padding: 12px 14px 12px 30px; border-radius: 12px; background-color: var(--bg-elevated); display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.5; color: var(--text-primary); }
+.update-card__list li::marker { color: var(--color-brand-indigo); }
+.update-card__more { align-self: flex-start; font-size: 12px; }
+.update-card__actions { display: flex; gap: 10px; margin-top: 4px; }
+.update-card__download { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.update-card__note { margin: 0; font-size: 11px; line-height: 1.55; color: var(--text-muted); }
 
 /* ── 侧边栏树（从内联样式收口） ── */
 .sidebar { position: relative; }

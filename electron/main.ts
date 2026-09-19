@@ -8,6 +8,7 @@ import { SearchIndex } from './searchIndex';
 import { setupLocalModel, ensureBuiltinEndpoint, builtinNotReadyHint, isBuiltinService, isLocalServerActive, stopServer as stopLocalServer } from './localModel';
 import { setupSemantic, syncSemanticIndex, stopSemanticServer, isSemanticServerActive } from './semantic';
 import { setupAsr, stopAsr, confirmDiscardTranscript, forgetUnsavedTranscript } from './asr';
+import { describeRelease } from './update';
 import { NoteHistory } from './history';
 import { registerAssetScheme, handleAssetProtocol, findOrphanImages, filterTrashable, fetchPageTitle } from './assets';
 
@@ -251,7 +252,8 @@ function openFileFromOS(filePath: string) {
 
 // 版本号与待打开文件队列不依赖 ready，尽早注册：preload 同步读版本号时句柄必须已经挂上
 ipcMain.on('app:version', (event) => {
-  event.returnValue = app.getVersion();
+  // 冒烟测试：IML_SMOKE_VERSION=26.1.0 让应用以为自己是旧版本，用来看真实的「发现新版本」提醒
+  event.returnValue = (isDev && process.env.IML_SMOKE_VERSION) || app.getVersion();
 });
 ipcMain.handle('app:consumePendingOpenFiles', () => {
   const files = [...pendingOpenFiles];
@@ -995,12 +997,7 @@ app.whenReady().then(() => {
         throw new Error(`GitHub API returned ${response.status}`);
       }
       
-      const data: any = await response.json();
-      return {
-        success: true,
-        latestVersion: data.tag_name.replace(/^v/, ''),
-        releaseUrl: data.html_url
-      };
+      return describeRelease(await response.json(), process.platform, process.arch);
     } catch (err: any) {
       console.error('Update check failed:', err);
       return { success: false, error: '无法连接到更新服务器，请检查网络设置' };

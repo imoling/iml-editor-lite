@@ -11,6 +11,8 @@ export type { HistoryEntry } from '../../electron/history';
 import type { AsrState } from '../../electron/asr/index';
 import type { PipelineEvent } from '../../electron/asr/pipeline';
 export type { AsrState } from '../../electron/asr/index';
+import type { UpdateInfo } from '../../electron/update';
+export type { UpdateInfo } from '../../electron/update';
 /** 识别进程发回来的事件：临时文字、定稿、出错、收尾完成 */
 export type AsrEvent = PipelineEvent | { type: 'error'; message: string } | { type: 'done' };
 export type { OrphanImage } from '../../electron/assets';
@@ -152,7 +154,7 @@ declare global {
         send: (channel: string, ...args: any[]) => void;
       };
       app: {
-        checkUpdates: () => Promise<{ success: boolean; latestVersion?: string; releaseUrl?: string; error?: string }>;
+        checkUpdates: () => Promise<UpdateInfo>;
         platform: string;
         minimize: () => void;
         maximize: () => void;
