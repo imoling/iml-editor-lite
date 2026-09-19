@@ -251,7 +251,7 @@ export const TranscribePanel: React.FC = () => {
           {unsaved ? (
             <div className="transcribe-note transcribe-note--warn">
               <TriangleAlert size={12} />
-              <span>{t.savedCount > 0 ? `后来录的还没放进笔记。` : `还没放进笔记。`}{what}只在内存里，点「清空」或退出应用就没了。</span>
+              <span>{t.savedCount > 0 ? '后来录的还没放进笔记' : '还没放进笔记'}，点「清空」或退出应用就没了。</span>
             </div>
           ) : (
             <div className="transcribe-note transcribe-note--ok"><CircleCheck size={12} /><span>已放进{savedTitle ? `「${savedTitle.replace(/\.md$/i, '')}」` : '笔记'}{t.audio ? '，录音也存好了' : ''}。</span></div>
