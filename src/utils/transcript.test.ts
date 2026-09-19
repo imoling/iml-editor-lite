@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatClock, formatDuration, buildTranscriptBlock, stripTranscriptBlocks, hasTranscriptBlock, appendBlock, insertMinutes, newMeetingNote, splitForSummary, transcriptText, buildMinutesMessages, buildMergeMessages, cleanMinutes } from './transcript';
+import { formatClock, formatDuration, buildTranscriptBlock, stripTranscriptBlocks, hasTranscriptBlock, appendBlock, upsertBlock, insertMinutes, newMeetingNote, splitForSummary, transcriptText, buildMinutesMessages, buildMergeMessages, cleanMinutes } from './transcript';
 import { markdownToHtml, htmlToMarkdown } from './markdown';
 
 const SEGS = [{ start: 0.2, text: '大家好，我们开始今天的周会。' }, { start: 3.6, text: '第一个议题是 26.3 的排期 <紧急> & 重要' }, { start: 3725, text: '散会。' }];
@@ -52,6 +52,18 @@ describe('把转写和纪要放进笔记', () => {
     expect(hasTranscriptBlock(note)).toBe(true);
     expect(stripTranscriptBlocks(note)).toBe('# 周会\n\n- 排期要重排');
     expect(hasTranscriptBlock('普通笔记 <details><summary>别的折叠块</summary></details>')).toBe(false);
+  });
+
+  it('同一场再放一次是替换，不是再追加一块；别的场次的转写块不动', () => {
+    const other = buildTranscriptBlock([{ start: 0, text: '上周的会。' }], new Date(2026, 8, 13, 10, 0), 5);
+    const note = appendBlock(appendBlock('# 周会', other), block);
+    const longer = buildTranscriptBlock(SEGS, AT, 3730);
+    const next = upsertBlock(note, longer, AT);
+    expect(next.match(/<details data-iml-transcript>/g)).toHaveLength(2);
+    expect(next).toContain(other);
+    expect(next).toContain('散会。');
+    expect(next.indexOf(other)).toBeLessThan(next.indexOf(longer));
+    expect(upsertBlock('# 新笔记', block, AT)).toBe(appendBlock('# 新笔记', block));
   });
 
   it('纪要插在转写块前面；没有转写块就放末尾', () => {

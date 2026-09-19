@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import type { AsrState, AsrEvent } from '../types/window';
 import { startMicCapture, type MicCapture } from '../utils/micCapture';
+import { getPreferredMic, setPreferredMic, listMics, type MicList } from '../utils/micDevices';
 import { useAppStore } from './appStore';
 import {
-  type TranscriptSegment, transcriptText, buildTranscriptBlock, appendBlock, insertMinutes, newMeetingNote, meetingNoteTitle,
+  type TranscriptSegment, transcriptText, buildTranscriptBlock, upsertBlock, insertMinutes, newMeetingNote, meetingNoteTitle,
   stripTranscriptBlocks, splitForSummary, buildMinutesMessages, buildPartMessages, buildMergeMessages, cleanMinutes,
 } from '../utils/transcript';
 import { stripThinking } from '../utils/askNotes';
@@ -23,12 +24,21 @@ interface TranscribeState {
   /** 本段录音开始的时刻（毫秒），用来算已经录了多久 */
   runStartedAt: number | null;
   level: number;
+  /** 用户选的麦克风（空串 = 跟随系统）和当前能看到的设备 */
+  micId: string;
+  mics: MicList;
+  /** 这次录音实际在用的麦克风 */
+  deviceLabel: string;
+  /** 连续几秒一点信号都没有（不是「没人说话」，是数字静音）：多半是麦克风被静音了，或者选错了设备 */
+  silent: boolean;
   error: string | null;
   /** 转写已经写进了哪篇笔记（生成纪要时往那里放） */
   savedTo: string | null;
   minutes: { running: boolean; progress: string; error: string | null };
 
   refresh: () => Promise<void>;
+  refreshMics: () => Promise<void>;
+  setMic: (id: string) => void;
   install: () => void;
   cancelInstall: () => void;
   start: () => Promise<void>;
@@ -44,6 +54,10 @@ const cleanError = (err: any) => String(err?.message || err).replace(/^Error inv
 
 let capture: MicCapture | null = null;
 
+/** 显示用的电平（micCapture 压缩过的 0~1）低于它算「没有信号」：约 -78 dBFS，真实麦克风的底噪都比这高 */
+const SILENCE_LEVEL = 0.02;
+const SILENCE_MS = 4000;
+
 /**
  * 实时转写的状态。放在独立的 store 里而不是面板组件里：侧边栏切到别的页、甚至收起来，录音都不能断。
  */
@@ -56,11 +70,17 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
   offset: 0,
   runStartedAt: null,
   level: 0,
+  micId: getPreferredMic(),
+  mics: { systemDefault: '', mics: [], labelsAvailable: false },
+  deviceLabel: '',
+  silent: false,
   error: null,
   savedTo: null,
   minutes: { running: false, progress: '', error: null },
 
   refresh: async () => { try { set({ asr: await window.api.asr.getState() }); } catch { /* 主进程还没准备好 */ } },
+  refreshMics: async () => set({ mics: await listMics() }),
+  setMic: (id) => { setPreferredMic(id); set({ micId: id }); },
   install: () => { void window.api.asr.install(); },
   cancelInstall: () => { void window.api.asr.cancelInstall(); },
 
@@ -71,11 +91,18 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     set({ status: 'starting', error: null });
     try {
       await window.api.asr.start();                       // 识别进程就绪（含 macOS 的麦克风授权）
+      let lastSignalAt = Date.now();
       capture = await startMicCapture((samples, level) => {
         window.api.asr.sendPcm(samples);
         if (Math.abs(level - get().level) > 0.04) set({ level });
-      });
-      set((s) => ({ status: 'recording', runStartedAt: Date.now(), startedAt: s.startedAt ?? Date.now(), savedTo: s.segments.length ? s.savedTo : null }));
+        // 再安静的房间也有底噪；电平贴着 0 超过几秒，说明根本没有声音进来
+        if (level > SILENCE_LEVEL) lastSignalAt = Date.now();
+        const silent = Date.now() - lastSignalAt > SILENCE_MS;
+        if (silent !== get().silent) set({ silent });
+      }, get().micId);
+      if (capture.fellBack) useAppStore.getState().notify(`选定的麦克风没连上，这次改用${capture.label ? `「${capture.label}」` : '系统默认的麦克风'}`);
+      void get().refreshMics();   // 授权之后才读得到设备名字
+      set((s) => ({ status: 'recording', deviceLabel: capture?.label ?? '', silent: false, runStartedAt: Date.now(), startedAt: s.startedAt ?? Date.now(), savedTo: s.segments.length ? s.savedTo : null }));
     } catch (err) {
       capture?.stop(); capture = null;
       await window.api.asr.stop().catch(() => {});
@@ -91,7 +118,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     try { await window.api.asr.stop(); } catch { /* 进程已经没了也算停了 */ }
     // 最后一句的定稿在 stop 返回之前已经送到；还挂着的临时文字说明那句没来得及定稿，保住它
     set((s) => ({
-      status: 'idle', level: 0, runStartedAt: null, offset: s.offset + ran,
+      status: 'idle', level: 0, silent: false, runStartedAt: null, offset: s.offset + ran,
       segments: s.partial?.text ? [...s.segments, s.partial] : s.segments, partial: null,
     }));
   },
@@ -103,9 +130,10 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     const app = useAppStore.getState();
     const tab = app.tabs.find((t) => t.id === app.activeTabId);
     if (!tab || segments.length === 0) return false;
-    const block = buildTranscriptBlock(segments, new Date(startedAt ?? Date.now()), get().elapsed());
+    const at = new Date(startedAt ?? Date.now());
+    const block = buildTranscriptBlock(segments, at, get().elapsed());
     // 用户多半正在这篇里记要点：editTabContent 会先把他没写回的字刷进来，再追加，光标也留在原地
-    if (!app.editTabContent(tab.id, (current) => appendBlock(current, block))) return false;
+    if (!app.editTabContent(tab.id, (current) => upsertBlock(current, block, at))) return false;
     set({ savedTo: tab.id });
     app.notify(`转写已写进「${tab.title}」的末尾`);
     return true;
@@ -173,6 +201,11 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
   },
 }));
 
+// 插拔耳机 / 麦克风时更新设备列表
+if (typeof navigator !== 'undefined' && navigator.mediaDevices?.addEventListener) {
+  navigator.mediaDevices.addEventListener('devicechange', () => { void useTranscribeStore.getState().refreshMics(); });
+}
+
 // 主进程推来的状态与识别结果。模块加载时订阅一次：录音期间面板可能根本没挂载
 if (typeof window !== 'undefined' && window.api?.asr) {
   window.api.asr.onState((asr) => useTranscribeStore.setState({ asr }));
@@ -182,7 +215,7 @@ if (typeof window !== 'undefined' && window.api?.asr) {
     else if (event.type === 'final') useTranscribeStore.setState({ segments: [...s.segments, { start: s.offset + event.start, text: event.text }], partial: null });
     else if (event.type === 'error') {
       capture?.stop(); capture = null;
-      useTranscribeStore.setState({ status: 'idle', runStartedAt: null, level: 0, error: event.message });
+      useTranscribeStore.setState({ status: 'idle', runStartedAt: null, level: 0, silent: false, error: event.message });
     }
   });
 }

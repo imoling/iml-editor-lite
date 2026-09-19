@@ -624,3 +624,14 @@
 .settings-range input[type='range'] { flex: 1; accent-color: var(--color-brand-indigo); }
 .settings-range__value { width: 44px; text-align: right; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .settings-select { background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 5px 10px; font-size: 13px; outline: none; }
+
+/* ── 语音转写配置（智能 → 语音转写）── */
+.tc-checks { display: flex; flex-direction: column; gap: 6px; }
+.tc-check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-secondary); }
+.tc-check svg { flex-shrink: 0; color: #d97706; }
+.tc-check--ok svg { color: #10b981; }
+.tc-device { display: flex; align-items: center; gap: 8px; }
+.tc-device__select { flex: 1; min-width: 0; padding: 7px 10px; font-size: 12.5px; }
+.tc-meter { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background-color: var(--bg-elevated); }
+.lm-model--static { cursor: default; }
+.lm-model--static:hover { border-color: var(--border-subtle); }

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Marked } from 'marked';
-import { ArrowUp, Square, Eraser, FileText, Copy, Check } from 'lucide-react';
+import { ArrowUp, Square, Eraser, FileText, Copy, Check, MessageCircleQuestion, Quote, MousePointerClick, ShieldCheck } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useAskStore, type AskTurn } from '../../stores/askStore';
 import { useSemanticState, semanticReady } from './RelatedPanel';
@@ -8,8 +8,16 @@ import { useAiReadiness } from '../../utils/aiReadiness';
 import { sanitizeHtml } from '../../utils/sanitize';
 import { linkCitations, citedNumbers, locateFragment, isRefusal, stripCitations } from '../../utils/askNotes';
 import type { AskSource } from '../../types/window';
+import { PanelIntro } from './PanelIntro';
 
 const answerMarkdown = new Marked({ gfm: true, breaks: true });
+
+const INTRO_POINTS = [
+  { icon: <Quote size={13} />, text: '每个结论都标着出处' },
+  { icon: <MousePointerClick size={13} />, text: '点一下出处，跳到原文那一段' },
+  { icon: <ShieldCheck size={13} />, text: '笔记里没写的，它会直说没有' },
+];
+const EXAMPLES = ['上次周会定了哪些待办？', '我记过哪些关于向量数据库的内容？', '这个月读的书里，哪些观点值得再看？'];
 
 /** 答案：渲染 Markdown，把 [1] 变成可点的引用 */
 const Answer: React.FC<{ turn: AskTurn; refused: boolean; onCite: (n: number) => void }> = ({ turn, refused, onCite }) => {
@@ -164,10 +172,15 @@ export const AskPanel: React.FC = () => {
             <button className="btn-link" onClick={blocker.go}>{blocker.action}</button>
           </div>
         ) : turns.length === 0 ? (
-          <div className="ask-intro">
-            <p>用大白话问，答案只来自你自己的笔记，每个结论都标着出处，点一下就跳到原文。</p>
-            <p className="ask-intro__hint">比如：「上次周会定了哪些待办」「我记过哪些关于向量数据库的内容」</p>
-          </div>
+          <PanelIntro icon={<MessageCircleQuestion size={20} />} title="答案只来自你的笔记" lead="用大白话问就行，不用想关键词。" points={INTRO_POINTS}>
+            <div className="ask-examples">
+              <div className="ask-examples__title">试着问</div>
+              {EXAMPLES.map((q) => (
+                // 填进输入框而不是直接发出去：例子多半要改两个字才对得上自己的笔记
+                <button key={q} className="ask-example" onClick={() => { setInput(q); inputRef.current?.focus(); }}>{q}</button>
+              ))}
+            </div>
+          </PanelIntro>
         ) : (
           turns.map((t) => <Turn key={t.id} turn={t} onOpen={openSource} relative={relative} />)
         )}

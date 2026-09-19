@@ -67,6 +67,21 @@ export function appendBlock(content: string, block: string): string {
   return `${body}${body ? '\n\n' : ''}${block}\n`;
 }
 
+/**
+ * 同一场转写再放一次（停了又继续录、或者手滑点了两下）：替换掉上次放进去的那一块，不重复追加。
+ * 靠 <summary> 里的开始时间认「同一场」；找不到就追加到末尾
+ */
+export function upsertBlock(content: string, block: string, startedAt: Date): string {
+  const stamp = dateStamp(startedAt);
+  let replaced = false;
+  const next = content.replace(BLOCK_RE, (old) => {
+    if (replaced || !old.includes(`· ${stamp}</summary>`)) return old;
+    replaced = true;
+    return block;
+  });
+  return replaced ? next : appendBlock(content, block);
+}
+
 /** 纪要放在转写块前面（先看结论，再翻原文）；笔记里没有转写块就放末尾 */
 export function insertMinutes(content: string, minutes: string): string {
   const section = `## 会议纪要\n\n${minutes.trim()}`;

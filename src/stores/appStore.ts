@@ -4,7 +4,7 @@ import { formatDate } from '../utils/date';
 import { deriveNoteTitle } from '../utils/noteTitle';
 import { useAskStore } from './askStore';
 
-export type DialogId = 'about' | 'shortcuts' | 'quick-open' | 'ai-config' | 'ai-setup' | 'image-config' | 'semantic-config' | 'settings' | 'whats-new' | 'history' | 'image-cleanup';
+export type DialogId = 'about' | 'shortcuts' | 'quick-open' | 'ai-config' | 'ai-setup' | 'image-config' | 'semantic-config' | 'transcribe-config' | 'settings' | 'whats-new' | 'history' | 'image-cleanup';
 import { DAILY_DIR, TEMPLATE_DIR, DEFAULT_DAILY_TEMPLATE, SAMPLE_TEMPLATES, renderNoteTemplate } from '../utils/noteTemplates';
 
 export interface FileNode {

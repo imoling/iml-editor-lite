@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow, systemPreferences, utilityProcess, type UtilityProcess } from 'electron';
+import { app, ipcMain, BrowserWindow, shell, systemPreferences, utilityProcess, type UtilityProcess } from 'electron';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -15,12 +15,19 @@ import { getDownloadSettings } from '../localModel';
 
 export type AsrSessionStatus = 'idle' | 'starting' | 'recording' | 'stopping';
 
+/** 系统层面的麦克风授权。unknown：这个平台没有这道关（Linux），当作放行 */
+export type MicAccess = 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown';
+
 export interface AsrState {
   /** 这个平台有没有对应的原生模块 */
   supported: boolean;
   installed: boolean;
   /** 总共要下载多少字节（界面上告诉用户） */
   downloadBytes: number;
+  /** 已下载的识别组件 + 语音模型占了多少磁盘 */
+  installedBytes: number;
+  runtimeVersion: string;
+  micAccess: MicAccess;
   install: { active: boolean; received: number; total: number; step: string; error: string | null } | null;
   session: AsrSessionStatus;
   error: string | null;
@@ -48,11 +55,20 @@ function isInstalled(): boolean {
     && MODEL_FILES.every((f) => { try { return fs.statSync(modelPath(f.file)).size === f.size; } catch { return false; } });
 }
 
+function micAccess(): MicAccess {
+  if (process.platform !== 'darwin' && process.platform !== 'win32') return 'unknown';
+  try { return systemPreferences.getMediaAccessStatus('microphone') as MicAccess; } catch { return 'unknown'; }
+}
+
 export function getAsrState(): AsrState {
+  const installed = isInstalled();
   return {
     supported: !!nativePackageFor(process.platform, process.arch),
-    installed: isInstalled(),
+    installed,
     downloadBytes: totalDownloadBytes(process.platform, process.arch),
+    installedBytes: installed ? totalDownloadBytes(process.platform, process.arch) : 0,
+    runtimeVersion: ASR_RUNTIME_VERSION,
+    micAccess: micAccess(),
     install,
     session,
     error: lastError,
@@ -265,6 +281,17 @@ export function setupAsr(d: Deps) {
     install = null;
     broadcast();
     return getAsrState();
+  });
+  // 配置页里「允许使用麦克风」：macOS 第一次会弹系统授权框；之前拒绝过的话系统不会再弹，只能去系统设置里改
+  ipcMain.handle('asr:requestMicAccess', async () => {
+    if (process.platform === 'darwin' && micAccess() === 'not-determined') await systemPreferences.askForMediaAccess('microphone');
+    broadcast();
+    return getAsrState();
+  });
+  ipcMain.handle('asr:openMicSettings', () => {
+    if (process.platform === 'darwin') void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
+    else if (process.platform === 'win32') void shell.openExternal('ms-settings:privacy-microphone');
+    return true;
   });
   ipcMain.handle('asr:start', () => startSession());
   ipcMain.handle('asr:stop', () => stopSession());

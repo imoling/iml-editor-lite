@@ -559,25 +559,75 @@
 .start-page-list-item:hover { background-color: var(--bg-hover-editor); color: var(--text-primary); }
 
 /* ── 全文搜索面板 ── */
+/* ── 侧边栏功能页的空状态（问答 / 转写共用）：图标、一句话、几条要点 ── */
+/* 淡色底一律从主题色里调出来（color-mix），换了主题色也协调 */
+.panel-intro { display: flex; flex-direction: column; align-items: center; padding: 22px 0 12px; text-align: center; }
+.panel-intro--plain { padding-top: 14px; }
+.panel-intro__badge { width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: var(--color-brand-indigo); background-color: color-mix(in srgb, var(--color-brand-indigo) 12%, transparent); margin-bottom: 12px; }
+.panel-intro__title { font-size: 14px; font-weight: 700; color: var(--text-primary); letter-spacing: 0.01em; }
+.panel-intro__lead { margin: 6px 0 0; padding: 0 10px; font-size: 12px; line-height: 1.6; color: var(--text-muted); }
+.panel-intro__points { list-style: none; align-self: stretch; margin: 16px 0 0; padding: 10px 12px; display: flex; flex-direction: column; gap: 9px; border-radius: 12px; background-color: var(--bg-page); border: 1px solid var(--border-subtle); text-align: left; }
+.panel-intro__points li { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+.panel-intro__point-icon { flex-shrink: 0; width: 20px; height: 20px; margin-top: -1px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--color-brand-indigo); background-color: color-mix(in srgb, var(--color-brand-indigo) 10%, transparent); }
+.panel-intro__action { align-self: stretch; margin-top: 16px; display: flex; flex-direction: column; gap: 6px; }
+.panel-intro__cta { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 9px 12px; border-radius: 10px; font-weight: 600; }
+.panel-intro__note { font-size: 11px; color: var(--text-muted); }
+.panel-intro__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* 「试着问」的例子：点一下填进输入框 */
+.ask-examples { align-self: stretch; margin-top: 16px; display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.ask-examples__title { padding-left: 2px; font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.03em; }
+.ask-example { display: block; width: 100%; padding: 8px 11px; border-radius: 10px; border: 1px solid var(--border-subtle); background-color: var(--bg-card); color: var(--text-secondary); font: inherit; font-size: 12px; line-height: 1.45; text-align: left; cursor: pointer; transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease; }
+.ask-example:hover { border-color: var(--color-brand-indigo); color: var(--text-primary); background-color: color-mix(in srgb, var(--color-brand-indigo) 5%, var(--bg-card)); }
+
 /* ── 实时转写（侧边栏「转写」页，布局复用 .ask-panel）── */
-.transcribe-setup { padding: 8px; font-size: 12.5px; line-height: 1.7; color: var(--text-secondary); }
-.transcribe-setup p { margin: 0 0 8px; }
-.transcribe-setup__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.transcribe-bar { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 4px 2px 8px; }
-.transcribe-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; border: none; cursor: pointer; font-size: 12.5px; font-weight: 600; font-family: inherit; background-color: var(--color-brand-indigo); color: #fff; transition: opacity 0.2s ease; }
-.transcribe-btn:disabled { opacity: 0.5; cursor: default; }
-.transcribe-btn--stop { background-color: #ef4444; }
-.transcribe-clock { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
-.transcribe-clock--live { color: #ef4444; font-weight: 600; }
-.transcribe-level { flex: 1; max-width: 72px; height: 4px; border-radius: 2px; background-color: var(--border-subtle); overflow: hidden; }
-.transcribe-level > span { display: block; height: 100%; border-radius: 2px; background-color: #10b981; transition: width 0.12s linear; }
-.transcribe-line { display: flex; gap: 8px; padding: 3px 4px; font-size: 13px; line-height: 1.65; color: var(--text-primary); word-break: break-word; }
-.transcribe-line__time { flex-shrink: 0; min-width: 36px; padding-top: 2px; font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
-/* 还在变的那一句：颜色淡一点，定稿后变实 */
+/* 录音卡片：没开始是一个大按钮；转写中显示状态、计时、音量、在用哪个麦克风；停下来收成一行 */
+.rec-card { flex-shrink: 0; margin: 2px 2px 8px; padding: 10px 12px; border-radius: 14px; background-color: var(--bg-page); border: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 8px; }
+.rec-card--hero { align-items: center; gap: 0; padding: 20px 12px 12px; }
+.rec-card--live { border-color: color-mix(in srgb, #ef4444 35%, var(--border-subtle)); background-color: color-mix(in srgb, #ef4444 4%, var(--bg-page)); }
+.rec-card__row { display: flex; align-items: center; gap: 8px; }
+.rec-start { width: 58px; height: 58px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #fff; background: var(--brand-gradient, var(--color-brand-indigo)); box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-brand-indigo) 12%, transparent), 0 6px 16px color-mix(in srgb, var(--color-brand-indigo) 30%, transparent); transition: transform 0.15s ease, box-shadow 0.2s ease, opacity 0.2s ease; }
+.rec-start:hover:not(:disabled) { transform: scale(1.05); box-shadow: 0 0 0 8px color-mix(in srgb, var(--color-brand-indigo) 14%, transparent), 0 8px 20px color-mix(in srgb, var(--color-brand-indigo) 36%, transparent); }
+.rec-start:active:not(:disabled) { transform: scale(0.97); }
+.rec-start:disabled { opacity: 0.6; cursor: default; }
+.rec-start__label { margin: 14px 0 6px; font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.rec-live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #ef4444; }
+.rec-live__dot { width: 8px; height: 8px; border-radius: 50%; background-color: #ef4444; animation: ask-pulse 1.2s ease-in-out infinite; }
+.rec-paused { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.rec-clock { margin-left: auto; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; color: var(--text-primary); }
+.rec-clock--muted { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+/* 停止用中性的深色，不用红：主题色可能本来就是红的，「开始」和「停止」不能长得一样 */
+.rec-stop, .rec-resume { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; border-radius: 999px; border: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; transition: opacity 0.2s ease; }
+.rec-stop { background-color: var(--text-primary); color: var(--bg-page); }
+.rec-resume { background-color: var(--color-brand-indigo); color: #fff; }
+.rec-stop:disabled, .rec-resume:disabled { opacity: 0.5; cursor: default; }
+.rec-device { align-self: center; max-width: 100%; display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border: none; border-radius: 6px; background: none; cursor: pointer; font: inherit; font-size: 11px; color: var(--text-muted); transition: background-color 0.15s ease, color 0.15s ease; }
+.rec-card--live .rec-device { align-self: flex-start; margin-left: -6px; }
+.rec-device:hover { background-color: var(--bg-hover-editor); color: var(--text-secondary); }
+.rec-device--warn { color: #d97706; }
+.rec-device svg { flex-shrink: 0; }
+.rec-listening { display: flex; align-items: center; gap: 8px; padding: 14px 6px; font-size: 12px; color: var(--text-muted); }
+
+/* 滚动的音量条（转写面板和配置弹窗共用） */
+.level-bars { display: flex; align-items: center; gap: 2px; height: 28px; }
+.level-bars > span { flex: 1; min-width: 2px; border-radius: 2px; background-color: var(--border-strong, var(--border-subtle)); transition: height 0.09s linear; }
+.level-bars--live > span { background-color: #10b981; opacity: 0.85; }
+
+.transcribe-line { display: flex; gap: 8px; padding: 4px 6px; border-radius: 8px; font-size: 13px; line-height: 1.65; color: var(--text-primary); word-break: break-word; }
+.transcribe-line:hover { background-color: var(--bg-hover-editor); }
+.transcribe-line__time { flex-shrink: 0; align-self: flex-start; min-width: 38px; margin-top: 3px; padding: 0 5px; border-radius: 5px; text-align: center; font-size: 10.5px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--text-muted); background-color: var(--bg-elevated); }
+/* 还在变的那一句：颜色淡一点，末尾一个闪动的光标，定稿后变实 */
 .transcribe-line--partial { color: var(--text-muted); }
-.transcribe-actions { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 2px 10px; border-top: 1px solid var(--border-subtle); }
-.transcribe-actions .btn { display: inline-flex; align-items: center; gap: 4px; }
-.transcribe-actions .btn-link { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+.transcribe-caret { display: inline-block; width: 2px; height: 13px; margin-left: 2px; vertical-align: -2px; border-radius: 1px; background-color: var(--color-brand-indigo); animation: transcribe-blink 1s steps(2, start) infinite; }
+@keyframes transcribe-blink { to { visibility: hidden; } }
+.transcribe-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 0 10px; border-top: 1px solid var(--border-subtle); }
+.transcribe-actions__main { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 9px 12px; border-radius: 10px; font-weight: 600; }
+.transcribe-actions__main .ask-dots { background-color: currentColor; }
+.transcribe-actions__hint { justify-content: center; }
+.transcribe-actions__row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.transcribe-tool { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-radius: 10px; border: 1px solid var(--border-subtle); background-color: var(--bg-card); color: var(--text-secondary); font: inherit; font-size: 11px; cursor: pointer; white-space: nowrap; transition: border-color 0.15s ease, color 0.15s ease; }
+.transcribe-tool:hover:not(:disabled) { border-color: var(--color-brand-indigo); color: var(--color-brand-indigo); }
+.transcribe-tool:disabled { opacity: 0.45; cursor: default; }
 .statusbar-recording { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: none; background: none; cursor: pointer; font: inherit; font-variant-numeric: tabular-nums; color: #ef4444; font-weight: 600; }
 .statusbar-recording__dot { width: 7px; height: 7px; border-radius: 50%; background-color: #ef4444; animation: ask-pulse 1.2s ease-in-out infinite; }
 
@@ -592,12 +642,9 @@
 .ask-panel__send { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; background-color: var(--color-brand-indigo); color: #fff; transition: opacity 0.2s ease; }
 .ask-panel__send:disabled { opacity: 0.35; cursor: default; }
 .ask-panel__send--stop { background-color: var(--text-primary); color: var(--bg-page); }
-.ask-intro { padding: 12px 8px; font-size: 12.5px; line-height: 1.7; color: var(--text-secondary); }
-.ask-intro p { margin: 0 0 8px; }
-.ask-intro__hint { color: var(--text-muted); font-size: 12px; }
 .ask-turn { padding: 8px 4px 14px; }
 .ask-turn + .ask-turn { border-top: 1px solid var(--border-subtle); padding-top: 14px; }
-.ask-question { margin: 0 0 10px auto; width: fit-content; max-width: 92%; padding: 7px 11px; border-radius: 12px 12px 3px 12px; background-color: rgba(99, 102, 241, 0.1); color: var(--text-primary); font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.ask-question { margin: 0 0 10px auto; width: fit-content; max-width: 92%; padding: 7px 11px; border-radius: 12px 12px 3px 12px; background-color: color-mix(in srgb, var(--color-brand-indigo) 10%, transparent); color: var(--text-primary); font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .ask-status { display: flex; align-items: center; gap: 6px; padding: 4px 2px; font-size: 12px; color: var(--text-muted); }
 .ask-status--error { color: #ef4444; align-items: flex-start; word-break: break-word; }
 .ask-status--warn { margin-top: 6px; padding: 6px 8px; border-radius: 8px; background-color: rgba(245, 158, 11, 0.1); color: #b45309; line-height: 1.5; align-items: flex-start; }
@@ -609,8 +656,8 @@
 .ask-source:hover { background-color: var(--bg-hover-editor); }
 .ask-source--unused { opacity: 0.45; }
 .ask-source--unused:hover { opacity: 1; }
-.ask-source--flash { background-color: rgba(99, 102, 241, 0.14); }
-.ask-source__num, .ask-cite { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; border: none; background-color: rgba(99, 102, 241, 0.14); color: var(--color-brand-indigo); font-size: 10px; font-weight: 700; font-family: inherit; line-height: 1; }
+.ask-source--flash { background-color: color-mix(in srgb, var(--color-brand-indigo) 14%, transparent); }
+.ask-source__num, .ask-cite { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; border: none; background-color: color-mix(in srgb, var(--color-brand-indigo) 14%, transparent); color: var(--color-brand-indigo); font-size: 10px; font-weight: 700; font-family: inherit; line-height: 1; }
 .ask-source__num { margin-top: 2px; }
 .ask-cite { margin: 0 1px; vertical-align: 1px; cursor: pointer; }
 .ask-cite:hover { background-color: var(--color-brand-indigo); color: #fff; }

@@ -63,7 +63,7 @@ export function createMockApi(initialFiles: Record<string, string> = {}) {
     history: { list: vi.fn(async () => []), read: vi.fn(async () => null) },
     web: { fetchTitle: vi.fn(async () => null) },
     asr: {
-      getState: vi.fn(async () => null), install: vi.fn(), cancelInstall: vi.fn(), uninstall: vi.fn(), start: vi.fn(), stop: vi.fn(),
+      getState: vi.fn(async () => null), install: vi.fn(), cancelInstall: vi.fn(), uninstall: vi.fn(), requestMicAccess: vi.fn(), openMicSettings: vi.fn(), start: vi.fn(), stop: vi.fn(),
       sendPcm: vi.fn(), onState: vi.fn(() => () => {}), onEvent: vi.fn(() => () => {}),
     },
     semantic: {

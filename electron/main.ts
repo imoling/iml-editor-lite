@@ -376,7 +376,7 @@ function createWindow() {
  * 配置 / 关于 / 快捷键都是主窗口里的浮层，不再新开 BrowserWindow：
  * 多开窗口会让 Dock 与调度中心里出现好几个同名窗口。主窗口不在时先建出来再打开。
  */
-function openDialogInMain(id: 'about' | 'shortcuts' | 'ai-config' | 'image-config' | 'semantic-config' | 'settings') {
+function openDialogInMain(id: 'about' | 'shortcuts' | 'ai-config' | 'image-config' | 'semantic-config' | 'transcribe-config' | 'settings') {
   if (!mainWindow || mainWindow.isDestroyed()) {
     createWindow();
     mainWindow?.webContents.once('did-finish-load', () => {
@@ -531,6 +531,10 @@ function setupAppMenu() {
         {
           label: '相关笔记…',
           click: () => openDialogInMain('semantic-config'),
+        },
+        {
+          label: '语音转写…',
+          click: () => openDialogInMain('transcribe-config'),
         },
         { type: 'separator' },
         {

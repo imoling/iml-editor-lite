@@ -4,6 +4,8 @@
  * Worklet 的代码走 data: URL —— 应用的 CSP 允许 data:，不允许 blob:，也省得为它单独放一个静态文件。
  */
 
+import { cleanMicLabel } from './micDevices';
+
 const CHUNK = 1600;   // 100 ms @ 16 kHz
 
 const WORKLET = `
@@ -24,21 +26,40 @@ class Tap extends AudioWorkletProcessor {
 }
 registerProcessor('iml-mic-tap', Tap);`;
 
-export interface MicCapture { stop: () => void }
+export interface MicCapture {
+  stop: () => void;
+  /** 实际在用的设备名 */
+  label: string;
+  /** 指定的设备没连上，退回了系统默认 */
+  fellBack: boolean;
+}
 
-/** level 是这一块的音量（0~1，已做过适合显示的压缩），给界面上的电平条用 */
-export async function startMicCapture(onChunk: (samples: Float32Array, level: number) => void): Promise<MicCapture> {
+// Chromium 的降噪、自动增益、回声消除全部关掉，把原始声音交给识别模型。
+// 实测开着降噪 / 增益时，每次停顿之后重新起音的第一个音节会被压掉（「大家好」识别成「好」、「最后」识别成「后」）；
+// 语音模型本来就是拿带噪数据训练的，这层「美化」对它只有害处
+const RAW_AUDIO = { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+
+/**
+ * level 是这一块的音量（0~1，已做过适合显示的压缩），给界面上的电平条用。
+ * deviceId 为空 = 跟随系统默认；指定的设备拔掉了就退回默认，不让一场会因为这个开不了头
+ */
+export async function startMicCapture(onChunk: (samples: Float32Array, level: number) => void, deviceId = ''): Promise<MicCapture> {
   let stream: MediaStream;
+  let fellBack = false;
   try {
-    // Chromium 的降噪、自动增益、回声消除全部关掉，把原始声音交给识别模型。
-    // 实测开着降噪 / 增益时，每次停顿之后重新起音的第一个音节会被压掉（「大家好」识别成「好」、「最后」识别成「后」）；
-    // 语音模型本来就是拿带噪数据训练的，这层「美化」对它只有害处
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: deviceId ? { ...RAW_AUDIO, deviceId: { exact: deviceId } } : RAW_AUDIO });
+    } catch (err: any) {
+      if (!deviceId || (err?.name !== 'OverconstrainedError' && err?.name !== 'NotFoundError')) throw err;
+      stream = await navigator.mediaDevices.getUserMedia({ audio: RAW_AUDIO });
+      fellBack = true;
+    }
   } catch (err: any) {
     if (err?.name === 'NotAllowedError') throw new Error('没有麦克风权限：请在系统设置里允许 iML Markdown Editor 使用麦克风');
     if (err?.name === 'NotFoundError') throw new Error('没有找到麦克风');
     throw new Error(`打不开麦克风：${err?.message || err}`);
   }
+  const label = cleanMicLabel(stream.getAudioTracks()[0]?.label || '');
 
   const ctx = new AudioContext({ sampleRate: 16000 });
   try {
@@ -63,6 +84,8 @@ export async function startMicCapture(onChunk: (samples: Float32Array, level: nu
   source.connect(tap).connect(mute).connect(ctx.destination);
 
   return {
+    label,
+    fellBack,
     stop: () => {
       tap.port.onmessage = null;
       try { source.disconnect(); tap.disconnect(); mute.disconnect(); } catch { /* 已经断开 */ }

@@ -115,6 +115,8 @@ declare global {
         install: () => Promise<boolean>;
         cancelInstall: () => Promise<boolean>;
         uninstall: () => Promise<AsrState>;
+        requestMicAccess: () => Promise<AsrState>;
+        openMicSettings: () => Promise<boolean>;
         start: () => Promise<AsrState>;
         stop: () => Promise<AsrState>;
         sendPcm: (samples: Float32Array) => void;

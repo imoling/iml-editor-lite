@@ -96,6 +96,8 @@ contextBridge.exposeInMainWorld('api', {
     install: () => ipcRenderer.invoke('asr:install'),
     cancelInstall: () => ipcRenderer.invoke('asr:cancelInstall'),
     uninstall: () => ipcRenderer.invoke('asr:uninstall'),
+    requestMicAccess: () => ipcRenderer.invoke('asr:requestMicAccess'),
+    openMicSettings: () => ipcRenderer.invoke('asr:openMicSettings'),
     start: () => ipcRenderer.invoke('asr:start'),
     stop: () => ipcRenderer.invoke('asr:stop'),
     sendPcm: (samples: Float32Array) => ipcRenderer.send('asr:pcm', samples),

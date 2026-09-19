@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore, needsSavePrompt } from '../../stores/appStore';
 import {
-  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles, History, Focus, ImageOff, Network, Wand2, Search, MessageCircleQuestion, Mic,
+  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles, History, Focus, ImageOff, Network, Wand2, Search, MessageCircleQuestion, Mic, AudioLines,
 } from 'lucide-react';
 import { exportActiveTabToPdf, exportActiveTabToHtml } from '../../utils/exportPdf';
 import { isNewerVersion } from '../../utils/version';
@@ -156,6 +156,7 @@ export const TitleBar: React.FC = () => {
           <MenuDivider />
           <MenuItem icon={<Wand2 size={14} />} label="写作助手…" hint="⇧⌘M" onClick={run(() => openDialog('ai-config'))} />
           <MenuItem icon={<Network size={14} />} label="相关笔记…" disabled={!aiEnabled} onClick={run(() => openDialog('semantic-config'))} />
+          <MenuItem icon={<AudioLines size={14} />} label="语音转写…" disabled={!aiEnabled} onClick={run(() => openDialog('transcribe-config'))} />
           <MenuDivider />
           <MenuItem icon={<Image size={14} />} label="AI 配图…" onClick={run(() => openDialog('image-config'))} />
         </Menu>
