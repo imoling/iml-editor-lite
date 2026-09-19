@@ -101,6 +101,7 @@ contextBridge.exposeInMainWorld('api', {
     rebuild: () => ipcRenderer.invoke('semantic:rebuild'),
     search: (query: string, limit?: number) => ipcRenderer.invoke('semantic:search', query, limit),
     related: (filePath: string, limit?: number) => ipcRenderer.invoke('semantic:related', filePath, limit),
+    retrieve: (question: string, limit?: number) => ipcRenderer.invoke('semantic:retrieve', question, limit),
     onState: (callback: (state: any) => void) => {
       const listener = (_event: any, state: any) => callback(state);
       ipcRenderer.on('semantic:state', listener);

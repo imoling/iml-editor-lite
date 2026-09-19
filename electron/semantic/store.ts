@@ -101,6 +101,21 @@ export class VectorStore {
   }
 
   /**
+   * 查询向量 vs 全部分块，按分块返回（「问你的笔记」用）：不按篇去重、不做相对截断，
+   * 留给调用方结合字面匹配重排之后再裁。index 是分块在这篇笔记里的序号。
+   */
+  searchChunks(query: Float32Array, limit = 24, minScore = 0.3): { path: string; title: string; index: number; score: number; preview: string }[] {
+    const hits: { path: string; title: string; index: number; score: number; preview: string }[] = [];
+    for (const note of this.notes.values()) {
+      note.chunks.forEach((c, index) => {
+        const score = dot(query, c.vec);
+        if (score >= minScore) hits.push({ path: note.path, title: note.title, index, score, preview: c.preview });
+      });
+    }
+    return hits.sort((a, b) => b.score - a.score).slice(0, limit);
+  }
+
+  /**
    * 查询向量 vs 全部分块：每篇取最高分的那一块。
    * 除了绝对下限，还按最高分做相对截断 —— 小模型的分数普遍偏高，比第一名低一大截的基本是噪声。
    */

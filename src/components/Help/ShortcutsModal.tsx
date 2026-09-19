@@ -57,6 +57,7 @@ const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose }) => {
           { label: '文档内查找', keys: [modKey, 'F'] },
           { label: '查找并替换', keys: [altKey, modKey, 'F'] },
           { label: '搜索所有笔记', keys: [modKey, '⇧', 'F'] },
+          { label: '问你的笔记', keys: [modKey, 'J'] },
           { label: '写作助手设置', keys: [modKey, '⇧', 'M'] },
           { label: '全局设置', keys: [modKey, ','] },
           { label: '快捷键说明', keys: [modKey, '/'] },

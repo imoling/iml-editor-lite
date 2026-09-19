@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { EMBED_CATALOG, DEFAULT_EMBED_MODEL, findEmbedSpec, type EmbedModelSpec } from './catalog';
 import { chunkNote, normalize } from './chunk';
 import { VectorStore, type SemanticHit } from './store';
+import { rerankChunks, type ChunkCandidate } from './retrieve';
 import { LlamaServer, httpJson } from '../localModel/server';
 import { downloadFile, DownloadError, type DownloadProgress } from '../localModel/download';
 import { resolveModelUrl } from '../localModel/catalog';
@@ -261,6 +262,52 @@ async function semanticSearch(query: string, limit = 20): Promise<SemanticHit[]>
   return vs.search(vec, limit);
 }
 
+/** 「问你的笔记」检索到的一块原文 */
+export interface AskSource {
+  path: string;
+  title: string;
+  /** 「笔记标题 › 小节标题」 */
+  heading: string;
+  /** 这一块的正文（去掉了 Markdown 标记） */
+  text: string;
+  score: number;
+}
+
+/**
+ * 为一个问题找出最相关的几块原文。
+ * 向量库里每块只存了 90 字的预览；全文在这里**现读现切**：全文索引里的内容总是最新的，库里也不用多存一份。
+ * 笔记改过而向量还没来得及重算时，序号可能对不上 —— 先按序号取，预览对不上再按预览找，都找不到就放弃这一块。
+ */
+async function retrieveForQuestion(question: string, limit = 8): Promise<AskSource[]> {
+  const q = question.trim();
+  const root = deps?.searchIndex.status().root;
+  if (!q || !root || !deps?.isAiEnabled() || !readSemanticConfig().enabled || !fs.existsSync(specPath(currentSpec()))) return [];
+  const vs = await openStore(root);
+  if (vs.notes.size === 0) return [];
+  const spec = currentSpec();
+  const [vec] = await embedTexts([`${spec.queryPrefix}${q}`.slice(0, spec.chunkChars)]);
+
+  const chunkCache = new Map<string, ReturnType<typeof chunkNote>>();
+  const candidates: ChunkCandidate[] = [];
+  for (const hit of vs.searchChunks(vec)) {
+    let chunks = chunkCache.get(hit.path);
+    if (!chunks) {
+      const note = deps.searchIndex.getNote(hit.path);
+      if (!note) continue;
+      chunks = chunkNote(note.title, note.content, spec.chunkChars);
+      chunkCache.set(hit.path, chunks);
+    }
+    const chunk = chunks[hit.index]?.preview === hit.preview ? chunks[hit.index] : chunks.find((c) => c.preview === hit.preview);
+    if (!chunk) continue;
+    candidates.push({ path: hit.path, title: hit.title, index: hit.index, score: hit.score, text: chunk.text });
+  }
+
+  return rerankChunks(candidates, q, { limit }).map((c) => {
+    const nl = c.text.indexOf('\n');
+    return { path: c.path, title: c.title, heading: nl > 0 ? c.text.slice(0, nl) : c.title, text: nl > 0 ? c.text.slice(nl + 1) : c.text, score: c.final };
+  });
+}
+
 async function relatedNotes(filePath: string, limit = 6): Promise<SemanticHit[]> {
   const root = deps?.searchIndex.status().root;
   if (!root || !deps?.isAiEnabled() || !readSemanticConfig().enabled) return [];
@@ -358,6 +405,8 @@ export function setupSemantic(d: Deps) {
   });
   ipcMain.handle('semantic:search', (_e, query: string, limit?: number) => semanticSearch(String(query || ''), limit).catch((err) => { lastError = err?.message || String(err); broadcast(); return []; }));
   ipcMain.handle('semantic:related', (_e, filePath: string, limit?: number) => relatedNotes(String(filePath || ''), limit).catch(() => []));
+  // 检索失败要让界面知道（嵌入服务起不来之类），不能悄悄当成「没找到」—— 那会让模型去编
+  ipcMain.handle('semantic:retrieve', (_e, question: string, limit?: number) => retrieveForQuestion(String(question || ''), limit));
 
   // 运行时装好之后，之前因为缺运行时没跑起来的建库自动补上
   onRuntimeChanged(() => { void syncSemanticIndex(); });

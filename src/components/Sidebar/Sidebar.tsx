@@ -3,9 +3,10 @@ import { useAppStore, FileNode, HeadingNode, readLibraryDir } from '../../stores
 import { SearchPanel } from './SearchPanel';
 import { TagsPanel } from './TagsPanel';
 import { RelatedPanel } from './RelatedPanel';
+import { AskPanel } from './AskPanel';
 import {
   ChevronDown, ChevronRight, FolderOpen, FileText, FileCode, FolderClosed,
-  List, RotateCw, Star, BookOpen, Settings, FilePlus, FolderPlus, CalendarDays, LayoutTemplate, FolderOpen as FolderOpenIcon, Search, Hash,
+  List, RotateCw, Star, BookOpen, Settings, FilePlus, FolderPlus, CalendarDays, LayoutTemplate, FolderOpen as FolderOpenIcon, Search, Hash, MessageCircleQuestion,
 } from 'lucide-react';
 
 const isMac = window.api.app.platform === 'darwin';
@@ -19,6 +20,7 @@ export const ActivityBar: React.FC = () => {
     { id: 'catalog' as const, icon: <List size={16} />, label: '目录', title: '当前文档目录、反向链接与相关笔记' },
     { id: 'tags' as const, icon: <Hash size={16} />, label: '标签', title: '所有标签' },
     { id: 'search' as const, icon: <Search size={16} />, label: '搜索', title: '搜索所有笔记 (⇧⌘F)' },
+    { id: 'ask' as const, icon: <MessageCircleQuestion size={16} />, label: '问答', title: '问你的笔记 (⌘J)' },
   ];
   return (
     <div className="activity-bar">
@@ -351,7 +353,9 @@ export const Sidebar: React.FC = () => {
     <aside ref={asideRef} className="sidebar" style={{ width: sidebarWidth }}>
       <div ref={handleRef} className="sidebar-resize-handle" onPointerDown={onHandlePointerDown} onPointerMove={onHandlePointerMove} onPointerUp={onHandlePointerUp} title="拖动调整宽度" />
       <div className="sidebar-content" onContextMenu={sidebarTab === 'library' ? openRootMenu : undefined}>
-        {sidebarTab === 'search' ? (
+        {sidebarTab === 'ask' ? (
+          <AskPanel />
+        ) : sidebarTab === 'search' ? (
           <SearchPanel />
         ) : sidebarTab === 'tags' ? (
           <TagsPanel />

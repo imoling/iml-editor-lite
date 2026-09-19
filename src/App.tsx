@@ -195,6 +195,13 @@ const App: React.FC = () => {
         return;
       }
 
+      // Cmd+J：问你的笔记（侧边栏「问答」页）
+      if (modKey && !e.shiftKey && !e.altKey && e.code === 'KeyJ') {
+        e.preventDefault();
+        if (!modalOpen) ts.openAsk();
+        return;
+      }
+
       // Cmd+T：快速打开（敲几个字跳到笔记）。再按一次收起
       if (modKey && !e.shiftKey && !e.altKey && e.code === 'KeyT') {
         e.preventDefault();
@@ -307,6 +314,7 @@ const App: React.FC = () => {
       if (s.dialog || s.tabToClose || !s.activeTabId) return;
       s.requestCloseTab(s.activeTabId);
     });
+    window.api.events.on('menu:ask-notes', () => useAppStore.getState().openAsk());
     window.api.events.on('menu:close-other-tabs', () => {
       const s = useAppStore.getState();
       if (s.dialog || s.tabToClose || !s.activeTabId) return;

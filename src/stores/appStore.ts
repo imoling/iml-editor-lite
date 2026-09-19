@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { isNewerVersion } from '../utils/version';
 import { formatDate } from '../utils/date';
 import { deriveNoteTitle } from '../utils/noteTitle';
+import { useAskStore } from './askStore';
 
 export type DialogId = 'about' | 'shortcuts' | 'quick-open' | 'ai-config' | 'ai-setup' | 'image-config' | 'semantic-config' | 'settings' | 'whats-new' | 'history' | 'image-cleanup';
 import { DAILY_DIR, TEMPLATE_DIR, DEFAULT_DAILY_TEMPLATE, SAMPLE_TEMPLATES, renderNoteTemplate } from '../utils/noteTemplates';
@@ -110,7 +111,7 @@ export const DEFAULT_IMAGE_GEN_CONFIG: ImageGenConfig = {
   endpoint: '',
 };
 
-export type SidebarTab = 'library' | 'catalog' | 'tags' | 'search';
+export type SidebarTab = 'library' | 'catalog' | 'tags' | 'search' | 'ask';
 
 /** 正文排版：字体、字号、行距、页宽（富文本与预览共用） */
 export interface EditorPrefs {
@@ -306,6 +307,8 @@ export interface AppState {
   toggleFocusMode: () => void;
   /** ⌘⇧F：打开侧边栏搜索面板并聚焦 */
   openGlobalSearch: () => void;
+  /** ⌘J：打开侧边栏的「问答」页并聚焦输入框 */
+  openAsk: () => void;
   /** 用给定关键词打开文档内查找（全文搜索结果点开后定位用） */
   showFindWith: (query: string) => void;
   setSidebarWidth: (width: number) => void;
@@ -822,6 +825,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   consumeSearchCommand: () => { if (get().searchCommand) set({ searchCommand: null }); },
   registerEditorFlush: (fn) => set({ editorFlush: fn }),
   openGlobalSearch: () => set((state) => ({ sidebarTab: 'search', sidebarVisible: true, globalSearchFocus: state.globalSearchFocus + 1 })),
+  openAsk: () => { set({ sidebarTab: 'ask', sidebarVisible: true, focusMode: false }); useAskStore.getState().requestFocus(); },
   showFindWith: (query) => set((state) => ({ findVisible: true, replaceVisible: false, search: { ...state.search, query } })),
   openTag: (tag) => set({ selectedTag: tag, sidebarTab: 'tags', sidebarVisible: true, focusMode: false }),
   notify: (text, ms = 5000) => {

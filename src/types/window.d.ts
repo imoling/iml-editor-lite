@@ -3,10 +3,10 @@ export {};
 import type { LocalState, LocalModelConfig, CustomModel, ServerState } from '../../electron/localModel/index';
 export type { LocalState, LocalModelConfig, CustomModel, ServerState, LocalModelEntry, InstallState } from '../../electron/localModel/index';
 
-import type { SemanticState, SemanticHit } from '../../electron/semantic/index';
+import type { SemanticState, SemanticHit, AskSource } from '../../electron/semantic/index';
 import type { HistoryEntry } from '../../electron/history';
 import type { OrphanImage } from '../../electron/assets';
-export type { SemanticState, SemanticHit, EmbedModelEntry } from '../../electron/semantic/index';
+export type { SemanticState, SemanticHit, EmbedModelEntry, AskSource } from '../../electron/semantic/index';
 export type { HistoryEntry } from '../../electron/history';
 export type { OrphanImage } from '../../electron/assets';
 
@@ -115,6 +115,8 @@ declare global {
         rebuild: () => Promise<boolean>;
         search: (query: string, limit?: number) => Promise<SemanticHit[]>;
         related: (filePath: string, limit?: number) => Promise<SemanticHit[]>;
+        /** 「问你的笔记」：为一个问题找出最相关的几块原文；检索本身出错会抛出来 */
+        retrieve: (question: string, limit?: number) => Promise<AskSource[]>;
         onState: (callback: (state: SemanticState) => void) => () => void;
       };
       search: {

@@ -503,6 +503,12 @@ function setupAppMenu() {
     {
       label: '智能',
       submenu: [
+        {
+          label: '问你的笔记',
+          accelerator: 'Cmd+J',
+          click: () => mainWindow?.webContents.send('menu:ask-notes'),
+        },
+        { type: 'separator' },
         // 与应用内的「智能」菜单保持一致：按功能命名，每项打开该功能的设置
         {
           label: '写作助手…',

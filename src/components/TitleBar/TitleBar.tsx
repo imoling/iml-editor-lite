@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore, needsSavePrompt } from '../../stores/appStore';
 import {
-  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles, History, Focus, ImageOff, Network, Wand2, Search,
+  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles, History, Focus, ImageOff, Network, Wand2, Search, MessageCircleQuestion,
 } from 'lucide-react';
 import { exportActiveTabToPdf, exportActiveTabToHtml } from '../../utils/exportPdf';
 import { isNewerVersion } from '../../utils/version';
@@ -151,6 +151,8 @@ export const TitleBar: React.FC = () => {
 
         {/* 按功能命名：每一项打开对应功能的设置（用哪个模型 / 服务） */}
         <Menu id="intel" label="智能">
+          <MenuItem icon={<MessageCircleQuestion size={14} />} label="问你的笔记" hint="⌘J" disabled={!aiEnabled} onClick={run(() => useAppStore.getState().openAsk())} />
+          <MenuDivider />
           <MenuItem icon={<Wand2 size={14} />} label="写作助手…" hint="⇧⌘M" onClick={run(() => openDialog('ai-config'))} />
           <MenuItem icon={<Network size={14} />} label="相关笔记…" disabled={!aiEnabled} onClick={run(() => openDialog('semantic-config'))} />
           <MenuDivider />

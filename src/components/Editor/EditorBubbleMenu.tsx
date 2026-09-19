@@ -1,4 +1,5 @@
 import React from 'react';
+import { useAppStore } from '../../stores/appStore';
 import type { Editor } from '@tiptap/core';
 import { BubbleMenu } from '@tiptap/react';
 import {
@@ -27,6 +28,9 @@ export const EditorBubbleMenu: React.FC<Props> = ({ editor, aiGenerating, aiEnab
       }}
       shouldShow={({ state, editor }) => {
         if (state.selection.empty) return false;
+        // 查找面板开着时，选区是「查找命中」而不是用户选的字：这时弹格式菜单只会挡住正文
+        //（从全文搜索、问答的引用跳进来定位时尤其碍眼）
+        if (useAppStore.getState().findVisible) return false;
         // Don't show for custom block nodes
         const isCustomBlock = editor.isActive('diagram') || editor.isActive('svgBlock') || editor.isActive('frontmatter') || editor.isActive('rawBlock') || editor.isActive('toc') || editor.isActive('math');
         return !isCustomBlock;
