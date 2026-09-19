@@ -121,6 +121,7 @@ declare global {
         start: () => Promise<AsrState>;
         stop: () => Promise<AsrState>;
         sendPcm: (samples: Float32Array) => void;
+        setUnsaved: (state: { recording: boolean } | null) => void;
         onState: (callback: (state: AsrState) => void) => () => void;
         onEvent: (callback: (event: AsrEvent) => void) => () => void;
       };

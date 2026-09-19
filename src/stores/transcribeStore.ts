@@ -42,6 +42,10 @@ interface TranscribeState {
   error: string | null;
   /** 转写已经写进了哪篇笔记（生成纪要时往那里放） */
   savedTo: string | null;
+  /** 上次放进笔记时有多少句：之后又多出来的就是「还没保存的」 */
+  savedCount: number;
+  /** 这一场有没有在留录音 */
+  recordingOn: boolean;
   minutes: { running: boolean; progress: string; error: string | null };
 
   refresh: () => Promise<void>;
@@ -118,6 +122,8 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
   silent: false,
   error: null,
   savedTo: null,
+  savedCount: 0,
+  recordingOn: false,
   minutes: { running: false, progress: '', error: null },
 
   refresh: async () => { try { set({ asr: await window.api.asr.getState() }); } catch { /* 主进程还没准备好 */ } },
@@ -146,6 +152,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
       // 留不留录音在一场开始时定：中途变卦的话录音和时间戳就对不上了
       if (get().segments.length === 0 && !recorder && get().keepRecording && SessionRecorder.supported()) recorder = new SessionRecorder();
       recorder?.attach(capture.stream);
+      set({ recordingOn: !!recorder && !recorder.failed });
       if (capture.fellBack) useAppStore.getState().notify(`选定的麦克风没连上，这次改用${capture.label ? `「${capture.label}」` : '系统默认的麦克风'}`);
       void get().refreshMics();   // 授权之后才读得到设备名字
       set((s) => ({ status: 'recording', deviceLabel: capture?.label ?? '', silent: false, runStartedAt: Date.now(), startedAt: s.startedAt ?? Date.now(), savedTo: s.segments.length ? s.savedTo : null }));
@@ -176,7 +183,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     recorder?.dispose(); recorder = null;
     const old = get().audio;
     if (old) URL.revokeObjectURL(old.url);
-    set({ audio: null, segments: [], partial: null, startedAt: null, offset: 0, error: null, savedTo: null, minutes: { running: false, progress: '', error: null } });
+    set({ audio: null, savedCount: 0, recordingOn: false, segments: [], partial: null, startedAt: null, offset: 0, error: null, savedTo: null, minutes: { running: false, progress: '', error: null } });
   },
 
   insertIntoActiveNote: async () => {
@@ -190,7 +197,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     const block = buildTranscriptBlock(segments, at, get().elapsed(), audioSrc);
     // 用户多半正在这篇里记要点：editTabContent 会先把他没写回的字刷进来，再追加，光标也留在原地
     if (!app.editTabContent(tab.id, (current) => upsertBlock(current, block, at))) return false;
-    set({ savedTo: tab.id });
+    set({ savedTo: tab.id, savedCount: segments.length });
     app.notify(`转写已写进「${tab.title}」的末尾`);
     return true;
   },
@@ -211,7 +218,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     if (!res.success) { set({ error: res.error || '保存失败' }); return null; }
     await app.refreshWorkspace();
     await app.openFileByPath(filePath);
-    set({ savedTo: filePath });
+    set({ savedTo: filePath, savedCount: segments.length });
     return filePath;
   },
 
@@ -257,6 +264,19 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     }
   },
 }));
+
+/** 有没有还没放进笔记的转写：放进去之后又录了新的，也算 */
+export const hasUnsavedTranscript = (s: Pick<TranscribeState, 'segments' | 'savedCount'>) => s.segments.length > 0 && s.segments.length !== s.savedCount;
+
+// 把「有没有没保存的转写」报给主进程：退出 / 关窗口之前它要拦一下（转写和录音只在这个进程的内存里）
+if (typeof window !== 'undefined' && window.api?.asr?.setUnsaved) {
+  let reported = '';
+  useTranscribeStore.subscribe((s) => {
+    const state = hasUnsavedTranscript(s) ? { recording: s.recordingOn } : null;
+    const key = JSON.stringify(state);
+    if (key !== reported) { reported = key; window.api.asr.setUnsaved(state); }
+  });
+}
 
 // 插拔耳机 / 麦克风时更新设备列表
 if (typeof navigator !== 'undefined' && navigator.mediaDevices?.addEventListener) {

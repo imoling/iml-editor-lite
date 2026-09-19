@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Square, FileDown, FilePlus, ListChecks, Copy, Check, Eraser, Download, SlidersHorizontal, ShieldCheck, PanelLeft, ChevronRight, Play, Pause } from 'lucide-react';
+import { Mic, MicOff, Square, FileDown, FilePlus, ListChecks, Copy, Check, Eraser, Download, SlidersHorizontal, ShieldCheck, PanelLeft, ChevronRight, Play, Pause, TriangleAlert, CircleCheck, Info } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
-import { useTranscribeStore } from '../../stores/transcribeStore';
+import { useTranscribeStore, hasUnsavedTranscript } from '../../stores/transcribeStore';
 import { useAiReadiness } from '../../utils/aiReadiness';
 import { currentMicLabel, micPermission } from '../../utils/micDevices';
 import { formatClock, transcriptText } from '../../utils/transcript';
@@ -97,8 +97,16 @@ export const TranscribePanel: React.FC = () => {
   // 新的一句出来就滚到底
   useEffect(() => { const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }, [t.segments.length, t.partial?.text]);
 
+  // 「清空」会丢掉还没放进笔记的内容：第一下只是变成确认，几秒内再点一下才真的清
+  const [confirmClear, setConfirmClear] = useState(false);
+  useEffect(() => { if (!confirmClear) return; const timer = setTimeout(() => setConfirmClear(false), 4000); return () => clearTimeout(timer); }, [confirmClear]);
+
   const asr = t.asr;
   const hasText = t.segments.length > 0;
+  const unsaved = hasUnsavedTranscript(t);
+  const what = t.recordingOn || t.audio ? '转写和录音' : '转写';
+  const savedTitle = useAppStore((s) => s.tabs.find((tab) => tab.id === t.savedTo)?.title) ?? t.savedTo?.split(/[\\/]/).pop();
+  const onClear = () => { if (unsaved && !confirmClear) { setConfirmClear(true); return; } setConfirmClear(false); t.clear(); };
   const busy = t.status === 'starting' || t.status === 'stopping';
   const live = recording || t.status === 'stopping';
   const openConfig = () => openDialog('transcribe-config');
@@ -107,7 +115,11 @@ export const TranscribePanel: React.FC = () => {
     <div className="ask-panel__head">
       <span className="sidebar-section-title">实时转写</span>
       <span className="row gap-6">
-        {hasText && t.status === 'idle' && <button className="btn-link" onClick={t.clear} title="清空这次的转写"><Eraser size={12} /> 清空</button>}
+        {hasText && t.status === 'idle' && (
+          <button className={`btn-link ${confirmClear ? 'btn-link--danger' : ''}`} onClick={onClear} title={unsaved ? `还没放进笔记，清空后${what}就没了` : '清空这次的转写'}>
+            <Eraser size={12} /> {confirmClear ? '再点一次确认清空' : '清空'}
+          </button>
+        )}
         {aiEnabled && asr?.supported && <button className="icon-btn icon-btn--sm" onClick={openConfig} title="语音模型与收音设备"><SlidersHorizontal size={13} /></button>}
       </span>
     </div>
@@ -207,6 +219,7 @@ export const TranscribePanel: React.FC = () => {
         </div>
       )}
       {t.error && <div className="ask-status ask-status--error">{t.error}</div>}
+      {live && <div className="transcribe-note"><Info size={12} /><span>{what}先暂存在内存里，结束后记得放进笔记才会留下来。</span></div>}
 
       <div className="ask-panel__list" ref={listRef}>
         {!hasText && !t.partial ? (
@@ -235,6 +248,14 @@ export const TranscribePanel: React.FC = () => {
       {/* 停下来之后，按做事的顺序排：先给全文找个去处，再整理纪要（纪要会写进放了转写的那篇笔记） */}
       {hasText && t.status === 'idle' && (
         <div className="transcribe-actions">
+          {unsaved ? (
+            <div className="transcribe-note transcribe-note--warn">
+              <TriangleAlert size={12} />
+              <span>{t.savedCount > 0 ? `后来录的还没放进笔记。` : `还没放进笔记。`}{what}只在内存里，点「清空」或退出应用就没了。</span>
+            </div>
+          ) : (
+            <div className="transcribe-note transcribe-note--ok"><CircleCheck size={12} /><span>已放进{savedTitle ? `「${savedTitle.replace(/\.md$/i, '')}」` : '笔记'}{t.audio ? '，录音也存好了' : ''}。</span></div>
+          )}
           <div className="transcribe-actions__row">
             <button className="transcribe-tool" disabled={!activeTabId} title={activeTabId ? '折叠着放到当前笔记的末尾（同一场再放一次是更新，不会重复）' : '先打开一篇笔记'} onClick={() => t.insertIntoActiveNote()}><FileDown size={13} /> 放进笔记</button>
             <button className="transcribe-tool" title="新建一篇会议记录，带上转写全文" onClick={() => void t.saveAsNewNote()}><FilePlus size={13} /> 存为新笔记</button>

@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow, shell, systemPreferences, utilityProcess, type UtilityProcess } from 'electron';
+import { app, dialog, ipcMain, BrowserWindow, shell, systemPreferences, utilityProcess, type UtilityProcess } from 'electron';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -263,6 +263,33 @@ async function stopSession(): Promise<AsrState> {
   return getAsrState();
 }
 
+// ── 还没放进笔记的转写：退出 / 关窗口之前拦一下 ─────────────────────────────────
+// 转写的文字和录音在放进笔记之前只存在渲染进程的内存里，窗口一关就没了。渲染进程把「有没有没保存的」报上来，
+// 这里在真正关之前同步问一句。和未保存的笔记不同 —— 那个有会话恢复兜底，这个没有
+let unsavedTranscript: { recording: boolean } | null = null;
+let discardConfirmed = false;
+
+/** 返回 true = 可以关（没有未保存的转写，或用户确认丢弃）。无人值守的冒烟测试里没人点按钮，直接放行 */
+export function confirmDiscardTranscript(win: BrowserWindow | null): boolean {
+  if (!unsavedTranscript || discardConfirmed || process.env.IML_SMOKE_OFFSCREEN === '1') return true;
+  if (!win || win.isDestroyed()) return true;
+  const what = unsavedTranscript.recording ? '转写的文字和录音' : '转写的文字';
+  const choice = dialog.showMessageBoxSync(win, {
+    type: 'warning',
+    buttons: ['回去保存', '仍然退出'],
+    defaultId: 0,
+    cancelId: 0,
+    message: '这次的转写还没放进笔记',
+    detail: `${what}只暂存在内存里，现在退出就没了。回去点「放进笔记」或「存为新笔记」就能留下来。`,
+  });
+  if (choice !== 1) return false;
+  discardConfirmed = true;   // 退出流程里窗口关闭和 before-quit 会先后来问，只问一次
+  return true;
+}
+
+/** 窗口真的关掉之后，内存里的转写已经不在了 */
+export function forgetUnsavedTranscript() { unsavedTranscript = null; discardConfirmed = false; }
+
 /** 应用退出时调用 */
 export function stopAsr() {
   installController?.abort();
@@ -293,6 +320,7 @@ export function setupAsr(d: Deps) {
     else if (process.platform === 'win32') void shell.openExternal('ms-settings:privacy-microphone');
     return true;
   });
+  ipcMain.on('asr:unsaved', (_e, state: { recording: boolean } | null) => { unsavedTranscript = state; if (!state) discardConfirmed = false; });
   ipcMain.handle('asr:start', () => startSession());
   ipcMain.handle('asr:stop', () => stopSession());
   // 音频块：每 100 ms 一块，用单向消息，不要回执

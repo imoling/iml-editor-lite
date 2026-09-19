@@ -630,6 +630,15 @@
 .transcribe-line--partial { color: var(--text-muted); }
 .transcribe-caret { display: inline-block; width: 2px; height: 13px; margin-left: 2px; vertical-align: -2px; border-radius: 1px; background-color: var(--color-brand-indigo); animation: transcribe-blink 1s steps(2, start) infinite; }
 @keyframes transcribe-blink { to { visibility: hidden; } }
+/* 转写和录音在放进笔记之前只在内存里：转写中轻轻说一声，停下来没保存时用警示色，保存后变成回执 */
+.transcribe-note { flex-shrink: 0; display: flex; align-items: flex-start; gap: 6px; margin: 0 2px 8px; padding: 7px 9px; border-radius: 8px; font-size: 11.5px; line-height: 1.5; color: var(--text-muted); background-color: var(--bg-elevated); }
+.transcribe-note svg { flex-shrink: 0; margin-top: 2px; }
+.transcribe-note--warn { color: #b45309; background-color: rgba(245, 158, 11, 0.12); }
+[data-theme='dark'] .transcribe-note--warn { color: #fbbf24; }
+.transcribe-note--ok { color: #059669; background-color: rgba(16, 185, 129, 0.1); }
+[data-theme='dark'] .transcribe-note--ok { color: #34d399; }
+.transcribe-actions .transcribe-note { margin: 0; }
+.btn-link--danger { color: #dc2626; font-weight: 600; }
 .transcribe-actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 0 10px; border-top: 1px solid var(--border-subtle); }
 .transcribe-actions__main { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 9px 12px; border-radius: 10px; font-weight: 600; }
 .transcribe-actions__main .ask-dots { background-color: currentColor; }

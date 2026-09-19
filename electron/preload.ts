@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('api', {
     start: () => ipcRenderer.invoke('asr:start'),
     stop: () => ipcRenderer.invoke('asr:stop'),
     sendPcm: (samples: Float32Array) => ipcRenderer.send('asr:pcm', samples),
+    setUnsaved: (state: { recording: boolean } | null) => ipcRenderer.send('asr:unsaved', state),
     onState: (callback: (state: any) => void) => {
       const listener = (_event: any, state: any) => callback(state);
       ipcRenderer.on('asr:state', listener);

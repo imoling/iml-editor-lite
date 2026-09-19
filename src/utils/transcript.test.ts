@@ -143,3 +143,14 @@ describe('纪要的提示词', () => {
     expect(c.indexOf('【第 1 段】')).toBeLessThan(c.indexOf('【第 2 段】'));
   });
 });
+
+describe('还没放进笔记的转写', () => {
+  it('有内容且和上次保存时的句数不一样，就算没保存：包括「放进去之后又继续录了」', async () => {
+    const { hasUnsavedTranscript } = await import('../stores/transcribeStore');
+    const segs = (n: number) => Array.from({ length: n }, (_, i) => ({ start: i, text: `第 ${i} 句` }));
+    expect(hasUnsavedTranscript({ segments: [], savedCount: 0 })).toBe(false);
+    expect(hasUnsavedTranscript({ segments: segs(3), savedCount: 0 })).toBe(true);
+    expect(hasUnsavedTranscript({ segments: segs(3), savedCount: 3 })).toBe(false);
+    expect(hasUnsavedTranscript({ segments: segs(5), savedCount: 3 })).toBe(true);
+  });
+});

@@ -7,7 +7,7 @@ import { setupFileSystemIPC } from './ipc/fileSystem';
 import { SearchIndex } from './searchIndex';
 import { setupLocalModel, ensureBuiltinEndpoint, builtinNotReadyHint, isBuiltinService, isLocalServerActive, stopServer as stopLocalServer } from './localModel';
 import { setupSemantic, syncSemanticIndex, stopSemanticServer, isSemanticServerActive } from './semantic';
-import { setupAsr, stopAsr } from './asr';
+import { setupAsr, stopAsr, confirmDiscardTranscript, forgetUnsavedTranscript } from './asr';
 import { NoteHistory } from './history';
 import { registerAssetScheme, handleAssetProtocol, findOrphanImages, filterTrashable, fetchPageTitle } from './assets';
 
@@ -367,7 +367,10 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
+  // 有还没放进笔记的转写时，关窗口之前问一句（macOS 上关窗口不等于退出，但渲染进程一样会没）
+  mainWindow.on('close', (event) => { if (!confirmDiscardTranscript(mainWindow)) event.preventDefault(); });
   mainWindow.on('closed', () => {
+    forgetUnsavedTranscript();
     mainWindow = null;
   });
 }
@@ -609,6 +612,8 @@ app.whenReady().then(() => {
   // 退出时带走托管的子进程（对话服务 + 嵌入服务）
   let quitting = false;
   app.on('before-quit', (event) => {
+    // 先问、再收拾：用户选「回去保存」的话，识别进程和模型服务都得原样留着
+    if (!confirmDiscardTranscript(mainWindow)) { event.preventDefault(); return; }
     stopAsr();   // 识别进程是 utilityProcess，同步杀掉即可
     if (quitting || (!isLocalServerActive() && !isSemanticServerActive())) return;
     quitting = true;
