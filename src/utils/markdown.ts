@@ -1,9 +1,9 @@
 import { Marked } from 'marked';
 import TurndownService from 'turndown';
-import mermaid from 'mermaid';
+import { loadMermaid } from './mermaidLoader';
 // @ts-ignore
 import { tables } from 'turndown-plugin-gfm';
-import { all, createLowlight } from 'lowlight';
+import { lowlight as localLowlight } from './highlight';
 import { sanitizeHtml } from './sanitize';
 import { escapeMarkdown, MID_LINE_MARK, LINE_START_SENSITIVE } from './markdownEscape';
 import katex from 'katex';
@@ -11,7 +11,6 @@ import {
   splitFrontmatter, parseFrontmatter, matchTagAt, calloutKind, calloutLabel, CALLOUT_HEAD_RE,
 } from '../../electron/shared/noteMeta';
 
-const localLowlight = createLowlight(all);
 
 const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -970,18 +969,20 @@ export const markdownToHtml = (markdownContent: string, inlineActual: boolean = 
 export const markdownToStaticHtml = async (markdownContent: string, opts: { keepFrontmatter?: boolean } = {}): Promise<string> => {
   if (!markdownContent) return '';
 
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: 'neutral',
-    securityLevel: 'antiscript',
-    fontFamily: 'var(--font-body)',
-  });
-
   const mermaidCodes: string[] = [];
   const htmlResult = sanitizeHtml(markdownToHtml(markdownContent, true, { collectMermaid: mermaidCodes, omitFrontmatter: !opts.keepFrontmatter }));
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(htmlResult, 'text/html');
+
+  // 笔记里真有流程图才加载 Mermaid
+  const mermaid = mermaidCodes.length > 0 ? await loadMermaid() : null;
+  mermaid?.initialize({
+    startOnLoad: false,
+    theme: 'neutral',
+    securityLevel: 'antiscript',
+    fontFamily: 'var(--font-body)',
+  });
 
   for (const placeholder of Array.from(doc.querySelectorAll('div[data-mermaid-static-index]'))) {
     const index = parseInt(placeholder.getAttribute('data-mermaid-static-index') || '', 10);
@@ -990,7 +991,7 @@ export const markdownToStaticHtml = async (markdownContent: string, opts: { keep
     let finalHtml = '';
     try {
       const id = `mermaid-static-${index}-${Math.random().toString(36).substring(7)}`;
-      const { svg } = await mermaid.render(id, code);
+      const { svg } = await mermaid!.render(id, code);
       finalHtml = `<div class="mermaid-static-rendered">${svg}</div>`;
     } catch (err) {
       console.error('Static mermaid render error:', err);

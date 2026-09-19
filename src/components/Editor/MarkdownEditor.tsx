@@ -20,7 +20,7 @@ import { resolveImagesInHtml, noteDirOf } from '../../utils/assetUrl';
 import { storeImageFile } from '../../utils/pasteImage';
 import { isSingleUrl, escapeLinkText, htmlWorthConverting } from '../../utils/pasteText';
 import { extractHeadings } from '../../utils/outline';
-import mermaid from 'mermaid';
+import { loadMermaid } from '../../utils/mermaidLoader';
 import '../styles/editor.css';
 
 export const MarkdownEditor: React.FC = () => {
@@ -67,6 +67,10 @@ export const MarkdownEditor: React.FC = () => {
   useEffect(() => {
     const renderMermaid = async () => {
       try {
+        // 预览里没有流程图就不加载 Mermaid
+        const diagrams = document.querySelectorAll('.md-editor-preview-container .mermaid-diagram');
+        if (diagrams.length === 0) return;
+        const mermaid = await loadMermaid();
         mermaid.initialize({
           startOnLoad: false,
           theme: isDark ? 'dark' : 'neutral',
@@ -79,10 +83,7 @@ export const MarkdownEditor: React.FC = () => {
           // @ts-ignore
           gantt: { useMaxWidth: true },
         });
-        const diagrams = document.querySelectorAll('.md-editor-preview-container .mermaid-diagram');
-        if (diagrams.length > 0) {
-          await mermaid.run({ nodes: Array.from(diagrams) as HTMLElement[] });
-        }
+        await mermaid.run({ nodes: Array.from(diagrams) as HTMLElement[] });
       } catch (err) {
         console.error('Mermaid rendering failed in MD preview:', err);
       }

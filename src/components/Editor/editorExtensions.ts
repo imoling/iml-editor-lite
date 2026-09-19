@@ -10,7 +10,7 @@ import { TaskItem } from '@tiptap/extension-task-item';
 import { ListItem } from '@tiptap/extension-list-item';
 import { Underline } from '@tiptap/extension-underline';
 import { TextAlign } from '@tiptap/extension-text-align';
-import { all, createLowlight } from 'lowlight';
+import { lowlight } from '../../utils/highlight';
 import { MathExtension } from '../../extensions/MathExtension';
 import { DiagramExtension } from '../../extensions/DiagramExtension';
 import { SVGExtension } from '../../extensions/SVGExtension';
@@ -29,7 +29,6 @@ import { Kbd, Subscript, Superscript, Highlight, SoftAwareHardBreak, NoteLink } 
 import { NoteImage } from '../../extensions/NoteImage';
 import { FocusMode } from '../../extensions/FocusMode';
 
-const lowlight = createLowlight(all);
 
 /** 富文本编辑器的全部扩展；测试里也用同一份，保证序列化结果与真实编辑器一致 */
 export const editorExtensions = [

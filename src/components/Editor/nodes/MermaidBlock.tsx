@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
-import mermaid from 'mermaid';
+import { loadMermaid } from '../../../utils/mermaidLoader';
 import { Terminal, Eye } from 'lucide-react';
 import CodeMirror, { ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { EditorView } from '@codemirror/view';
@@ -19,7 +19,6 @@ const MERMAID_BASE = {
   gantt: { useMaxWidth: true, topPadding: 50, barGap: 4, barHeight: 20 },
 };
 
-mermaid.initialize({ ...MERMAID_BASE, theme: 'default' });
 
 const VALID_START = /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|gitGraph|journey|C4Context|mindmap|timeline)/i;
 const INCOMPLETE_TAIL = /\s*(-->|--|->|==>|~>|\||\[|\(|\{|"|')\s*$/;
@@ -53,6 +52,8 @@ export const MermaidBlock: React.FC<NodeViewProps> = ({ node, updateAttributes, 
     setIsRendering(true);
     try {
       const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const mermaid = await loadMermaid();
+      if (currentRenderId !== renderCount.current) return;
       mermaid.initialize({ ...MERMAID_BASE, theme: isDark ? 'dark' : 'default' });
 
       // 流式输入中的半截代码不渲染，安静等待
