@@ -2,6 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { Minus, Plus, Loader2, ChevronUp } from 'lucide-react';
 import { isLocalEndpoint, inferServiceType } from '../../utils/aiService';
+import { useTranscribeStore } from '../../stores/transcribeStore';
+import { formatClock } from '../../utils/transcript';
 
 const ZOOM_OPTIONS = [300, 200, 150, 125, 100, 75, 50, 25];
 const CJK_RE = /[一-龥぀-ヿ＀-￯ᄀ-ᇿ㄰-㆏ꓐ-꓿가-힯]/g;
@@ -24,6 +26,27 @@ function describeAiDestination(config: any): { label: string; kind: 'local' | 'c
   try { host = new URL(endpoint).host; } catch { /* 保持原样 */ }
   return { label: `云端 · ${host}`, kind: 'cloud' };
 }
+
+/**
+ * 正在录音时状态栏常驻一个红点和计时：录音期间侧边栏可以切走、甚至收起来，但「正在听」这件事必须一直看得见。
+ * 和「AI 请求发往哪里」是同一套信任语言。点一下回到转写面板。
+ */
+const RecordingIndicator: React.FC = () => {
+  const recording = useTranscribeStore((s) => s.status === 'recording');
+  const elapsed = useTranscribeStore((s) => s.elapsed);
+  const [, tick] = React.useState(0);
+  React.useEffect(() => {
+    if (!recording) return;
+    const timer = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [recording]);
+  if (!recording) return null;
+  return (
+    <button className="statusbar-recording" onClick={() => useAppStore.getState().openTranscribe()} title="正在转写（本机识别，音频不保存）。点击查看">
+      <span className="statusbar-recording__dot" /> 转写中 {formatClock(elapsed())}
+    </button>
+  );
+};
 
 export const StatusBar: React.FC = () => {
   const { mode, toggleMode, activeTabId, tabs, statusBarVisible, aiStatus, zoom, setZoom } = useAppStore();
@@ -68,6 +91,7 @@ export const StatusBar: React.FC = () => {
         ) : (
           <span className="statusbar-dim">未选择文档</span>
         )}
+        <RecordingIndicator />
       </div>
 
       {notice && !aiStatus.generating && (

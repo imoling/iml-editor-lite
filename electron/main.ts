@@ -7,6 +7,7 @@ import { setupFileSystemIPC } from './ipc/fileSystem';
 import { SearchIndex } from './searchIndex';
 import { setupLocalModel, ensureBuiltinEndpoint, builtinNotReadyHint, isBuiltinService, isLocalServerActive, stopServer as stopLocalServer } from './localModel';
 import { setupSemantic, syncSemanticIndex, stopSemanticServer, isSemanticServerActive } from './semantic';
+import { setupAsr, stopAsr } from './asr';
 import { NoteHistory } from './history';
 import { registerAssetScheme, handleAssetProtocol, findOrphanImages, filterTrashable, fetchPageTitle } from './assets';
 
@@ -18,6 +19,14 @@ app.setName('iML Markdown Editor');
 
 // 冒烟测试：IML_SMOKE_USERDATA 指向临时目录，配置 / 运行时 / 模型都不碰用户的真实数据
 if (isDev && process.env.IML_SMOKE_USERDATA) app.setPath('userData', process.env.IML_SMOKE_USERDATA);
+// 冒烟测试：IML_SMOKE_FAKE_MIC=/path/to.wav 把一段 WAV 当麦克风输入（循环播放去掉 %noloop），无人值守也能测实时转写。
+// 沙箱不让假设备读文件，所以要一并关掉 —— 只在开发模式、且显式给了这个变量时才会走到这里
+if (isDev && process.env.IML_SMOKE_FAKE_MIC) {
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+  app.commandLine.appendSwitch('use-file-for-fake-audio-capture', `${process.env.IML_SMOKE_FAKE_MIC}%noloop`);
+}
 
 // 笔记里的本地图片走 iml-asset://（必须在 ready 之前登记协议）
 registerAssetScheme();
@@ -508,6 +517,10 @@ function setupAppMenu() {
           accelerator: 'Cmd+J',
           click: () => mainWindow?.webContents.send('menu:ask-notes'),
         },
+        {
+          label: '实时转写',
+          click: () => mainWindow?.webContents.send('menu:transcribe'),
+        },
         { type: 'separator' },
         // 与应用内的「智能」菜单保持一致：按功能命名，每项打开该功能的设置
         {
@@ -583,12 +596,20 @@ app.whenReady().then(() => {
     console.error('Failed to setup semantic index:', err);
   }
 
+  // 实时转写：下载识别组件、托管识别进程、转发音频与文字
+  try {
+    setupAsr({ isAiEnabled: () => getAppSettings().aiEnabled !== false });
+  } catch (err) {
+    console.error('Failed to setup transcription:', err);
+  }
+
   // 被信号结束（终端 Ctrl+C、系统关机时的 SIGTERM）也走正常退出流程，否则 before-quit 不触发，子进程会变成孤儿
   for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => app.quit());
 
   // 退出时带走托管的子进程（对话服务 + 嵌入服务）
   let quitting = false;
   app.on('before-quit', (event) => {
+    stopAsr();   // 识别进程是 utilityProcess，同步杀掉即可
     if (quitting || (!isLocalServerActive() && !isSemanticServerActive())) return;
     quitting = true;
     event.preventDefault();

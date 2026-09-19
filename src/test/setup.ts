@@ -62,6 +62,10 @@ export function createMockApi(initialFiles: Record<string, string> = {}) {
     library: { watch: vi.fn(async () => true), findOrphanImages: vi.fn(async () => []), trashImages: vi.fn(async () => ({ trashed: 0, failed: [] })) },
     history: { list: vi.fn(async () => []), read: vi.fn(async () => null) },
     web: { fetchTitle: vi.fn(async () => null) },
+    asr: {
+      getState: vi.fn(async () => null), install: vi.fn(), cancelInstall: vi.fn(), uninstall: vi.fn(), start: vi.fn(), stop: vi.fn(),
+      sendPcm: vi.fn(), onState: vi.fn(() => () => {}), onEvent: vi.fn(() => () => {}),
+    },
     semantic: {
       getState: vi.fn(async () => null), setEnabled: vi.fn(), setModel: vi.fn(), downloadModel: vi.fn(), cancelDownload: vi.fn(), deleteModel: vi.fn(),
       rebuild: vi.fn(), search: vi.fn(async () => []), related: vi.fn(async () => []), retrieve: vi.fn(async () => []), onState: vi.fn(() => () => {}),

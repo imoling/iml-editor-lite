@@ -111,7 +111,7 @@ export const DEFAULT_IMAGE_GEN_CONFIG: ImageGenConfig = {
   endpoint: '',
 };
 
-export type SidebarTab = 'library' | 'catalog' | 'tags' | 'search' | 'ask';
+export type SidebarTab = 'library' | 'catalog' | 'tags' | 'search' | 'ask' | 'transcribe';
 
 /** 正文排版：字体、字号、行距、页宽（富文本与预览共用） */
 export interface EditorPrefs {
@@ -188,6 +188,8 @@ export interface AppState {
   searchCommand: SearchCommand | null;
   /** 当前编辑器注册的「把未写回的内容立刻同步到 store」钩子（保存 / 导出 / 关窗前调用） */
   editorFlush: (() => void) | null;
+  /** 最近一次「不是编辑器自己打的字」的改写（转写、纪要这类侧边栏功能写进笔记）。富文本编辑器看到 rev 变了就重载这篇，哪怕光标正在里面 */
+  externalWrite: { id: string; rev: number } | null;
   sidebarTab: SidebarTab;
   /** 标签视图里选中的标签 */
   selectedTag: string | null;
@@ -258,6 +260,8 @@ export interface AppState {
   /** ⌘⇧T：重新打开最近关掉的那个标签页 */
   reopenClosedTab: () => Promise<void>;
   updateTabContent: (id: string, content: string) => void;
+  /** 由编辑器之外的功能改写一篇笔记：先把编辑器里还没写回的字刷进来，再基于最新内容改。笔记已经关掉时返回 false */
+  editTabContent: (id: string, edit: (current: string) => string) => boolean;
   /** 加载笔记库（树根 = defaultLibraryPath），并开始监听目录变化 */
   loadLibrary: (path: string) => Promise<void>;
   /** 在指定目录新建笔记并进入重命名 */
@@ -309,6 +313,8 @@ export interface AppState {
   openGlobalSearch: () => void;
   /** ⌘J：打开侧边栏的「问答」页并聚焦输入框 */
   openAsk: () => void;
+  /** 打开侧边栏的「转写」页 */
+  openTranscribe: () => void;
   /** 用给定关键词打开文档内查找（全文搜索结果点开后定位用） */
   showFindWith: (query: string) => void;
   setSidebarWidth: (width: number) => void;
@@ -391,6 +397,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   search: { query: '', replacement: '', caseSensitive: false, total: 0, current: 0 },
   searchCommand: null,
   editorFlush: null,
+  externalWrite: null,
   sidebarTab: 'library',
   selectedTag: null,
   notice: null,
@@ -541,6 +548,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       tabs: state.tabs.map(t => t.id === id ? { ...t, content, isDirty: true } : t)
     }));
+  },
+
+  editTabContent: (id, edit) => {
+    get().editorFlush?.();
+    const target = get().tabs.find(t => t.id === id);
+    if (!target) return false;
+    const content = edit(target.content);
+    if (content === target.content) return true;
+    set((state) => ({
+      tabs: state.tabs.map(t => t.id === id ? { ...t, content, isDirty: true } : t),
+      externalWrite: { id, rev: (state.externalWrite?.rev ?? 0) + 1 },
+    }));
+    return true;
   },
 
   updateTabId: (oldId: string, newId: string, newTitle: string) => set((state) => {
@@ -825,6 +845,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   consumeSearchCommand: () => { if (get().searchCommand) set({ searchCommand: null }); },
   registerEditorFlush: (fn) => set({ editorFlush: fn }),
   openGlobalSearch: () => set((state) => ({ sidebarTab: 'search', sidebarVisible: true, globalSearchFocus: state.globalSearchFocus + 1 })),
+  openTranscribe: () => set({ sidebarTab: 'transcribe', sidebarVisible: true, focusMode: false }),
   openAsk: () => { set({ sidebarTab: 'ask', sidebarVisible: true, focusMode: false }); useAskStore.getState().requestFocus(); },
   showFindWith: (query) => set((state) => ({ findVisible: true, replaceVisible: false, search: { ...state.search, query } })),
   openTag: (tag) => set({ selectedTag: tag, sidebarTab: 'tags', sidebarVisible: true, focusMode: false }),

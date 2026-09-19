@@ -70,6 +70,8 @@ export const TiptapEditor: React.FC = () => {
   const prevEditorRef = useRef<ReturnType<typeof useEditor> | null>(null);
   // Tracks previous activeTabId for the content-sync effect, to detect tab switches
   const prevSyncTabIdRef = useRef<string | null>(null);
+  const externalWrite = useAppStore((s) => s.externalWrite);
+  const prevExternalRevRef = useRef(0);
 
   // ── 编辑器 → store 同步（防抖）──
   // 每次按键都做整篇 HTML→Markdown 转换会拖慢大文档；这里防抖 150ms，失焦 / 切换标签 / 卸载时立即刷写
@@ -441,6 +443,10 @@ export const TiptapEditor: React.FC = () => {
 
     const isTabSwitch = prevSyncTabIdRef.current !== activeTabId;
     prevSyncTabIdRef.current = activeTabId;
+    // 侧边栏功能（转写、纪要）明确改写了这篇：光标在编辑器里也要载入，
+    // 否则界面上看不到，用户下一次敲字还会把这次写入覆盖掉。它写之前已经把编辑器里的字刷回 store，不会丢字
+    const isExternalWrite = !!externalWrite && externalWrite.id === activeTabId && externalWrite.rev !== prevExternalRevRef.current;
+    prevExternalRevRef.current = externalWrite?.rev ?? 0;
 
     const newHtml = markdownToHtml(activeTab.content);
 
@@ -463,7 +469,7 @@ export const TiptapEditor: React.FC = () => {
       // 否则 md→html 往返的细微差异（代码块 / 表格 / 任务列表）会让下面的 setContent 把文档整个重置
       if (lastSyncedMdRef.current === activeTab.content) return;
       // 编辑器有焦点（且窗口在前台）或 AI 正在生成时跳过，避免回流冲突；窗口在后台时允许外部改动同步进来
-      if ((editor.isFocused && document.hasFocus()) || aiGenerating) return;
+      if (!isExternalWrite && ((editor.isFocused && document.hasFocus()) || aiGenerating)) return;
 
       const currentHtml = editor.getHTML();
       // 如果当前编辑器有 data URL 图片但 newHtml 没有，说明 markdown→html 转换丢失了图片，跳过
@@ -475,9 +481,16 @@ export const TiptapEditor: React.FC = () => {
       const currentHtml2 = currentHtml;
       if (currentHtml2 !== newHtml) {
         if (currentHtml2.replace(/\s/g, '') === newHtml.replace(/\s/g, '')) return;
+        const { from, to } = editor.state.selection;
         editor.commands.setContent(newHtml, false);
         registerSource(editor, activeTab.content);
-        placeCursorAfterFrontmatter(editor);
+        if (isExternalWrite) {
+          // 写入的内容都在用户正文的后面，原来的光标位置还有效：放回去，不打断他正在写的那一行
+          const max = editor.state.doc.content.size;
+          editor.commands.setTextSelection({ from: Math.min(from, max), to: Math.min(to, max) });
+        } else {
+          placeCursorAfterFrontmatter(editor);
+        }
       }
       return;
     }
@@ -488,7 +501,7 @@ export const TiptapEditor: React.FC = () => {
     // 登记原文对照表：保存时没被编辑过的块直接写回原文（见 sourceMap.ts）
     registerSource(editor, activeTab.content);
     placeCursorAfterFrontmatter(editor);
-  }, [activeTabId, editor, activeTab?.content]);
+  }, [activeTabId, editor, activeTab?.content, externalWrite?.rev]);
 
   useEffect(() => {
     if (editor && navigationRequest) {

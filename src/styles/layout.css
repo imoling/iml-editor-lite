@@ -559,6 +559,28 @@
 .start-page-list-item:hover { background-color: var(--bg-hover-editor); color: var(--text-primary); }
 
 /* ── 全文搜索面板 ── */
+/* ── 实时转写（侧边栏「转写」页，布局复用 .ask-panel）── */
+.transcribe-setup { padding: 8px; font-size: 12.5px; line-height: 1.7; color: var(--text-secondary); }
+.transcribe-setup p { margin: 0 0 8px; }
+.transcribe-setup__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.transcribe-bar { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 4px 2px 8px; }
+.transcribe-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; border: none; cursor: pointer; font-size: 12.5px; font-weight: 600; font-family: inherit; background-color: var(--color-brand-indigo); color: #fff; transition: opacity 0.2s ease; }
+.transcribe-btn:disabled { opacity: 0.5; cursor: default; }
+.transcribe-btn--stop { background-color: #ef4444; }
+.transcribe-clock { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.transcribe-clock--live { color: #ef4444; font-weight: 600; }
+.transcribe-level { flex: 1; max-width: 72px; height: 4px; border-radius: 2px; background-color: var(--border-subtle); overflow: hidden; }
+.transcribe-level > span { display: block; height: 100%; border-radius: 2px; background-color: #10b981; transition: width 0.12s linear; }
+.transcribe-line { display: flex; gap: 8px; padding: 3px 4px; font-size: 13px; line-height: 1.65; color: var(--text-primary); word-break: break-word; }
+.transcribe-line__time { flex-shrink: 0; min-width: 36px; padding-top: 2px; font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+/* 还在变的那一句：颜色淡一点，定稿后变实 */
+.transcribe-line--partial { color: var(--text-muted); }
+.transcribe-actions { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 2px 10px; border-top: 1px solid var(--border-subtle); }
+.transcribe-actions .btn { display: inline-flex; align-items: center; gap: 4px; }
+.transcribe-actions .btn-link { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+.statusbar-recording { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: none; background: none; cursor: pointer; font: inherit; font-variant-numeric: tabular-nums; color: #ef4444; font-weight: 600; }
+.statusbar-recording__dot { width: 7px; height: 7px; border-radius: 50%; background-color: #ef4444; animation: ask-pulse 1.2s ease-in-out infinite; }
+
 /* ── 问你的笔记（侧边栏「问答」页）── */
 .ask-panel { display: flex; flex-direction: column; height: 100%; padding: 0 8px; }
 .ask-panel__head { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding-right: 4px; }

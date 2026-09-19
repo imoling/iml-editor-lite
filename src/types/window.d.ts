@@ -8,6 +8,11 @@ import type { HistoryEntry } from '../../electron/history';
 import type { OrphanImage } from '../../electron/assets';
 export type { SemanticState, SemanticHit, EmbedModelEntry, AskSource } from '../../electron/semantic/index';
 export type { HistoryEntry } from '../../electron/history';
+import type { AsrState } from '../../electron/asr/index';
+import type { PipelineEvent } from '../../electron/asr/pipeline';
+export type { AsrState } from '../../electron/asr/index';
+/** 识别进程发回来的事件：临时文字、定稿、出错、收尾完成 */
+export type AsrEvent = PipelineEvent | { type: 'error'; message: string } | { type: 'done' };
 export type { OrphanImage } from '../../electron/assets';
 
 export interface TagCount { tag: string; count: number }
@@ -104,6 +109,17 @@ declare global {
       };
       web: {
         fetchTitle: (url: string) => Promise<string | null>;
+      };
+      asr: {
+        getState: () => Promise<AsrState>;
+        install: () => Promise<boolean>;
+        cancelInstall: () => Promise<boolean>;
+        uninstall: () => Promise<AsrState>;
+        start: () => Promise<AsrState>;
+        stop: () => Promise<AsrState>;
+        sendPcm: (samples: Float32Array) => void;
+        onState: (callback: (state: AsrState) => void) => () => void;
+        onEvent: (callback: (event: AsrEvent) => void) => () => void;
       };
       semantic: {
         getState: () => Promise<SemanticState>;

@@ -7,6 +7,7 @@ import { VectorStore } from './store';
 import { lexicalTerms, lexicalScore, rerankChunks } from './retrieve';
 import { EMBED_CATALOG, findEmbedSpec, DEFAULT_EMBED_MODEL } from './catalog';
 import { buildServerArgs } from '../localModel/server';
+import { buildTranscriptBlock } from '../../src/utils/transcript';
 
 describe('嵌入模型目录', () => {
   it('每一项都有完整的下载与校验信息，分块上限留足 token 余量', () => {
@@ -55,6 +56,17 @@ describe('chunkNote', () => {
 
   it('plainText 去掉 data URL 与表格分隔行', () => {
     expect(plainText('![](data:image/png;base64,AAAA) | a |\n| --- |\n| b |')).not.toContain('base64');
+  });
+});
+
+describe('转写块', () => {
+  it('折叠在 <details> 里的转写全文照样进索引：会上说过的话，事后能问到', () => {
+    const block = buildTranscriptBlock([{ start: 29, text: '原生模块在 arm64 和 x64 上要分别处理，我建议走子进程的方案。' }, { start: 41, text: '好的，下周三之前给出技术验证的结论。' }], new Date(2026, 8, 20, 14, 5), 57);
+    const chunks = chunkNote('周会', `# 周会\n\n- 我记的要点\n\n${block}\n`, 400);
+    const all = chunks.map((c) => c.text).join('\n');
+    expect(all).toContain('我建议走子进程的方案');
+    expect(all).toContain('下周三之前给出技术验证的结论');
+    expect(all).not.toMatch(/<\/?(?:details|summary|p)\b/);
   });
 });
 

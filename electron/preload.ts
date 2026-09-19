@@ -90,6 +90,26 @@ contextBridge.exposeInMainWorld('api', {
   web: {
     fetchTitle: (url: string): Promise<string | null> => ipcRenderer.invoke('web:fetchTitle', url),
   },
+  // 实时转写：识别组件的下载、识别进程的启停、音频块上行与文字下行
+  asr: {
+    getState: () => ipcRenderer.invoke('asr:getState'),
+    install: () => ipcRenderer.invoke('asr:install'),
+    cancelInstall: () => ipcRenderer.invoke('asr:cancelInstall'),
+    uninstall: () => ipcRenderer.invoke('asr:uninstall'),
+    start: () => ipcRenderer.invoke('asr:start'),
+    stop: () => ipcRenderer.invoke('asr:stop'),
+    sendPcm: (samples: Float32Array) => ipcRenderer.send('asr:pcm', samples),
+    onState: (callback: (state: any) => void) => {
+      const listener = (_event: any, state: any) => callback(state);
+      ipcRenderer.on('asr:state', listener);
+      return () => ipcRenderer.removeListener('asr:state', listener);
+    },
+    onEvent: (callback: (event: any) => void) => {
+      const listener = (_event: any, payload: any) => callback(payload);
+      ipcRenderer.on('asr:event', listener);
+      return () => ipcRenderer.removeListener('asr:event', listener);
+    },
+  },
   // 语义索引：本机嵌入模型、相关笔记、语义搜索
   semantic: {
     getState: () => ipcRenderer.invoke('semantic:getState'),

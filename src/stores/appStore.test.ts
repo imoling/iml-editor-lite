@@ -26,6 +26,27 @@ describe('updateTabContent', () => {
   });
 });
 
+describe('editTabContent：编辑器之外的功能改写笔记（转写、纪要）', () => {
+  it('先把编辑器里没写回的字刷进来，再基于最新内容改；并留下记号让富文本编辑器重载', () => {
+    useAppStore.setState({ tabs: [{ id: '/lib/a.md', title: 'a', content: '旧', isDirty: false, mode: 'word' }] });
+    // 模拟编辑器里还压着 150ms 防抖没写回的字
+    useAppStore.getState().registerEditorFlush(() => useAppStore.getState().updateTabContent('/lib/a.md', '旧 + 刚打的字'));
+    expect(useAppStore.getState().editTabContent('/lib/a.md', (c) => `${c}\n\n转写块`)).toBe(true);
+    expect(useAppStore.getState().tabs[0]).toMatchObject({ content: '旧 + 刚打的字\n\n转写块', isDirty: true });
+    expect(useAppStore.getState().externalWrite).toEqual({ id: '/lib/a.md', rev: 1 });
+    useAppStore.getState().editTabContent('/lib/a.md', (c) => `${c}!`);
+    expect(useAppStore.getState().externalWrite?.rev).toBe(2);
+  });
+
+  it('内容没变不留记号；笔记已经关掉返回 false', () => {
+    useAppStore.setState({ tabs: [{ id: '/lib/a.md', title: 'a', content: 'x', isDirty: false, mode: 'word' }] });
+    expect(useAppStore.getState().editTabContent('/lib/a.md', (c) => c)).toBe(true);
+    expect(useAppStore.getState().externalWrite).toBeNull();
+    expect(useAppStore.getState().tabs[0].isDirty).toBe(false);
+    expect(useAppStore.getState().editTabContent('/lib/gone.md', () => 'y')).toBe(false);
+  });
+});
+
 describe('查找面板开关', () => {
   it('⌘F：开 → 有替换时收起替换 → 关闭并清空查找词', () => {
     const s = useAppStore.getState();
