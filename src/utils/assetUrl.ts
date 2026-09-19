@@ -51,12 +51,12 @@ export function noteDirOf(tabId: string | null, fallbackDir: string): string | n
   return idx > 0 ? tabId.slice(0, idx) : null;
 }
 
-/** 把一段 HTML 里所有 <img> 的地址换成可加载的（预览、原样保留块用） */
+/** 把一段 HTML 里图片和音频（转写留下的录音）的地址换成可加载的（预览、原样保留块用） */
 export function resolveImagesInHtml(html: string, noteDir: string | null): string {
-  if (!html.includes('<img')) return html;
+  if (!/<(?:img|audio|source)\b/i.test(html)) return html;
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  doc.querySelectorAll('img[src]').forEach((img) => {
-    img.setAttribute('src', resolveAssetUrl(img.getAttribute('src') || '', noteDir));
+  doc.querySelectorAll('img[src], audio[src], audio > source[src]').forEach((el) => {
+    el.setAttribute('src', resolveAssetUrl(el.getAttribute('src') || '', noteDir));
   });
   return doc.body.innerHTML;
 }

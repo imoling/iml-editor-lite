@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Square, FileDown, FilePlus, ListChecks, Copy, Check, Eraser, Download, SlidersHorizontal, ShieldCheck, PanelLeft, ChevronRight } from 'lucide-react';
+import { Mic, MicOff, Square, FileDown, FilePlus, ListChecks, Copy, Check, Eraser, Download, SlidersHorizontal, ShieldCheck, PanelLeft, ChevronRight, Play, Pause } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useTranscribeStore } from '../../stores/transcribeStore';
 import { useAiReadiness } from '../../utils/aiReadiness';
@@ -10,11 +10,52 @@ import { PanelIntro } from './PanelIntro';
 
 const formatSize = (bytes: number) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`);
 
-const POINTS = [
-  { icon: <ShieldCheck size={13} />, text: '识别在这台电脑上完成，音频不保存、不上传' },
+const privacyPoint = (keep: boolean) => (keep ? '识别在这台电脑上完成；录音只存在本机，不上传' : '识别在这台电脑上完成，音频不保存、不上传');
+const introPoints = (keep: boolean) => [
+  { icon: <ShieldCheck size={13} />, text: privacyPoint(keep) },
   { icon: <PanelLeft size={13} />, text: '转写时可以切到别的面板，不会中断' },
   { icon: <ListChecks size={13} />, text: '结束后结合你记的要点，一键整理成纪要' },
 ];
+
+/**
+ * 回听：面板里的播放器。录音的时间轴和转写时间戳是同一条，所以「跳到第 N 秒」就是「从那句话开始听」。
+ * 返回当前播到哪了，让正在播的那一句亮起来
+ */
+function usePlayer(url: string | null) {
+  const ref = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [current, setCurrent] = useState(0);
+
+  useEffect(() => {
+    if (!url) { ref.current = null; setPlaying(false); setCurrent(0); return; }
+    const audio = new Audio(url);
+    audio.preload = 'auto';
+    const onTime = () => setCurrent(audio.currentTime);
+    // 同一时间只响一处：这里开播就停掉笔记里的播放器，反过来笔记里开播（冒泡不到这，走自定义事件）就停这里
+    const onPlay = () => { setPlaying(true); document.querySelectorAll('audio').forEach((other) => other.pause()); };
+    const onStop = () => setPlaying(false);
+    const onOtherPlay = () => audio.pause();
+    window.addEventListener('iml:audio-play', onOtherPlay);
+    audio.addEventListener('timeupdate', onTime);
+    audio.addEventListener('seeked', onTime);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onStop);
+    audio.addEventListener('ended', onStop);
+    ref.current = audio;
+    return () => { window.removeEventListener('iml:audio-play', onOtherPlay); audio.pause(); audio.src = ''; ref.current = null; setPlaying(false); setCurrent(0); };
+  }, [url]);
+
+  const toggle = useCallback(() => { const a = ref.current; if (a) { if (a.paused) void a.play().catch(() => {}); else a.pause(); } }, []);
+  const seek = useCallback((seconds: number, play = false) => {
+    const a = ref.current;
+    if (!a) return;
+    a.currentTime = Math.max(0, seconds);
+    setCurrent(a.currentTime);
+    if (play) void a.play().catch(() => {});
+  }, []);
+  const pause = useCallback(() => ref.current?.pause(), []);
+  return { playing, current, toggle, seek, pause };
+}
 
 /** 录音期间每秒走一次的计时 */
 function useElapsed(running: boolean): number {
@@ -30,7 +71,7 @@ function useElapsed(running: boolean): number {
 
 /**
  * 实时转写：开会、听课时点开始，你照常在正文里记要点，全文它来记。
- * 识别在本机完成，音频不保存、不上传。停下来之后可以把全文折叠着放进笔记，再让模型结合你记的要点整理出纪要。
+ * 识别在本机完成，声音不上传；默认留一份录音用于回听（可关）。停下来之后可以回听、把全文折叠着放进笔记，再让模型结合你记的要点整理出纪要。
  */
 export const TranscribePanel: React.FC = () => {
   const aiEnabled = useAppStore((s) => s.aiEnabled);
@@ -43,6 +84,14 @@ export const TranscribePanel: React.FC = () => {
   const recording = t.status === 'recording';
   const elapsed = useElapsed(recording);
   const getLevel = useCallback(() => useTranscribeStore.getState().level, []);
+  const player = usePlayer(t.status === 'idle' ? t.audio?.url ?? null : null);
+  const POINTS = introPoints(t.keepRecording);
+  // 正在播的是哪一句：最后一个「开始时间 ≤ 当前进度」的
+  const playingIndex = t.audio && (player.playing || player.current > 0)
+    ? t.segments.reduce((found, seg, i) => (seg.start <= player.current + 0.05 ? i : found), -1)
+    : -1;
+  const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
+  useEffect(() => { if (player.playing && playingIndex >= 0) lineRefs.current[playingIndex]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [playingIndex, player.playing]);
 
   useEffect(() => { void t.refresh(); void t.refreshMics(); }, []);
   // 新的一句出来就滚到底
@@ -135,8 +184,19 @@ export const TranscribePanel: React.FC = () => {
           <div className="rec-card__row">
             <span className="rec-paused">已停止 · {t.segments.length} 句</span>
             <span className="rec-clock rec-clock--muted">{formatClock(elapsed)}</span>
-            <button className="rec-resume" onClick={() => void t.start()} disabled={busy}><Mic size={11} /> {t.status === 'starting' ? '准备中…' : '继续'}</button>
+            <button className="rec-resume" onClick={() => { player.pause(); void t.start(); }} disabled={busy}><Mic size={11} /> {t.status === 'starting' ? '准备中…' : '继续'}</button>
           </div>
+          {t.audio && (
+            <div className="rec-player">
+              <button className="rec-player__btn" onClick={player.toggle} title={player.playing ? '暂停' : '回听'}>{player.playing ? <Pause size={12} /> : <Play size={12} />}</button>
+              <input
+                className="rec-player__bar" type="range" min={0} max={t.audio.duration} step={0.1} value={Math.min(player.current, t.audio.duration)}
+                style={{ '--played': `${t.audio.duration ? Math.min(100, (player.current / t.audio.duration) * 100) : 0}%` } as React.CSSProperties}
+                onChange={(e) => player.seek(Number(e.target.value))}
+              />
+              <span className="rec-player__time">{formatClock(player.current)}</span>
+            </div>
+          )}
         </div>
       ) : (
         // ── 还没开始：一个大按钮 ──
@@ -155,9 +215,18 @@ export const TranscribePanel: React.FC = () => {
             : <PanelIntro title="你记要点，全文它来记" lead="开会、听课时点开始，照常在正文里记你的要点。" points={POINTS} />
         ) : (
           <>
-            {t.segments.map((s, i) => (
-              <div key={i} className="transcribe-line"><span className="transcribe-line__time">{formatClock(s.start)}</span><span>{s.text}</span></div>
-            ))}
+            {t.segments.map((s, i) => {
+              // 有录音、且这句话在录音范围内（录音中途断过的话，后面的句子没有对应的声音）才能点
+              const playable = !!t.audio && t.status === 'idle' && s.start < t.audio.duration;
+              return (
+                <div
+                  key={i} ref={(el) => { lineRefs.current[i] = el; }}
+                  className={`transcribe-line ${playable ? 'transcribe-line--playable' : ''} ${i === playingIndex ? 'transcribe-line--playing' : ''}`}
+                  title={playable ? '从这句话开始听' : undefined}
+                  onClick={playable ? () => player.seek(s.start, true) : undefined}
+                ><span className="transcribe-line__time">{formatClock(s.start)}</span><span>{s.text}</span></div>
+              );
+            })}
             {t.partial && <div className="transcribe-line transcribe-line--partial"><span className="transcribe-line__time">{formatClock(t.partial.start)}</span><span>{t.partial.text}<span className="transcribe-caret" /></span></div>}
           </>
         )}

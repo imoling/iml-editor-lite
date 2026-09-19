@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('api', {
     writeFile: (filePath: string, content: string) => ipcRenderer.invoke('fs:writeFile', filePath, content),
     readDir: (dirPath: string) => ipcRenderer.invoke('fs:readDir', dirPath),
     saveImage: (activeFilePath: string, fileName: string, buffer: ArrayBuffer) => ipcRenderer.invoke('fs:saveImage', activeFilePath, fileName, buffer),
+    saveRecording: (noteDir: string, fileName: string, buffer: ArrayBuffer) => ipcRenderer.invoke('fs:saveRecording', noteDir, fileName, buffer),
     rename: (oldPath: string, newPath: string) => ipcRenderer.invoke('fs:rename', oldPath, newPath),
     copy: (sourcePath: string, targetPath: string) => ipcRenderer.invoke('fs:copy', sourcePath, targetPath),
     delete: (path: string) => ipcRenderer.invoke('fs:delete', path),

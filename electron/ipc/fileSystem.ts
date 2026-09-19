@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import type { NoteHistory } from '../history';
-import { assetFileName, IMAGE_EXT_RE } from '../assets';
+import { assetFileName, IMAGE_EXT_RE, AUDIO_EXT_RE } from '../assets';
 
 /** 导出（PDF / HTML）共用的样式：与应用内预览保持同一套语义（提示块、目录、标签、属性卡片、脚注） */
 const EXPORT_CSS = `
@@ -158,6 +158,21 @@ export function setupFileSystemIPC(deps: FileSystemDeps = {}) {
       return { success: true, path: `assets/${uniqueName}`, bytes: data.length };
     } catch (error: any) {
       console.error('Error saving image:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 实时转写的录音：存到笔记旁边的 assets/。同一场转写再存一次是覆盖（停了又继续录，录音变长了），所以不加序号
+  ipcMain.handle('fs:saveRecording', async (_, noteDir: string, fileName: string, buffer: ArrayBuffer) => {
+    try {
+      const safeName = path.basename(fileName).replace(/[\\/:*?"<>|#%()[\]\s]+/g, '-');
+      if (!path.isAbsolute(noteDir) || !AUDIO_EXT_RE.test(safeName)) return { success: false, error: '录音的保存位置不对' };
+      const assetsDir = path.join(path.normalize(noteDir), 'assets');
+      await fs.promises.mkdir(assetsDir, { recursive: true });
+      const data = Buffer.from(buffer);
+      await fs.promises.writeFile(path.join(assetsDir, safeName), data);
+      return { success: true, path: `assets/${safeName}`, bytes: data.length };
+    } catch (error: any) {
       return { success: false, error: error.message };
     }
   });

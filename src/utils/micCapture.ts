@@ -31,6 +31,8 @@ registerProcessor('iml-mic-tap', Tap);`;
 
 export interface MicCapture {
   stop: () => void;
+  /** 麦克风的原始流：要留录音的话从这里再接一路出去 */
+  stream: MediaStream;
   /** 实际在用的设备名 */
   label: string;
   /** 指定的设备没连上，退回了系统默认 */
@@ -87,6 +89,7 @@ export async function startMicCapture(onChunk: (samples: Float32Array, level: nu
   source.connect(tap).connect(mute).connect(ctx.destination);
 
   return {
+    stream,
     label,
     fellBack,
     stop: () => {

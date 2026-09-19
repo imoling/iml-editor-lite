@@ -2,10 +2,12 @@ import { create } from 'zustand';
 import type { AsrState, AsrEvent } from '../types/window';
 import { startMicCapture, MIC_SILENCE_LEVEL, type MicCapture } from '../utils/micCapture';
 import { getPreferredMic, setPreferredMic, listMics, type MicList } from '../utils/micDevices';
+import { SessionRecorder } from '../utils/sessionRecorder';
+import { noteDirOf } from '../utils/assetUrl';
 import { useAppStore } from './appStore';
 import {
   type TranscriptSegment, transcriptText, buildTranscriptBlock, upsertBlock, insertMinutes, newMeetingNote, meetingNoteTitle,
-  stripTranscriptBlocks, splitForSummary, buildMinutesMessages, buildPartMessages, buildMergeMessages, cleanMinutes,
+  stripTranscriptBlocks, splitForSummary, recordingFileName, buildMinutesMessages, buildPartMessages, buildMergeMessages, cleanMinutes,
 } from '../utils/transcript';
 import { stripThinking } from '../utils/askNotes';
 
@@ -27,6 +29,10 @@ interface TranscribeState {
   /** 用户选的麦克风（空串 = 跟随系统）和当前能看到的设备 */
   micId: string;
   mics: MicList;
+  /** 留不留录音（用于回听）。存在本机的偏好；一场转写开始时定下来，中途改不影响这一场 */
+  keepRecording: boolean;
+  /** 这一场的录音：停下来之后才有。url 给面板里的播放器用 */
+  audio: { blob: Blob; url: string; duration: number } | null;
   /** 这次运行里真的从麦克风收到过声音：有这个事实在，就不管系统 API 怎么说授权状态 */
   heardSignal: boolean;
   /** 这次录音实际在用的麦克风 */
@@ -41,13 +47,14 @@ interface TranscribeState {
   refresh: () => Promise<void>;
   refreshMics: () => Promise<void>;
   setMic: (id: string) => void;
+  setKeepRecording: (keep: boolean) => void;
   install: () => void;
   cancelInstall: () => void;
   start: () => Promise<void>;
   stop: () => Promise<void>;
   clear: () => void;
   elapsed: () => number;
-  insertIntoActiveNote: () => boolean;
+  insertIntoActiveNote: () => Promise<boolean>;
   saveAsNewNote: () => Promise<string | null>;
   generateMinutes: () => Promise<void>;
 }
@@ -55,6 +62,38 @@ interface TranscribeState {
 const cleanError = (err: any) => String(err?.message || err).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
 
 let capture: MicCapture | null = null;
+let recorder: SessionRecorder | null = null;
+
+const KEEP_KEY = 'iml.keepRecording';
+/** 默认留录音：想回听是常态；不想留的在「实时转写…」里关掉 */
+function readKeepRecording(): boolean { try { return localStorage.getItem(KEEP_KEY) !== '0'; } catch { return true; } }
+
+/** 一段录音停下来：从录音机那里拿到目前为止的整份录音，换掉面板播放器用的那一份 */
+async function collectRecording() {
+  if (!recorder) return;
+  const wasFailed = recorder.failed;
+  const recording = await recorder.detach().catch(() => null);
+  if (recorder.failed && !wasFailed) useAppStore.getState().notify('录音中途断了，后面的部分没有录上（转写不受影响）');
+  if (!recording) return;
+  const old = useTranscribeStore.getState().audio;
+  if (old) URL.revokeObjectURL(old.url);
+  useTranscribeStore.setState({ audio: { blob: recording.blob, url: URL.createObjectURL(recording.blob), duration: recording.durationSec } });
+}
+
+/** 把录音存到笔记旁边，返回写进转写块里的相对地址；没有录音、或存不了，返回 null（转写照样放进笔记） */
+async function saveRecording(noteDir: string | null, startedAt: Date): Promise<string | null> {
+  const audio = useTranscribeStore.getState().audio;
+  if (!audio) return null;
+  if (!noteDir) { useAppStore.getState().notify('这篇笔记还没有保存位置，录音没能跟着放进去'); return null; }
+  try {
+    const res = await window.api.fs.saveRecording(noteDir, recordingFileName(startedAt), await audio.blob.arrayBuffer());
+    if (res.success && res.path) return res.path;
+    useAppStore.getState().notify(`录音没存上：${res.error || '未知错误'}`);
+  } catch (err) {
+    useAppStore.getState().notify(`录音没存上：${cleanError(err)}`);
+  }
+  return null;
+}
 
 const SILENCE_MS = 4000;
 
@@ -72,6 +111,8 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
   level: 0,
   micId: getPreferredMic(),
   mics: { systemDefault: '', mics: [], labelsAvailable: false },
+  keepRecording: readKeepRecording(),
+  audio: null,
   heardSignal: false,
   deviceLabel: '',
   silent: false,
@@ -82,6 +123,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
   refresh: async () => { try { set({ asr: await window.api.asr.getState() }); } catch { /* 主进程还没准备好 */ } },
   refreshMics: async () => set({ mics: await listMics() }),
   setMic: (id) => { setPreferredMic(id); set({ micId: id }); },
+  setKeepRecording: (keep) => { try { localStorage.setItem(KEEP_KEY, keep ? '1' : '0'); } catch { /* 存不了就只管这一次 */ } set({ keepRecording: keep }); },
   install: () => { void window.api.asr.install(); },
   cancelInstall: () => { void window.api.asr.cancelInstall(); },
 
@@ -101,6 +143,9 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
         const silent = Date.now() - lastSignalAt > SILENCE_MS;
         if (silent !== get().silent) set({ silent });
       }, get().micId);
+      // 留不留录音在一场开始时定：中途变卦的话录音和时间戳就对不上了
+      if (get().segments.length === 0 && !recorder && get().keepRecording && SessionRecorder.supported()) recorder = new SessionRecorder();
+      recorder?.attach(capture.stream);
       if (capture.fellBack) useAppStore.getState().notify(`选定的麦克风没连上，这次改用${capture.label ? `「${capture.label}」` : '系统默认的麦克风'}`);
       void get().refreshMics();   // 授权之后才读得到设备名字
       set((s) => ({ status: 'recording', deviceLabel: capture?.label ?? '', silent: false, runStartedAt: Date.now(), startedAt: s.startedAt ?? Date.now(), savedTo: s.segments.length ? s.savedTo : null }));
@@ -114,9 +159,11 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
   stop: async () => {
     if (get().status !== 'recording') return;
     set({ status: 'stopping' });
+    const recording = collectRecording();   // 先让录音机暂停，再放开麦克风
     capture?.stop(); capture = null;
     const ran = get().runStartedAt ? (Date.now() - get().runStartedAt!) / 1000 : 0;
     try { await window.api.asr.stop(); } catch { /* 进程已经没了也算停了 */ }
+    await recording;
     // 最后一句的定稿在 stop 返回之前已经送到；还挂着的临时文字说明那句没来得及定稿，保住它
     set((s) => ({
       status: 'idle', level: 0, silent: false, runStartedAt: null, offset: s.offset + ran,
@@ -124,15 +171,23 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     }));
   },
 
-  clear: () => { if (get().status === 'idle') set({ segments: [], partial: null, startedAt: null, offset: 0, error: null, savedTo: null, minutes: { running: false, progress: '', error: null } }); },
+  clear: () => {
+    if (get().status !== 'idle') return;
+    recorder?.dispose(); recorder = null;
+    const old = get().audio;
+    if (old) URL.revokeObjectURL(old.url);
+    set({ audio: null, segments: [], partial: null, startedAt: null, offset: 0, error: null, savedTo: null, minutes: { running: false, progress: '', error: null } });
+  },
 
-  insertIntoActiveNote: () => {
+  insertIntoActiveNote: async () => {
     const { segments, startedAt } = get();
     const app = useAppStore.getState();
     const tab = app.tabs.find((t) => t.id === app.activeTabId);
     if (!tab || segments.length === 0) return false;
     const at = new Date(startedAt ?? Date.now());
-    const block = buildTranscriptBlock(segments, at, get().elapsed());
+    // 录音跟着笔记走：存到笔记旁边的 assets/，转写块里带一个播放器
+    const audioSrc = await saveRecording(noteDirOf(tab.id, app.getNewNoteDir() || ''), at);
+    const block = buildTranscriptBlock(segments, at, get().elapsed(), audioSrc);
     // 用户多半正在这篇里记要点：editTabContent 会先把他没写回的字刷进来，再追加，光标也留在原地
     if (!app.editTabContent(tab.id, (current) => upsertBlock(current, block, at))) return false;
     set({ savedTo: tab.id });
@@ -151,7 +206,8 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     const sep = dir.includes('\\') ? '\\' : '/';
     let filePath = `${dir}${sep}${title}.md`;
     for (let i = 2; await window.api.fs.exists(filePath); i++) filePath = `${dir}${sep}${title} ${i}.md`;
-    const res = await window.api.fs.writeFile(filePath, newMeetingNote(title, at, buildTranscriptBlock(segments, at, get().elapsed())));
+    const audioSrc = await saveRecording(dir, at);
+    const res = await window.api.fs.writeFile(filePath, newMeetingNote(title, at, buildTranscriptBlock(segments, at, get().elapsed(), audioSrc)));
     if (!res.success) { set({ error: res.error || '保存失败' }); return null; }
     await app.refreshWorkspace();
     await app.openFileByPath(filePath);
@@ -215,6 +271,7 @@ if (typeof window !== 'undefined' && window.api?.asr) {
     if (event.type === 'partial') useTranscribeStore.setState({ partial: { start: s.offset + event.start, text: event.text } });
     else if (event.type === 'final') useTranscribeStore.setState({ segments: [...s.segments, { start: s.offset + event.start, text: event.text }], partial: null });
     else if (event.type === 'error') {
+      void collectRecording();
       capture?.stop(); capture = null;
       useTranscribeStore.setState({ status: 'idle', runStartedAt: null, level: 0, silent: false, error: event.message });
     }

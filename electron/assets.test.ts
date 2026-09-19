@@ -5,7 +5,7 @@ import path from 'path';
 
 vi.mock('electron', () => ({ protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() }, net: { fetch: vi.fn() } }));
 
-import { assetFileName, findOrphanImages, filterTrashable, extractHtmlTitle, detectCharset, nameVariants } from './assets';
+import { assetFileName, findOrphanImages, filterTrashable, extractHtmlTitle, detectCharset, nameVariants, parseRange, AUDIO_EXT_RE } from './assets';
 
 let root: string;
 const write = (rel: string, content: string | Buffer) => {
@@ -75,5 +75,28 @@ describe('网页标题', () => {
     expect(detectCharset('', '')).toBe('utf-8');
     const gbk = Buffer.from([0xd6, 0xd0, 0xce, 0xc4]); // 「中文」
     expect(new TextDecoder('gbk').decode(gbk)).toBe('中文');
+  });
+});
+
+describe('录音回听：音频走 iml-asset:// 时的分段请求', () => {
+  it('三种 Range 写法都换算成闭区间；结尾超出文件就截到文件末尾', () => {
+    expect(parseRange('bytes=0-', 1000)).toEqual({ start: 0, end: 999 });
+    expect(parseRange('bytes=200-299', 1000)).toEqual({ start: 200, end: 299 });
+    expect(parseRange('bytes=900-5000', 1000)).toEqual({ start: 900, end: 999 });
+    expect(parseRange('bytes=-100', 1000)).toEqual({ start: 900, end: 999 });
+  });
+
+  it('不合法、或起点超出文件：返回 null（回 416），不能回一段错位的数据', () => {
+    expect(parseRange('bytes=1000-', 1000)).toBeNull();
+    expect(parseRange('bytes=300-200', 1000)).toBeNull();
+    expect(parseRange('bytes=-', 1000)).toBeNull();
+    expect(parseRange('items=0-1', 1000)).toBeNull();
+    expect(parseRange(null, 1000)).toBeNull();
+  });
+
+  it('只放行音频扩展名', () => {
+    expect(AUDIO_EXT_RE.test('/lib/assets/录音-20260920-011305.webm')).toBe(true);
+    expect(AUDIO_EXT_RE.test('/etc/passwd')).toBe(false);
+    expect(AUDIO_EXT_RE.test('/lib/笔记.md')).toBe(false);
   });
 });

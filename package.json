@@ -168,7 +168,7 @@
             }
           }
         ],
-        "NSMicrophoneUsageDescription": "实时转写需要使用麦克风。音频只在这台电脑上识别成文字，不会保存，也不会上传。"
+        "NSMicrophoneUsageDescription": "实时转写需要使用麦克风。声音只在这台电脑上识别成文字；录音（可以关掉）也只存在本机，不会上传。"
       }
     },
     "win": {

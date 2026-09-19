@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatClock, formatDuration, buildTranscriptBlock, stripTranscriptBlocks, hasTranscriptBlock, appendBlock, upsertBlock, insertMinutes, newMeetingNote, splitForSummary, transcriptText, buildMinutesMessages, buildMergeMessages, cleanMinutes } from './transcript';
+import { formatClock, formatDuration, buildTranscriptBlock, stripTranscriptBlocks, hasTranscriptBlock, appendBlock, upsertBlock, insertMinutes, newMeetingNote, splitForSummary, transcriptText, buildMinutesMessages, buildMergeMessages, cleanMinutes, recordingFileName, parseClock } from './transcript';
 import { markdownToHtml, htmlToMarkdown } from './markdown';
 
 const SEGS = [{ start: 0.2, text: '大家好，我们开始今天的周会。' }, { start: 3.6, text: '第一个议题是 26.3 的排期 <紧急> & 重要' }, { start: 3725, text: '散会。' }];
@@ -31,6 +31,26 @@ describe('转写块', () => {
 
   it('转写里的尖括号和 & 要转义，不然会被当成标签吃掉', () => {
     expect(block).toContain('&lt;紧急&gt; &amp; 重要');
+  });
+
+  it('带录音的转写块：播放器在摘要下面，仍然没有空行，富文本往返不变；去掉转写块时一并去掉', () => {
+    const src = `assets/${recordingFileName(AT)}`;
+    expect(src).toBe('assets/录音-20260920-140500.webm');
+    const withAudio = buildTranscriptBlock(SEGS, AT, 3730, src);
+    expect(withAudio.split('\n')[2]).toBe('<audio controls preload="metadata" src="assets/录音-20260920-140500.webm"></audio>');
+    expect(withAudio).not.toMatch(/\n\s*\n/);
+    const note = `# 周会\n\n- 我记的要点\n\n${withAudio}\n`;
+    expect(htmlToMarkdown(markdownToHtml(note))).toContain(withAudio);
+    expect(stripTranscriptBlocks(note)).toBe('# 周会\n\n- 我记的要点');
+    // 同一场再放一次（录音变长了、地址不变）是替换
+    expect(upsertBlock(note, withAudio, AT).match(/<audio /g)).toHaveLength(1);
+  });
+
+  it('从一行转写里读出时间戳', () => {
+    expect(parseClock('[00:15] 然后是实时转写')).toBe(15);
+    expect(parseClock(' [1:02:05] 散会。')).toBe(3725);
+    expect(parseClock('转写全文 · 57 秒')).toBeNull();
+    expect(parseClock('他说 [00:15] 的时候')).toBeNull();
   });
 
   it('富文本往返一遍，转写块一个字都不变（靠 26.2 的 HTML 块原样保留）', () => {

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Activity, AudioLines, Mic, Check, CircleAlert, Play, Square } from 'lucide-react';
+import { X, Activity, AudioLines, Mic, Check, CircleAlert, Play, Square, Headphones } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useTranscribeStore } from '../../stores/transcribeStore';
 import { startMicCapture, MIC_SILENCE_LEVEL, type MicCapture } from '../../utils/micCapture';
@@ -101,7 +101,7 @@ export const TranscribeConfigModal: React.FC<Props> = ({ onClose }) => {
         <header className="modal-head">
           <div>
             <h1 className="modal-title">实时转写</h1>
-            <p className="modal-subtitle">开会、听课时边听边出字。识别在这台电脑上完成，音频不保存、不上传</p>
+            <p className="modal-subtitle">开会、听课时边听边出字。识别在这台电脑上完成，声音不上传</p>
           </div>
           <button onClick={onClose} className="icon-btn" title="关闭"><X size={20} /></button>
           {message && <div className={`toast toast--under-head toast--${message.type}`}>{message.text}</div>}
@@ -159,6 +159,31 @@ export const TranscribeConfigModal: React.FC<Props> = ({ onClose }) => {
                   </div>
                 </div>
                 <div className="lm-line lm-line--muted">只下载一次；下载源与「本机模型」共用。</div>
+              </div>
+            </section>
+          )}
+
+          {/* ── 录音：留不留，留在哪 ── */}
+          {asr.supported && (
+            <section className="lm-section">
+              <div className="lm-card">
+                <div className="lm-card__head">
+                  <div className="lm-card__title"><Headphones size={14} /> 回听录音</div>
+                  <span className={`lm-badge ${t.keepRecording ? 'lm-badge--ok' : 'lm-badge--muted'}`}>{t.keepRecording ? '保留' : '不保留'}</span>
+                </div>
+                <div className="lm-actions">
+                  <label className={`toggle ${t.keepRecording ? 'toggle--on' : ''}`}>
+                    <input type="checkbox" checked={t.keepRecording} onChange={(e) => t.setKeepRecording(e.target.checked)} />
+                    <span className="toggle__track"><span className="toggle__thumb" /></span>
+                  </label>
+                  <span className="lm-line">{t.keepRecording ? '转写的同时留一份录音，点哪句话就从哪句开始听' : '只留文字，声音识别完就丢掉'}</span>
+                </div>
+                <div className="lm-line lm-line--muted">
+                  {t.keepRecording
+                    ? '录音只存在这台电脑上：放进笔记时存到笔记旁边的 assets 文件夹（一小时约 11 MB）；没放进笔记的，清空或退出就没了。'
+                    : '适合不方便留录音的场合。已经留下的录音不受影响。'}
+                  {recording && ' 这次转写已经开始，改动从下一场生效。'}
+                </div>
               </div>
             </section>
           )}

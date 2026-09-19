@@ -39,12 +39,27 @@ export function transcriptText(segments: TranscriptSegment[]): string {
 
 const dateStamp = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
-/** 整块里不能有空行：一有空行，Markdown 就会把它拆成「HTML 块 + 普通段落 + HTML 块」，折叠就失效了 */
-export function buildTranscriptBlock(segments: TranscriptSegment[], startedAt: Date, durationSec: number): string {
+/** 录音文件名：同一场转写始终是同一个名字（再存一次就是覆盖成更长的那份） */
+export function recordingFileName(startedAt: Date): string {
+  return `录音-${startedAt.getFullYear()}${pad(startedAt.getMonth() + 1)}${pad(startedAt.getDate())}-${pad(startedAt.getHours())}${pad(startedAt.getMinutes())}${pad(startedAt.getSeconds())}.webm`;
+}
+
+/** 「[01:15] 这句话」→ 75；不是时间戳开头的返回 null。笔记里点一句话跳到录音的对应位置要用 */
+export function parseClock(line: string): number | null {
+  const m = /^\s*\[(?:(\d+):)?(\d{1,2}):(\d{2})\]/.exec(line);
+  return m ? Number(m[1] || 0) * 3600 + Number(m[2]) * 60 + Number(m[3]) : null;
+}
+
+/**
+ * 整块里不能有空行：一有空行，Markdown 就会把它拆成「HTML 块 + 普通段落 + HTML 块」，折叠就失效了。
+ * audioSrc：录音相对笔记的地址（assets/录音-….webm）；有的话块里带一个播放器
+ */
+export function buildTranscriptBlock(segments: TranscriptSegment[], startedAt: Date, durationSec: number, audioSrc?: string | null): string {
   const lines = segments.filter((s) => s.text.trim()).map((s) => `<p>[${formatClock(s.start)}] ${escapeHtml(s.text.trim().replace(/\s*\n+\s*/g, ' '))}</p>`);
   return [
     `<details ${TRANSCRIPT_ATTR}>`,
     `<summary>转写全文 · ${formatDuration(durationSec)} · ${dateStamp(startedAt)}</summary>`,
+    ...(audioSrc ? [`<audio controls preload="metadata" src="${escapeHtml(audioSrc).replace(/"/g, '&quot;')}"></audio>`] : []),
     ...lines,
     '</details>',
   ].join('\n');

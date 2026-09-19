@@ -606,6 +606,13 @@
 .rec-device:hover { background-color: var(--bg-hover-editor); color: var(--text-secondary); }
 .rec-device--warn { color: #d97706; }
 .rec-device svg { flex-shrink: 0; }
+/* 回听：播放键 + 进度条（已播的部分用主题色）+ 当前时间 */
+.rec-player { display: flex; align-items: center; gap: 8px; }
+.rec-player__btn { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--color-brand-indigo); background-color: color-mix(in srgb, var(--color-brand-indigo) 12%, transparent); transition: background-color 0.15s ease; }
+.rec-player__btn:hover { background-color: color-mix(in srgb, var(--color-brand-indigo) 20%, transparent); }
+.rec-player__bar { flex: 1; min-width: 0; height: 4px; margin: 0; border-radius: 2px; appearance: none; -webkit-appearance: none; cursor: pointer; outline: none; background: linear-gradient(to right, var(--color-brand-indigo) var(--played, 0%), var(--border-strong, var(--border-subtle)) var(--played, 0%)); }
+.rec-player__bar::-webkit-slider-thumb { -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%; border: none; background-color: var(--color-brand-indigo); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
+.rec-player__time { flex-shrink: 0; min-width: 36px; text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
 .rec-listening { display: flex; align-items: center; gap: 8px; padding: 14px 6px; font-size: 12px; color: var(--text-muted); }
 
 /* 滚动的音量条（转写面板和配置弹窗共用） */
@@ -615,6 +622,9 @@
 
 .transcribe-line { display: flex; gap: 8px; padding: 4px 6px; border-radius: 8px; font-size: 13px; line-height: 1.65; color: var(--text-primary); word-break: break-word; }
 .transcribe-line:hover { background-color: var(--bg-hover-editor); }
+.transcribe-line--playable { cursor: pointer; }
+.transcribe-line--playing, .transcribe-line--playing:hover { background-color: color-mix(in srgb, var(--color-brand-indigo) 10%, transparent); }
+.transcribe-line--playing .transcribe-line__time { color: #fff; background-color: var(--color-brand-indigo); }
 .transcribe-line__time { flex-shrink: 0; align-self: flex-start; min-width: 38px; margin-top: 3px; padding: 0 5px; border-radius: 5px; text-align: center; font-size: 10.5px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--text-muted); background-color: var(--bg-elevated); }
 /* 还在变的那一句：颜色淡一点，末尾一个闪动的光标，定稿后变实 */
 .transcribe-line--partial { color: var(--text-muted); }

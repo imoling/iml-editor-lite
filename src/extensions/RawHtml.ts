@@ -4,6 +4,7 @@ import { sanitizeHtml } from '../utils/sanitize';
 import { resolveImagesInHtml } from '../utils/assetUrl';
 import { currentNoteDir } from '../utils/currentNoteDir';
 import { createSourceNodeView } from './sourceNodeView';
+import { parseClock } from '../utils/transcript';
 
 /**
  * 原文的渲染结果。原文可能是 HTML，也可能是 Markdown（与文字同段的图片、带链接的徽章图），统一走预览管线再净化。
@@ -16,6 +17,30 @@ function renderedPreview(raw: string, inline = false): string | null {
   probe.innerHTML = html;
   const visible = (probe.textContent || '').trim() || probe.querySelector('img, svg, video, audio, hr, table, input');
   return visible ? html : null;
+}
+
+/**
+ * 带录音的转写块：点一句话，录音跳到那句话开始的地方。
+ * 播放器和这些行上的双击不往外传 —— 否则连点两下就进了「编辑原文」
+ */
+function wireTranscriptPlayback(body: HTMLElement) {
+  const audio = body.querySelector<HTMLAudioElement>('details[data-iml-transcript] audio');
+  if (!audio) return;
+  audio.closest('details')?.classList.add('transcript--playable');
+  // 同一时间只响一处：通知转写面板里的播放器停下，别的笔记块里在播的也停
+  audio.addEventListener('play', () => {
+    window.dispatchEvent(new Event('iml:audio-play'));
+    document.querySelectorAll('audio').forEach((other) => { if (other !== audio) other.pause(); });
+  });
+  const lineOf = (e: Event) => (e.target as HTMLElement).closest?.('details[data-iml-transcript] p') as HTMLElement | null;
+  body.addEventListener('click', (e) => {
+    const line = lineOf(e);
+    const at = line ? parseClock(line.textContent || '') : null;
+    if (at === null) return;
+    audio.currentTime = at;
+    void audio.play().catch(() => {});
+  });
+  body.addEventListener('dblclick', (e) => { if (lineOf(e) || (e.target as HTMLElement).closest?.('audio')) e.stopPropagation(); });
 }
 
 /**
@@ -69,6 +94,7 @@ export const RawBlock = Node.create({
         if (preview) {
           body.className = 'raw-block__preview';
           body.innerHTML = preview;
+          wireTranscriptPlayback(body);
         } else {
           body.className = 'raw-block__source';
           body.textContent = n.attrs.raw;

@@ -2,9 +2,13 @@ import { protocol, net } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
+import { Readable } from 'stream';
 
-/** 笔记里会出现的图片类型；iml-asset:// 只放行这些扩展名，避免笔记里的一条地址就能读任意本地文件 */
+/** 笔记里会出现的图片类型；iml-asset:// 只放行图片和音频的扩展名，避免笔记里的一条地址就能读任意本地文件 */
 export const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico|tiff?)$/i;
+/** 笔记里会出现的音频：实时转写留下的录音（.webm），以及用户自己放进来的 */
+export const AUDIO_EXT_RE = /\.(webm|m4a|mp3|wav|ogg|oga|opus|aac|flac)$/i;
+const AUDIO_MIME: Record<string, string> = { '.webm': 'audio/webm', '.m4a': 'audio/mp4', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/ogg', '.aac': 'audio/aac', '.flac': 'audio/flac' };
 const NOTE_RE = /\.(md|markdown|mdown|mkd|txt)$/i;
 /** 也可能引用图片的文本类文件（白板、导出的网页等）：扫描孤儿图片时一并当作「引用来源」 */
 const TEXT_REF_RE = /\.(md|markdown|mdown|mkd|txt|html?|canvas|json|excalidraw|css|org|tex)$/i;
@@ -19,13 +23,45 @@ export function registerAssetScheme() {
   ]);
 }
 
-/** iml-asset://local/<encodeURIComponent(绝对路径)> → 本地图片文件 */
+/** bytes=START-END / bytes=START- / bytes=-SUFFIX → 闭区间 [start, end]；不合法或超出文件返回 null（回 416） */
+export function parseRange(header: string | null, size: number): { start: number; end: number } | null {
+  const m = /^bytes=(\d*)-(\d*)$/.exec((header || '').trim());
+  if (!m || (!m[1] && !m[2])) return null;
+  let start: number, end: number;
+  if (!m[1]) { start = Math.max(0, size - Number(m[2])); end = size - 1; }
+  else { start = Number(m[1]); end = m[2] ? Math.min(Number(m[2]), size - 1) : size - 1; }
+  return start <= end && start < size ? { start, end } : null;
+}
+
+/**
+ * 音频要能拖动进度，播放器会发 Range 请求，必须老老实实回 206 + Content-Range；
+ * 交给 net.fetch(file://) 的话状态码和分段都不可控，拖一下进度就回到开头
+ */
+async function serveAudio(filePath: string, request: Request): Promise<Response> {
+  const { size } = await fs.promises.stat(filePath);
+  const type = AUDIO_MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+  const rangeHeader = request.headers.get('range');
+  const base = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-cache' };
+  if (!rangeHeader) {
+    return new Response(Readable.toWeb(fs.createReadStream(filePath)) as unknown as ReadableStream, { status: 200, headers: { ...base, 'Content-Length': String(size) } });
+  }
+  const range = parseRange(rangeHeader, size);
+  if (!range) return new Response('range not satisfiable', { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
+  return new Response(Readable.toWeb(fs.createReadStream(filePath, range)) as unknown as ReadableStream, {
+    status: 206,
+    headers: { ...base, 'Content-Length': String(range.end - range.start + 1), 'Content-Range': `bytes ${range.start}-${range.end}/${size}` },
+  });
+}
+
+/** iml-asset://local/<encodeURIComponent(绝对路径)> → 本地的图片或音频文件 */
 export function handleAssetProtocol() {
   protocol.handle(ASSET_SCHEME, async (request) => {
     try {
       const url = new URL(request.url);
       const filePath = path.normalize(decodeURIComponent(url.pathname.replace(/^\//, '')));
-      if (!path.isAbsolute(filePath) || !IMAGE_EXT_RE.test(filePath)) return new Response('forbidden', { status: 403 });
+      if (!path.isAbsolute(filePath)) return new Response('forbidden', { status: 403 });
+      if (AUDIO_EXT_RE.test(filePath)) return await serveAudio(filePath, request);
+      if (!IMAGE_EXT_RE.test(filePath)) return new Response('forbidden', { status: 403 });
       return await net.fetch(pathToFileURL(filePath).toString());
     } catch {
       return new Response('not found', { status: 404 });
