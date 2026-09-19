@@ -19,7 +19,7 @@ describe('没放进笔记的转写：退出后还能找回来', () => {
   it('启动时把上次的文字和录音找回来；录音走应用数据目录里的文件', async () => {
     localStorage.setItem(DRAFT_KEY, JSON.stringify({ segments: [{ start: 0, text: '大家好' }, { start: 41, text: '下周三之前给结论' }], startedAt: 1_789_000_000_000, offset: 57, savedTo: null, savedCount: 0, audioDuration: 57 }));
     const api = createMockApi();
-    api.asr.getDraftAudio = vi.fn(async () => ({ path: '/data/transcribe-draft/recording.webm', bytes: 1000 }));
+    (api.asr as any).getDraftAudio = vi.fn(async () => ({ path: '/data/transcribe-draft/recording.webm', bytes: 1000 }));
     const { useTranscribeStore, hasUnsavedTranscript } = await loadStore(api);
     const s = useTranscribeStore.getState();
     expect(s.segments).toHaveLength(2);
@@ -66,7 +66,7 @@ describe('没放进笔记的转写：退出后还能找回来', () => {
   it('找回来的录音放进笔记：由主进程直接拷文件，不经过渲染进程的内存', async () => {
     localStorage.setItem(DRAFT_KEY, JSON.stringify({ segments: [{ start: 0, text: '大家好' }], startedAt: new Date(2026, 8, 20, 14, 5, 0).getTime(), offset: 5, savedTo: null, savedCount: 0, audioDuration: 5 }));
     const api = createMockApi({ '/lib/a.md': '# 周会' });
-    api.asr.getDraftAudio = vi.fn(async () => ({ path: '/data/transcribe-draft/recording.webm', bytes: 1000 }));
+    (api.asr as any).getDraftAudio = vi.fn(async () => ({ path: '/data/transcribe-draft/recording.webm', bytes: 1000 }));
     const { useTranscribeStore } = await loadStore(api);
     const { useAppStore } = await import('./appStore');
     useAppStore.setState({ tabs: [{ id: '/lib/a.md', title: 'a.md', content: '# 周会', isDirty: false, mode: 'word' }], activeTabId: '/lib/a.md' });
