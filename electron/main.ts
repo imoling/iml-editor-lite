@@ -815,7 +815,9 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.on('ai:chat', async (event, { messages, requestId, maxTokens }) => {
+  // temperature：整理纪要、问笔记这类「照着材料写」的任务传一个低温度，小模型才守规矩；不传就用服务端默认值（写作要有变化）
+  ipcMain.on('ai:chat', async (event, { messages, requestId, maxTokens, temperature }) => {
+    const sampling = typeof temperature === 'number' ? { temperature } : {};
     // 界面上的 AI 入口已经随总开关隐藏；这里再兜一道，保证关掉之后真的不发请求
     if (getAppSettings().aiEnabled === false) {
       event.sender.send(`ai:chat-error-${requestId}`, 'AI 功能已在设置中关闭');
@@ -872,6 +874,7 @@ app.whenReady().then(() => {
           body: JSON.stringify({
             model,
             max_tokens: maxTokens || 8192,
+            ...sampling,
             ...(systemMsg ? { system: systemMsg.content } : {}),
             messages: chatMessages,
             stream: true,
@@ -888,6 +891,7 @@ app.whenReady().then(() => {
             messages,
             stream: true,
             ...(maxTokens ? { max_tokens: maxTokens } : {}),
+            ...sampling,
           }),
           signal: controller.signal,
         });

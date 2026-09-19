@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatClock, formatDuration, buildTranscriptBlock, stripTranscriptBlocks, hasTranscriptBlock, appendBlock, upsertBlock, insertMinutes, newMeetingNote, splitForSummary, transcriptText, buildMinutesMessages, buildMergeMessages, cleanMinutes, recordingFileName, parseClock } from './transcript';
+import { formatClock, formatDuration, buildTranscriptBlock, stripTranscriptBlocks, hasTranscriptBlock, appendBlock, upsertBlock, insertMinutes, newMeetingNote, splitForSummary, transcriptText, buildMinutesMessages, buildMergeMessages, cleanMinutes, recordingFileName, parseClock, notesForMinutes } from './transcript';
 import { markdownToHtml, htmlToMarkdown } from './markdown';
 
 const SEGS = [{ start: 0.2, text: '大家好，我们开始今天的周会。' }, { start: 3.6, text: '第一个议题是 26.3 的排期 <紧急> & 重要' }, { start: 3725, text: '散会。' }];
@@ -113,13 +113,14 @@ describe('纪要的提示词', () => {
     expect(splitForSummary('短的', 1000)).toEqual(['短的']);
   });
 
-  it('用户自己记的要点作为骨架放进去；没记就不提', () => {
+  it('用户自己记的要点放进去（用来判断轻重、纠正专有名词）；没记就不提', () => {
     const t = transcriptText(SEGS.slice(0, 2));
     expect(t).toBe('[00:00] 大家好，我们开始今天的周会。\n[00:03] 第一个议题是 26.3 的排期 <紧急> & 重要');
     const withNotes = buildMinutesMessages('- 排期要重排', t)[1].content;
-    expect(withNotes).toContain('以它为骨架');
+    expect(withNotes).toContain('我在会上自己记的要点');
+    expect(withNotes).toContain('对不上的内容是以前记的，不要写进纪要');
     expect(withNotes).toContain('- 排期要重排');
-    expect(buildMinutesMessages('  ', t)[1].content).not.toContain('骨架');
+    expect(buildMinutesMessages('  ', t)[1].content).not.toContain('自己记的要点');
     // 小模型爱编负责人、爱把「下周三」算成具体日期（还算错）：提示词里两条都要管住
     const system = buildMinutesMessages('', t)[0].content;
     expect(system).toContain('不要写「未明确」');
@@ -136,6 +137,32 @@ describe('纪要的提示词', () => {
     const mid = '### 议题与结论\n\n说明：本次只讨论排期\n\n- 排期：先做问你的笔记';
     expect(cleanMinutes(mid)).toBe(mid);
     expect(cleanMinutes('  ')).toBe('');
+  });
+
+  it('小模型管不住的两样：会上没说的「未明确」去掉，写了两遍的小节合成一个', () => {
+    const raw = [
+      '### 议题与结论', '- 排期：先做问你的笔记', '',
+      '### 待办', '- [ ] 发会议纪要到群里（负责人：未明确）', '- [ ] 技术验证结论（负责人：老王）', '- [ ] 保真度测试 —— 未明确负责人、截止时间', '',
+      '### 下次会议', '- 9 月 22 日', '',
+      '### 待办', '- [ ] 发会议纪要到群里', '- [ ] 技术验证结论（负责人：老王）', '- [ ] 重排排期（待定）',
+    ].join('\n');
+    expect(cleanMinutes(raw)).toBe([
+      '### 议题与结论', '- 排期：先做问你的笔记', '',
+      '### 待办', '- [ ] 发会议纪要到群里', '- [ ] 技术验证结论（负责人：老王）', '- [ ] 保真度测试', '- [ ] 重排排期', '',
+      '### 下次会议', '- 9 月 22 日',
+    ].join('\n'));
+    // 正常的括号和破折号不能误伤
+    expect(cleanMinutes('- [ ] 给出结论（老王，下周三前）—— 走子进程方案')).toBe('- [ ] 给出结论（老王，下周三前）—— 走子进程方案');
+    expect(cleanMinutes('- 无线网络方案：沿用现有的')).toBe('- 无线网络方案：沿用现有的');
+  });
+
+  it('同一件事换个括号写法再说一遍，只留第一条', () => {
+    expect(cleanMinutes('### 待办\n- [ ] 给出结论（下周三之前，老王）\n\n- [ ] 给出结论（负责人：老王，截止时间：下周三之前）\n- [ ] 发纪要')).toBe('### 待办\n- [ ] 给出结论（下周三之前，老王）\n- [ ] 发纪要');
+  });
+
+  it('交给模型的笔记先收拾：属性区、勾掉的任务、行内标签不带', () => {
+    const note = '---\ntags: [会议]\n---\n\n# 周会\n\n- [x] 26.1 已发布\n- [ ] 主题定为「搬进来」 #会议\n- 老王负责打包验证\n\nC# 和 issue #12 不是标签';
+    expect(notesForMinutes(note)).toBe('# 周会\n\n- [ ] 主题定为「搬进来」\n- 老王负责打包验证\n\nC# 和 issue #12 不是标签');
   });
 
   it('合并各段提炼时保持时间顺序', () => {

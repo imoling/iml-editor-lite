@@ -100,6 +100,8 @@ async function saveRecording(noteDir: string | null, startedAt: Date): Promise<s
 }
 
 const SILENCE_MS = 4000;
+/** 整理纪要是「照着材料写」：温度压低，本机小模型才不会自由发挥 */
+const MINUTES_TEMPERATURE = 0.2;
 
 /**
  * 实时转写的状态。放在独立的 store 里而不是面板组件里：侧边栏切到别的页、甚至收起来，录音都不能断。
@@ -231,7 +233,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     if (!target) { set({ minutes: { running: false, progress: '', error: '先把转写存成笔记（或打开一篇笔记），纪要要有地方放' } }); return; }
 
     const ask = async (messages: { role: string; content: string }[], tag: string) =>
-      stripThinking(await window.api.ai.chat(messages, () => {}, `minutes-${Date.now()}-${tag}`, 1500));
+      stripThinking(await window.api.ai.chat(messages, () => {}, `minutes-${Date.now()}-${tag}`, 1500, MINUTES_TEMPERATURE));
 
     set({ minutes: { running: true, progress: '正在整理纪要…', error: null } });
     try {

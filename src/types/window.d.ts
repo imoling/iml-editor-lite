@@ -72,7 +72,7 @@ declare global {
       ai: {
         getConfig: () => Promise<any>;
         saveConfig: (config: any) => Promise<{ success: boolean; error?: string }>;
-        chat: (messages: any[], onStream: (chunk: string) => void, requestId: string, maxTokens?: number) => Promise<string>;
+        chat: (messages: any[], onStream: (chunk: string) => void, requestId: string, maxTokens?: number, temperature?: number) => Promise<string>;
         stop: (requestId: string) => void;
         generateImage: (params: { prompt: string; config: any }) => Promise<{ url: string }[]>;
         listModels: (params: { endpoint: string; apiKey: string; protocol: string }) => Promise<string[]>;

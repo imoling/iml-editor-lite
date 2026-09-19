@@ -67,7 +67,7 @@ export const useAskStore = create<AskState>((set, get) => {
         await window.api.ai.chat(buildAskMessages(question, sources, history), (chunk) => {
           full += chunk;
           if (alive() === 'answering') patch(id, { answer: stripThinking(full) });
-        }, id, 1024);
+        }, id, 1024, 0.2);   // 只根据找到的原文回答：温度压低，小模型少自由发挥
         if (alive() === 'answering') patch(id, { status: 'done', answer: stripThinking(full) });
       } catch (err: any) {
         const message = cleanError(err);

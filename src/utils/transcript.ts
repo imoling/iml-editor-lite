@@ -133,17 +133,31 @@ export function splitForSummary(text: string, maxChars = SUMMARY_PART_CHARS): st
   return parts;
 }
 
-const MINUTES_FORMAT = [
-  '按下面的结构输出 Markdown（没有内容的小节直接省略，不要写「无」）：',
-  '### 议题与结论',
-  '- 每个议题一条：讨论了什么，结论是什么',
-  '### 待办',
-  '- [ ] 事项（负责人，截止时间）—— 会上没说负责人或时间的，括号整个省掉，不要写「未明确」「待定」',
-  '### 关键信息',
-  '- 会上提到的数字、日期、名称等',
+/**
+ * 给本机小模型（4B 级）写的提示词，几条都是实测踩出来的：
+ * - 格式模板里只放格式。把「没说负责人就别写」这类说明塞进模板行里，小模型会把说明也照抄成输出（「—— 未明确负责人」）
+ * - 用两行待办示范「有括号 / 没括号」两种写法，比用文字解释管用
+ * - 不设「关键信息」一节：小模型会把前面的内容原样再抄一遍，白白多花一倍时间
+ */
+const MINUTES_RULES = [
+  '规则：',
+  '1. 只写转写里说到的内容，不补充、不推断。转写是语音识别的结果，有错别字和同音字，按上下文理解。',
+  '2. 时间照原话写（比如「下周三」），不要自己推算成具体日期。',
+  '3. 待办只列会上明确要某人去做、或大家约定要做的事。说了负责人或时间的写在括号里；没说的只写事项本身，不要写「未明确」「待定」。',
+  '4. 用中文，简洁。只输出纪要本身，末尾不要加说明、备注或总结。',
 ].join('\n');
 
-const MINUTES_RULES = '只根据给出的材料写，不要补充材料里没有的内容；时间照原话写（比如「下周三」），不要自己推算成具体日期；转写是语音识别的结果，可能有错别字和同音字，按上下文理解；用中文，简洁；只输出纪要本身，末尾不要加说明或备注。';
+const MINUTES_FORMAT = [
+  '输出格式（Markdown；某一节没有内容就整节省略）：',
+  '### 议题与结论',
+  '- 议题：结论',
+  '### 待办',
+  '- [ ] 事项（负责人，时间）',
+  '- [ ] 没说负责人和时间的事项',
+].join('\n');
+
+/** 用户自己记的要点怎么用：判断轻重、纠正识别错的专有名词；笔记里以前记的、和这场会无关的内容不能混进纪要 */
+const NOTES_HINT = '我在会上自己记的要点（用它判断哪些内容重要，并纠正转写里识别错的专有名词；其中和这次转写对不上的内容是以前记的，不要写进纪要）';
 
 /**
  * 模型交上来的纪要再收拾一遍：小模型爱在外面包一层 ```markdown、自己再起一个「会议纪要」标题（我们已经有了）、
@@ -159,31 +173,83 @@ export function cleanMinutes(raw: string): string {
   let cut = -1;
   for (let m = aside.exec(text); m; m = aside.exec(text)) cut = m.index;
   if (cut > 0 && !/\n\s*(?:#{1,6}\s|[-*+]\s|\d+\.\s)/.test(text.slice(cut + 1).replace(/^[-*_]{3,}\s*\n+/, ''))) text = text.slice(0, cut);
-  return text.replace(/\n+[-*_]{3,}\s*$/, '').trim();
+  text = text.replace(/\n+[-*_]{3,}\s*$/, '').trim();
+  return mergeSections(text.split('\n').map(dropUnknowns).join('\n'));
 }
 
-/** 转写不长时一次成稿。用户自己记的要点是骨架 —— 他记下来的就是他认为重要的 */
+/** 「（负责人：未明确）」「—— 未明确负责人、截止时间」：小模型管不住嘴，会上没说的就该什么都不写 */
+const UNKNOWN = '(?:未明确|未指定|未提及|未说明|未确定|不明确|待定|暂无|无)';
+function dropUnknowns(line: string): string {
+  return line
+    .replace(new RegExp(`\\s*[（(][^（()）]*${UNKNOWN}[^（()）]*[）)]`, 'g'), '')
+    .replace(new RegExp(`(?<=\\S)\\s*(?:——|--|—)\\s*[^，。；—]*${UNKNOWN}[^。；]*$`), '')
+    .replace(/\s+$/, '');
+}
+
+/** 同名的小节合成一个（小模型偶尔把「待办」写两遍），小节里完全相同的条目只留一条 */
+function mergeSections(text: string): string {
+  type Section = { title: string; heading: string; lines: string[] };
+  let current: Section = { title: '', heading: '', lines: [] };
+  const sections: Section[] = [current];
+  for (const line of text.split('\n')) {
+    const heading = /^#{1,6}\s+(.+?)\s*$/.exec(line);
+    if (!heading) { current.lines.push(line); continue; }
+    const existing = sections.find((s) => s.title === heading[1]);
+    if (existing) { current = existing; continue; }
+    current = { title: heading[1], heading: line.trim(), lines: [] };
+    sections.push(current);
+  }
+  return sections
+    .map((s) => {
+      // 同一件事换个括号写法再说一遍也算重复：按括号前面的部分认
+      const seen = new Set<string>();
+      let lines = s.lines.filter((l) => { const key = l.replace(/\s*[（(].*$/, '').trim(); if (!key) return true; if (seen.has(key)) return false; seen.add(key); return true; });
+      // 整节都是列表的话，条目之间不留空行（两段合并过来时中间会夹一个）
+      const body = lines.filter((l) => l.trim());
+      if (body.length > 0 && body.every((l) => /^\s*(?:[-*+]|\d+[.)])\s/.test(l))) lines = body;
+      return [s.heading, ...lines].join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/**
+ * 用户的笔记交给模型之前收拾一下：属性区、已经勾掉的任务（做完的事不是这次的待办）、行内 #标签 都拿掉。
+ * 小模型看到什么抄什么，这些东西留着只会被原样搬进纪要
+ */
+export function notesForMinutes(userNotes: string): string {
+  return userNotes
+    .replace(/^---\n[\s\S]*?\n---\n?/, '')
+    .split('\n')
+    .filter((line) => !/^\s*[-*+]\s+\[[xX]\]\s/.test(line))
+    .map((line) => line.replace(/(^|\s)#(?!\d+(?=\s|$))[^\s#]+(?=\s|$)/g, '$1').replace(/[ \t]+$/, ''))   // 纯数字的（issue #12）不是标签
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** 转写不长时一次成稿。用户自己记的要点用来判断轻重 —— 他记下来的就是他认为重要的 */
 export function buildMinutesMessages(userNotes: string, transcript: string): Message[] {
-  const notes = userNotes.trim();
+  const notes = notesForMinutes(userNotes);
   return [
-    { role: 'system', content: `你是会议纪要助手。${MINUTES_RULES}\n${MINUTES_FORMAT}` },
-    { role: 'user', content: `${notes ? `我在会上自己记的要点（以它为骨架，它提到的内容要重点覆盖）：\n${notes}\n\n` : ''}会议转写全文：\n${transcript}\n\n请整理成会议纪要。` },
+    { role: 'system', content: `你是会议纪要助手，根据会议转写整理纪要。\n${MINUTES_RULES}\n${MINUTES_FORMAT}` },
+    { role: 'user', content: `${notes ? `${NOTES_HINT}：\n${notes}\n\n` : ''}会议转写全文：\n${transcript}\n\n请整理成会议纪要。` },
   ];
 }
 
 /** 长会议先逐段提炼 */
 export function buildPartMessages(part: string, index: number, total: number): Message[] {
   return [
-    { role: 'system', content: `你在帮忙整理一场长会议的转写，这是第 ${index + 1} 段（共 ${total} 段）。${MINUTES_RULES}` },
-    { role: 'user', content: `转写片段：\n${part}\n\n把这一段里的议题、结论、待办（含负责人和时间）、关键数字逐条列出来，保留时间戳，不要总结成一句空话。` },
+    { role: 'system', content: `你在帮忙整理一场长会议的转写，这是第 ${index + 1} 段（共 ${total} 段）。\n${MINUTES_RULES}` },
+    { role: 'user', content: `转写片段：\n${part}\n\n把这一段里的议题和结论、待办（含负责人和时间）、提到的数字逐条列出来，保留时间戳，不要总结成一句空话。` },
   ];
 }
 
 /** 再把各段的提炼合并成一份纪要 */
 export function buildMergeMessages(userNotes: string, partSummaries: string[]): Message[] {
-  const notes = userNotes.trim();
+  const notes = notesForMinutes(userNotes);
   return [
-    { role: 'system', content: `你是会议纪要助手。${MINUTES_RULES}\n${MINUTES_FORMAT}` },
-    { role: 'user', content: `${notes ? `我在会上自己记的要点（以它为骨架）：\n${notes}\n\n` : ''}下面是这场会议各段的提炼，按时间顺序：\n\n${partSummaries.map((s, i) => `【第 ${i + 1} 段】\n${s.trim()}`).join('\n\n')}\n\n请合并成一份会议纪要，重复的内容合并，前后矛盾的以后面的为准。` },
+    { role: 'system', content: `你是会议纪要助手，把一场长会议各段的提炼合并成一份纪要。\n${MINUTES_RULES}\n${MINUTES_FORMAT}` },
+    { role: 'user', content: `${notes ? `${NOTES_HINT}：\n${notes}\n\n` : ''}下面是这场会议各段的提炼，按时间顺序：\n\n${partSummaries.map((s, i) => `【第 ${i + 1} 段】\n${s.trim()}`).join('\n\n')}\n\n请合并成一份会议纪要，重复的内容合并，前后矛盾的以后面的为准。` },
   ];
 }
