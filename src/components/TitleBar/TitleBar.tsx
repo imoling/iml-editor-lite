@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore, needsSavePrompt } from '../../stores/appStore';
 import {
-  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles, History, Focus, ImageOff, Network, Wand2, Search, MessageCircleQuestion, Mic, AudioLines,
+  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles, History, Focus, ImageOff, Network, Wand2, Search, MessageCircleQuestion, Mic,
 } from 'lucide-react';
 import { exportActiveTabToPdf, exportActiveTabToHtml } from '../../utils/exportPdf';
 import { isNewerVersion } from '../../utils/version';
@@ -152,11 +152,11 @@ export const TitleBar: React.FC = () => {
         {/* 按功能命名：每一项打开对应功能的设置（用哪个模型 / 服务） */}
         <Menu id="intel" label="智能">
           <MenuItem icon={<MessageCircleQuestion size={14} />} label="问你的笔记" hint="⌘J" disabled={!aiEnabled} onClick={run(() => useAppStore.getState().openAsk())} />
-          <MenuItem icon={<Mic size={14} />} label="实时转写" disabled={!aiEnabled} onClick={run(() => useAppStore.getState().openTranscribe())} />
           <MenuDivider />
           <MenuItem icon={<Wand2 size={14} />} label="写作助手…" hint="⇧⌘M" onClick={run(() => openDialog('ai-config'))} />
           <MenuItem icon={<Network size={14} />} label="相关笔记…" disabled={!aiEnabled} onClick={run(() => openDialog('semantic-config'))} />
-          <MenuItem icon={<AudioLines size={14} />} label="语音转写…" disabled={!aiEnabled} onClick={run(() => openDialog('transcribe-config'))} />
+          {/* 一个功能只占一项：转写面板在侧边栏就有入口，菜单里这一项管它的模型和麦克风（弹窗里也能一键打开面板） */}
+          <MenuItem icon={<Mic size={14} />} label="实时转写…" disabled={!aiEnabled} onClick={run(() => openDialog('transcribe-config'))} />
           <MenuDivider />
           <MenuItem icon={<Image size={14} />} label="AI 配图…" onClick={run(() => openDialog('image-config'))} />
         </Menu>

@@ -517,10 +517,6 @@ function setupAppMenu() {
           accelerator: 'Cmd+J',
           click: () => mainWindow?.webContents.send('menu:ask-notes'),
         },
-        {
-          label: '实时转写',
-          click: () => mainWindow?.webContents.send('menu:transcribe'),
-        },
         { type: 'separator' },
         // 与应用内的「智能」菜单保持一致：按功能命名，每项打开该功能的设置
         {
@@ -533,7 +529,7 @@ function setupAppMenu() {
           click: () => openDialogInMain('semantic-config'),
         },
         {
-          label: '语音转写…',
+          label: '实时转写…',
           click: () => openDialogInMain('transcribe-config'),
         },
         { type: 'separator' },

@@ -316,7 +316,6 @@ const App: React.FC = () => {
       s.requestCloseTab(s.activeTabId);
     });
     window.api.events.on('menu:ask-notes', () => useAppStore.getState().openAsk());
-    window.api.events.on('menu:transcribe', () => useAppStore.getState().openTranscribe());
     window.api.events.on('menu:close-other-tabs', () => {
       const s = useAppStore.getState();
       if (s.dialog || s.tabToClose || !s.activeTabId) return;

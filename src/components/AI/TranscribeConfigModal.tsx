@@ -21,7 +21,7 @@ const CheckRow: React.FC<{ ok: boolean; children: React.ReactNode }> = ({ ok, ch
 );
 
 /**
- * 「语音转写」的设置弹窗（智能 → 语音转写）：能不能用一眼看清，语音模型的下载与删除，收音设备的选择与试音。
+ * 「实时转写」的设置弹窗（智能 → 实时转写…）：能不能用一眼看清，语音模型的下载与删除，收音设备的选择与试音。
  * 和其它几个 AI 配置一样，每个操作即时生效，没有「保存」这一步。
  */
 export const TranscribeConfigModal: React.FC<Props> = ({ onClose }) => {
@@ -100,7 +100,7 @@ export const TranscribeConfigModal: React.FC<Props> = ({ onClose }) => {
       <div className="modal-card modal-card--wide modal-card--flush" onClick={(e) => e.stopPropagation()}>
         <header className="modal-head">
           <div>
-            <h1 className="modal-title">语音转写</h1>
+            <h1 className="modal-title">实时转写</h1>
             <p className="modal-subtitle">开会、听课时边听边出字。识别在这台电脑上完成，音频不保存、不上传</p>
           </div>
           <button onClick={onClose} className="icon-btn" title="关闭"><X size={20} /></button>
