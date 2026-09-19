@@ -163,9 +163,16 @@ export const TranscribePanel: React.FC = () => {
         )}
       </div>
 
-      {/* 停下来之后：整理纪要是主操作，全文的去处放在下面一排 */}
+      {/* 停下来之后，按做事的顺序排：先给全文找个去处，再整理纪要（纪要会写进放了转写的那篇笔记） */}
       {hasText && t.status === 'idle' && (
         <div className="transcribe-actions">
+          <div className="transcribe-actions__row">
+            <button className="transcribe-tool" disabled={!activeTabId} title={activeTabId ? '折叠着放到当前笔记的末尾（同一场再放一次是更新，不会重复）' : '先打开一篇笔记'} onClick={() => t.insertIntoActiveNote()}><FileDown size={13} /> 放进笔记</button>
+            <button className="transcribe-tool" title="新建一篇会议记录，带上转写全文" onClick={() => void t.saveAsNewNote()}><FilePlus size={13} /> 存为新笔记</button>
+            <button className="transcribe-tool" onClick={() => { void navigator.clipboard.writeText(transcriptText(t.segments)); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
+              {copied ? <><Check size={13} /> 已复制</> : <><Copy size={13} /> 复制</>}
+            </button>
+          </div>
           <button
             className="btn btn-primary btn-xs transcribe-actions__main"
             disabled={t.minutes.running || !readiness.ready}
@@ -174,13 +181,6 @@ export const TranscribePanel: React.FC = () => {
           >{t.minutes.running ? <><span className="ask-dots" /> {t.minutes.progress}</> : <><ListChecks size={13} /> 整理纪要</>}</button>
           {!readiness.ready && <button className="btn-link transcribe-actions__hint" onClick={() => openDialog('ai-setup')}>配置一个对话模型后可以整理纪要</button>}
           {t.minutes.error && <div className="ask-status ask-status--error">整理纪要失败：{t.minutes.error}</div>}
-          <div className="transcribe-actions__row">
-            <button className="transcribe-tool" disabled={!activeTabId} title={activeTabId ? '折叠着放到当前笔记的末尾（同一场再放一次是更新，不会重复）' : '先打开一篇笔记'} onClick={() => t.insertIntoActiveNote()}><FileDown size={13} /> 放进笔记</button>
-            <button className="transcribe-tool" title="新建一篇会议记录，带上转写全文" onClick={() => void t.saveAsNewNote()}><FilePlus size={13} /> 存为新笔记</button>
-            <button className="transcribe-tool" onClick={() => { void navigator.clipboard.writeText(transcriptText(t.segments)); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
-              {copied ? <><Check size={13} /> 已复制</> : <><Copy size={13} /> 复制</>}
-            </button>
-          </div>
         </div>
       )}
     </div>
