@@ -124,6 +124,10 @@ declare global {
         stop: () => Promise<AsrState>;
         sendPcm: (samples: Float32Array) => void;
         setUnsaved: (state: { recording: boolean } | null) => void;
+        saveDraftAudio: (buffer: ArrayBuffer) => Promise<{ path: string; bytes: number } | null>;
+        getDraftAudio: () => Promise<{ path: string; bytes: number } | null>;
+        clearDraft: () => Promise<boolean>;
+        copyDraftAudio: (noteDir: string, fileName: string) => Promise<{ success: boolean; path?: string; error?: string }>;
         onState: (callback: (state: AsrState) => void) => () => void;
         onEvent: (callback: (event: AsrEvent) => void) => () => void;
       };

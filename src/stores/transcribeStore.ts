@@ -3,7 +3,7 @@ import type { AsrState, AsrEvent } from '../types/window';
 import { startMicCapture, MIC_SILENCE_LEVEL, type MicCapture } from '../utils/micCapture';
 import { getPreferredMic, setPreferredMic, listMics, type MicList } from '../utils/micDevices';
 import { SessionRecorder } from '../utils/sessionRecorder';
-import { noteDirOf } from '../utils/assetUrl';
+import { noteDirOf, toAssetUrl } from '../utils/assetUrl';
 import { useAppStore } from './appStore';
 import {
   type TranscriptSegment, transcriptText, buildTranscriptBlock, upsertBlock, insertMinutes, newMeetingNote, meetingNoteTitle,
@@ -31,8 +31,10 @@ interface TranscribeState {
   mics: MicList;
   /** 留不留录音（用于回听）。存在本机的偏好；一场转写开始时定下来，中途改不影响这一场 */
   keepRecording: boolean;
-  /** 这一场的录音：停下来之后才有。url 给面板里的播放器用 */
-  audio: { blob: Blob; url: string; duration: number } | null;
+  /** 这一场的录音：停下来之后才有。url 给面板里的播放器用；blob 为空 = 上次没保存、这次启动找回来的（文件在应用数据目录里） */
+  audio: { blob: Blob | null; url: string; duration: number } | null;
+  /** 这一场是上次退出前没放进笔记、这次启动找回来的 */
+  restored: boolean;
   /** 这次运行里真的从麦克风收到过声音：有这个事实在，就不管系统 API 怎么说授权状态 */
   heardSignal: boolean;
   /** 这次录音实际在用的麦克风 */
@@ -80,8 +82,10 @@ async function collectRecording() {
   if (recorder.failed && !wasFailed) useAppStore.getState().notify('录音中途断了，后面的部分没有录上（转写不受影响）');
   if (!recording) return;
   const old = useTranscribeStore.getState().audio;
-  if (old) URL.revokeObjectURL(old.url);
+  if (old?.blob) URL.revokeObjectURL(old.url);
   useTranscribeStore.setState({ audio: { blob: recording.blob, url: URL.createObjectURL(recording.blob), duration: recording.durationSec } });
+  // 落一份到应用数据目录：还没放进笔记就退出了，下次打开还能找回来
+  try { await window.api.asr.saveDraftAudio(await recording.blob.arrayBuffer()); } catch (err) { console.warn('[transcribe] 录音草稿没存上：', err); }
 }
 
 /** 把录音存到笔记旁边，返回写进转写块里的相对地址；没有录音、或存不了，返回 null（转写照样放进笔记） */
@@ -90,7 +94,9 @@ async function saveRecording(noteDir: string | null, startedAt: Date): Promise<s
   if (!audio) return null;
   if (!noteDir) { useAppStore.getState().notify('这篇笔记还没有保存位置，录音没能跟着放进去'); return null; }
   try {
-    const res = await window.api.fs.saveRecording(noteDir, recordingFileName(startedAt), await audio.blob.arrayBuffer());
+    const res = audio.blob
+      ? await window.api.fs.saveRecording(noteDir, recordingFileName(startedAt), await audio.blob.arrayBuffer())
+      : await window.api.asr.copyDraftAudio(noteDir, recordingFileName(startedAt));
     if (res.success && res.path) return res.path;
     useAppStore.getState().notify(`录音没存上：${res.error || '未知错误'}`);
   } catch (err) {
@@ -119,6 +125,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
   mics: { systemDefault: '', mics: [], labelsAvailable: false },
   keepRecording: readKeepRecording(),
   audio: null,
+  restored: false,
   heardSignal: false,
   deviceLabel: '',
   silent: false,
@@ -157,6 +164,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
       set({ recordingOn: !!recorder && !recorder.failed });
       if (capture.fellBack) useAppStore.getState().notify(`选定的麦克风没连上，这次改用${capture.label ? `「${capture.label}」` : '系统默认的麦克风'}`);
       void get().refreshMics();   // 授权之后才读得到设备名字
+      if (get().segments.length === 0) void window.api.asr.clearDraft?.().catch(() => {});   // 新的一场：上一场留下的录音草稿不要了
       set((s) => ({ status: 'recording', deviceLabel: capture?.label ?? '', silent: false, runStartedAt: Date.now(), startedAt: s.startedAt ?? Date.now(), savedTo: s.segments.length ? s.savedTo : null }));
     } catch (err) {
       capture?.stop(); capture = null;
@@ -184,8 +192,9 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     if (get().status !== 'idle') return;
     recorder?.dispose(); recorder = null;
     const old = get().audio;
-    if (old) URL.revokeObjectURL(old.url);
-    set({ audio: null, savedCount: 0, recordingOn: false, segments: [], partial: null, startedAt: null, offset: 0, error: null, savedTo: null, minutes: { running: false, progress: '', error: null } });
+    if (old?.blob) URL.revokeObjectURL(old.url);
+    void window.api.asr.clearDraft?.().catch(() => {});
+    set({ audio: null, restored: false, savedCount: 0, recordingOn: false, segments: [], partial: null, startedAt: null, offset: 0, error: null, savedTo: null, minutes: { running: false, progress: '', error: null } });
   },
 
   insertIntoActiveNote: async () => {
@@ -199,7 +208,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     const block = buildTranscriptBlock(segments, at, get().elapsed(), audioSrc);
     // 用户多半正在这篇里记要点：editTabContent 会先把他没写回的字刷进来，再追加，光标也留在原地
     if (!app.editTabContent(tab.id, (current) => upsertBlock(current, block, at))) return false;
-    set({ savedTo: tab.id, savedCount: segments.length });
+    set({ savedTo: tab.id, savedCount: segments.length, restored: false });
     app.notify(`转写已写进「${tab.title}」的末尾`);
     return true;
   },
@@ -220,7 +229,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     if (!res.success) { set({ error: res.error || '保存失败' }); return null; }
     await app.refreshWorkspace();
     await app.openFileByPath(filePath);
-    set({ savedTo: filePath, savedCount: segments.length });
+    set({ savedTo: filePath, savedCount: segments.length, restored: false });
     return filePath;
   },
 
@@ -270,11 +279,53 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
 /** 有没有还没放进笔记的转写：放进去之后又录了新的，也算 */
 export const hasUnsavedTranscript = (s: Pick<TranscribeState, 'segments' | 'savedCount'>) => s.segments.length > 0 && s.segments.length !== s.savedCount;
 
-// 把「有没有没保存的转写」报给主进程：退出 / 关窗口之前它要拦一下（转写和录音只在这个进程的内存里）
+// ── 没放进笔记的转写先替用户留着 ─────────────────────────────────────────────
+// 文字存 localStorage（每定稿一句就存，崩溃也丢不了几个字），录音每次停下来时由主进程落盘。
+// 放进笔记之后草稿就删掉：下次启动不该再冒出一份已经保存过的转写
+const DRAFT_KEY = 'iml.transcribe.draft';
+interface Draft { segments: TranscriptSegment[]; startedAt: number | null; offset: number; savedTo: string | null; savedCount: number; audioDuration: number }
+
+function persistDraft(s: TranscribeState) {
+  try {
+    if (!hasUnsavedTranscript(s)) { localStorage.removeItem(DRAFT_KEY); return; }
+    // 正在录的这一段还没计入 offset：按已经过去的时间算上，找回来之后「继续」时间戳才接得上
+    const draft: Draft = { segments: s.segments, startedAt: s.startedAt, offset: s.elapsed(), savedTo: s.savedTo, savedCount: s.savedCount, audioDuration: s.audio?.duration ?? 0 };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  } catch { /* 存不下（极长的会议撑满了配额）就算了，界面上的提醒还在 */ }
+}
+
+async function restoreDraft() {
+  let draft: Draft | null = null;
+  try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { /* 坏了就当没有 */ }
+  if (!draft || !Array.isArray(draft.segments) || draft.segments.length === 0) {
+    void window.api.asr.clearDraft?.().catch(() => {});   // 没有文字草稿，留着的录音也没用了
+    return;
+  }
+  useTranscribeStore.setState({
+    segments: draft.segments, startedAt: draft.startedAt, offset: Math.max(draft.offset || 0, draft.segments[draft.segments.length - 1].start + 1),
+    savedTo: draft.savedTo ?? null, savedCount: draft.savedCount || 0, restored: true,
+  });
+  const file = await window.api.asr.getDraftAudio?.().catch(() => null);
+  if (file && draft.audioDuration > 0 && useTranscribeStore.getState().restored) {
+    useTranscribeStore.setState({ audio: { blob: null, url: toAssetUrl(file.path), duration: draft.audioDuration } });
+  }
+}
+
+if (typeof window !== 'undefined' && window.api?.asr) {
+  void restoreDraft().finally(() => {
+    let last = '';
+    useTranscribeStore.subscribe((s) => {
+      const key = `${s.segments.length}|${s.savedCount}|${s.savedTo}|${s.offset}|${s.audio?.duration ?? 0}`;
+      if (key !== last) { last = key; persistDraft(s); }
+    });
+  });
+}
+
+// 正在转写时退出 / 关窗口，主进程要拦一下：停下来的部分下次打开还在，正在录的这一段会丢
 if (typeof window !== 'undefined' && window.api?.asr?.setUnsaved) {
   let reported = '';
   useTranscribeStore.subscribe((s) => {
-    const state = hasUnsavedTranscript(s) ? { recording: s.recordingOn } : null;
+    const state = s.status === 'recording' ? { recording: s.recordingOn } : null;
     const key = JSON.stringify(state);
     if (key !== reported) { reported = key; window.api.asr.setUnsaved(state); }
   });

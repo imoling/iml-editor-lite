@@ -180,7 +180,7 @@ export const TranscribeConfigModal: React.FC<Props> = ({ onClose }) => {
                 </div>
                 <div className="lm-line lm-line--muted">
                   {t.keepRecording
-                    ? '录音只存在这台电脑上：放进笔记时存到笔记旁边的 assets 文件夹（一小时约 11 MB）；没放进笔记的，清空或退出就没了。'
+                    ? '录音只存在这台电脑上：放进笔记时存到笔记旁边的 assets 文件夹（一小时约 11 MB）；还没放进笔记的先留在应用数据里，点「清空」才删。'
                     : '适合不方便留录音的场合。已经留下的录音不受影响。'}
                   {recording && ' 这次转写已经开始，改动从下一场生效。'}
                 </div>

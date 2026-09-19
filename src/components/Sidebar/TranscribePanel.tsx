@@ -219,7 +219,7 @@ export const TranscribePanel: React.FC = () => {
         </div>
       )}
       {t.error && <div className="ask-status ask-status--error">{t.error}</div>}
-      {live && <div className="transcribe-note"><Info size={12} /><span>{what}先暂存在内存里，结束后记得放进笔记才会留下来。</span></div>}
+      {live && <div className="transcribe-note"><Info size={12} /><span>结束后记得放进笔记。没放进去的会先替你留着，下次打开还在。</span></div>}
 
       <div className="ask-panel__list" ref={listRef}>
         {!hasText && !t.partial ? (
@@ -251,7 +251,7 @@ export const TranscribePanel: React.FC = () => {
           {unsaved ? (
             <div className="transcribe-note transcribe-note--warn">
               <TriangleAlert size={12} />
-              <span>{t.savedCount > 0 ? '后来录的还没放进笔记' : '还没放进笔记'}，点「清空」或退出应用就没了。</span>
+              <span>{t.restored ? '上次没放进笔记的转写，替你留着' : t.savedCount > 0 ? '后来录的还没放进笔记' : '还没放进笔记'}，点「清空」就没了。</span>
             </div>
           ) : (
             <div className="transcribe-note transcribe-note--ok"><CircleCheck size={12} /><span>已放进{savedTitle ? `「${savedTitle.replace(/\.md$/i, '')}」` : '笔记'}{t.audio ? '，录音也存好了' : ''}。</span></div>

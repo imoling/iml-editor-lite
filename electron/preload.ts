@@ -103,6 +103,10 @@ contextBridge.exposeInMainWorld('api', {
     stop: () => ipcRenderer.invoke('asr:stop'),
     sendPcm: (samples: Float32Array) => ipcRenderer.send('asr:pcm', samples),
     setUnsaved: (state: { recording: boolean } | null) => ipcRenderer.send('asr:unsaved', state),
+    saveDraftAudio: (buffer: ArrayBuffer) => ipcRenderer.invoke('asr:saveDraftAudio', buffer),
+    getDraftAudio: () => ipcRenderer.invoke('asr:getDraftAudio'),
+    clearDraft: () => ipcRenderer.invoke('asr:clearDraft'),
+    copyDraftAudio: (noteDir: string, fileName: string) => ipcRenderer.invoke('asr:copyDraftAudio', noteDir, fileName),
     onState: (callback: (state: any) => void) => {
       const listener = (_event: any, state: any) => callback(state);
       ipcRenderer.on('asr:state', listener);

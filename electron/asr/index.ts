@@ -7,6 +7,7 @@ import { downloadFile, DownloadError } from '../localModel/download';
 import { extractArchive } from '../localModel/runtime';
 import { resolveModelUrl } from '../localModel/catalog';
 import { getDownloadSettings } from '../localModel';
+import { AUDIO_EXT_RE } from '../assets';
 
 /**
  * 实时转写（26.3）：管下载、管识别进程、在渲染进程和识别进程之间转发音频与文字。
@@ -263,9 +264,18 @@ async function stopSession(): Promise<AsrState> {
   return getAsrState();
 }
 
-// ── 还没放进笔记的转写：退出 / 关窗口之前拦一下 ─────────────────────────────────
-// 转写的文字和录音在放进笔记之前只存在渲染进程的内存里，窗口一关就没了。渲染进程把「有没有没保存的」报上来，
-// 这里在真正关之前同步问一句。和未保存的笔记不同 —— 那个有会话恢复兜底，这个没有
+// ── 还没放进笔记的录音：先替用户留着 ─────────────────────────────────────────
+// 转写的文字由渲染进程存在 localStorage 里，录音太大放不进去，每次停下来时写到这里。
+// 不放在 asr/ 下面：那个目录「删除语音模型」时会整个清掉
+const draftDir = () => path.join(app.getPath('userData'), 'transcribe-draft');
+const draftAudioPath = () => path.join(draftDir(), 'recording.webm');
+
+async function getDraftAudio(): Promise<{ path: string; bytes: number } | null> {
+  try { const st = await fs.promises.stat(draftAudioPath()); return st.size > 0 ? { path: draftAudioPath(), bytes: st.size } : null; } catch { return null; }
+}
+
+// ── 正在转写时退出 / 关窗口：拦一下 ─────────────────────────────────────────────
+// 停下来的转写（文字 + 录音）下次打开还在；只有「正在录的这一段」会丢：最后半句话，和这一段还没落盘的录音
 let unsavedTranscript: { recording: boolean } | null = null;
 let discardConfirmed = false;
 
@@ -273,14 +283,13 @@ let discardConfirmed = false;
 export function confirmDiscardTranscript(win: BrowserWindow | null): boolean {
   if (!unsavedTranscript || discardConfirmed || process.env.IML_SMOKE_OFFSCREEN === '1') return true;
   if (!win || win.isDestroyed()) return true;
-  const what = unsavedTranscript.recording ? '转写的文字和录音' : '转写的文字';
   const choice = dialog.showMessageBoxSync(win, {
     type: 'warning',
-    buttons: ['回去保存', '仍然退出'],
+    buttons: ['回去', '仍然退出'],
     defaultId: 0,
     cancelId: 0,
-    message: '这次的转写还没放进笔记',
-    detail: `${what}只暂存在内存里，现在退出就没了。回去点「放进笔记」或「存为新笔记」就能留下来。`,
+    message: '正在转写',
+    detail: `现在退出，已经转写出来的文字下次打开还在${unsavedTranscript.recording ? '，但正在录的这一段录音会丢' : ''}。先点「停止」再退出就什么都不丢。`,
   });
   if (choice !== 1) return false;
   discardConfirmed = true;   // 退出流程里窗口关闭和 before-quit 会先后来问，只问一次
@@ -319,6 +328,29 @@ export function setupAsr(d: Deps) {
     if (process.platform === 'darwin') void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone');
     else if (process.platform === 'win32') void shell.openExternal('ms-settings:privacy-microphone');
     return true;
+  });
+  ipcMain.handle('asr:saveDraftAudio', async (_e, buffer: ArrayBuffer) => {
+    await fs.promises.mkdir(draftDir(), { recursive: true });
+    // 先写临时文件再改名：写到一半退出的话，上一次完整的那份还在
+    const tmp = `${draftAudioPath()}.tmp`;
+    await fs.promises.writeFile(tmp, Buffer.from(buffer));
+    await fs.promises.rename(tmp, draftAudioPath());
+    return getDraftAudio();
+  });
+  ipcMain.handle('asr:getDraftAudio', () => getDraftAudio());
+  ipcMain.handle('asr:clearDraft', async () => { await fs.promises.rm(draftDir(), { recursive: true, force: true }); return true; });
+  // 找回来的录音不在渲染进程的内存里，放进笔记时由这里直接拷过去
+  ipcMain.handle('asr:copyDraftAudio', async (_e, noteDir: string, fileName: string) => {
+    try {
+      const safeName = path.basename(fileName).replace(/[\\/:*?"<>|#%()[\]\s]+/g, '-');
+      if (!path.isAbsolute(noteDir) || !AUDIO_EXT_RE.test(safeName)) return { success: false, error: '录音的保存位置不对' };
+      const assetsDir = path.join(path.normalize(noteDir), 'assets');
+      await fs.promises.mkdir(assetsDir, { recursive: true });
+      await fs.promises.copyFile(draftAudioPath(), path.join(assetsDir, safeName));
+      return { success: true, path: `assets/${safeName}` };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
   });
   ipcMain.on('asr:unsaved', (_e, state: { recording: boolean } | null) => { unsavedTranscript = state; if (!state) discardConfirmed = false; });
   ipcMain.handle('asr:start', () => startSession());
