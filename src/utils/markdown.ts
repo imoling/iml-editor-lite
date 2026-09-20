@@ -170,7 +170,8 @@ const inlineMathExtension = (mode: MarkedMode) => ({
       return `<span data-inline-math="${token.display ? 'display' : 'inline'}" data-latex="${escapeHtml(latex)}">${escapeHtml(latex)}</span>`;
     }
     try {
-      return `<span class="math-inline">${katex.renderToString(latex, { displayMode: !!token.display, throwOnError: false })}</span>`;
+      // data-latex：导出 Word 时要用原文（KaTeX 自己带的 MathML 注解过不了 HTML 净化）
+      return `<span class="math-inline" data-latex="${escapeHtml(latex)}">${katex.renderToString(latex, { displayMode: !!token.display, throwOnError: false })}</span>`;
     } catch {
       return escapeHtml(token.raw);
     }
@@ -192,9 +193,18 @@ const footnoteRefExtension = (mode: MarkedMode) => ({
   },
   renderer(token: any) {
     if (mode === 'rich') return escapeHtml(token.raw);
-    return `<sup class="footnote-ref">${escapeHtml(token.id)}</sup>`;
+    // 引用和定义互相指着：点上标跳到脚注，点 ↩ 跳回来。同一条脚注被引用几次，每次的锚点各不相同
+    const n = (footnoteRefCount.get(token.id) ?? 0) + 1;
+    footnoteRefCount.set(token.id, n);
+    const slug = footnoteSlug(token.id);
+    return `<sup class="footnote-ref"><a href="#fn-${slug}" id="fnref-${slug}${n > 1 ? `-${n}` : ''}" data-footnote-ref="${escapeHtml(token.id)}">${escapeHtml(token.id)}</a></sup>`;
   },
 });
+
+/** 一次解析里每条脚注被引用了几次（markdownToHtml 开头清零） */
+let footnoteRefCount = new Map<string, number>();
+/** 脚注 id 放进锚点之前：空白和引号这类会弄坏属性 / 选择器的字符换掉，汉字照用 */
+const footnoteSlug = (id: string) => id.replace(/[^\p{L}\p{N}_-]/gu, '_');
 
 // 脚注定义 [^1]: …（含缩进的续行；连续多条并成一块）。必须抢在 marked 的「链接引用定义」之前，
 // 否则 [^1]: 内容 会被当成链接定义，正文里的 [^1] 变成一条乱码链接。
@@ -218,7 +228,7 @@ const footnoteDefExtension = (mode: MarkedMode) => ({
   },
   renderer(this: any, token: any) {
     if (mode === 'rich') return rawBlockHtml(token.text, 'footnote');
-    const rows = token.items.map((it: any) => `<div class="footnote-def"><sup>${escapeHtml(it.id)}</sup> ${this.parser.parseInline(it.tokens)}</div>`).join('');
+    const rows = token.items.map((it: any) => `<div class="footnote-def" id="fn-${footnoteSlug(it.id)}" data-footnote-def="${escapeHtml(it.id)}"><sup>${escapeHtml(it.id)}</sup> ${this.parser.parseInline(it.tokens)} <a class="footnote-back" href="#fnref-${footnoteSlug(it.id)}" data-footnote-back="${escapeHtml(it.id)}" title="回到正文">↩</a></div>`).join('');
     return `<div class="footnotes">${rows}</div>\n`;
   },
 });
@@ -506,6 +516,16 @@ turndownService.addRule('wikiLink', {
   },
 });
 
+// 嵌入：<div data-wiki-embed="目标" data-embed-label="300"> → ![[目标]] / ![[目标|300]]
+turndownService.addRule('wikiEmbed', {
+  filter: (node) => node.nodeName === 'DIV' && (node as HTMLElement).hasAttribute('data-wiki-embed'),
+  replacement: (_content, node) => {
+    const target = (node as HTMLElement).getAttribute('data-wiki-embed') || '';
+    const label = (node as HTMLElement).getAttribute('data-embed-label') || '';
+    return `\n\n![[${label ? `${target}|${label}` : target}]]\n\n`;
+  },
+});
+
 // Custom rule for math blocks
 turndownService.addRule('math', {
   filter: (node) => {
@@ -724,8 +744,67 @@ function transformToc(doc: Document, mode: MarkedMode) {
   });
 }
 
+/**
+ * 独占一段的 `![[目标]]`（Obsidian 的嵌入）→ 嵌入占位块。一段里连着几行嵌入就拆成几块。
+ * 占位里先放原文；真正的内容（另一篇笔记、库里某处的图片）要读文件，由编辑器节点 / 预览在渲染后异步填进去（noteEmbed.ts）。
+ * 夹在句子中间的 `![[x]]` 不动，还是「!」加一个链接；列表项里的也不动——列表项的第一个子节点必须是段落，换成块会被编辑器硬塞一个空段落。
+ */
+function transformEmbeds(doc: Document) {
+  doc.querySelectorAll('p').forEach((p) => {
+    if (!p.querySelector(':scope > span[data-wiki-link]') || p.closest('li')) return;
+    const links: HTMLElement[] = [];
+    let bang = false;
+    for (const node of Array.from(p.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = (node.textContent || '').trim();
+        if (!text) continue;
+        if (text !== '!' || bang) return;
+        bang = true;
+      } else if (node.nodeName === 'BR') {
+        continue;
+      } else if (node.nodeName === 'SPAN' && (node as HTMLElement).hasAttribute('data-wiki-link') && bang) {
+        links.push(node as HTMLElement);
+        bang = false;
+      } else {
+        return;
+      }
+    }
+    if (bang || links.length === 0) return;
+    const blocks = links.map((link) => {
+      const target = link.getAttribute('data-wiki-link') || '';
+      const label = link.textContent || '';
+      const box = doc.createElement('div');
+      box.setAttribute('data-wiki-embed', target);
+      if (label && label !== target) box.setAttribute('data-embed-label', label);
+      box.textContent = `![[${label && label !== target ? `${target}|${label}` : target}]]`;
+      return box;
+    });
+    p.replaceWith(...blocks);
+  });
+}
+
+/**
+ * 脚注收尾：鼠标停在上标上能直接看到脚注内容（不用跳过去再跳回来）；
+ * 正文里没人引用的脚注不放 ↩，引用了一条不存在的脚注时上标不做成链接——点了没处去。
+ */
+function linkFootnotes(doc: Document) {
+  const defs = new Map<string, Element>();
+  doc.querySelectorAll('[data-footnote-def]').forEach((d) => defs.set(d.getAttribute('data-footnote-def') || '', d));
+  const referenced = new Set<string>();
+  doc.querySelectorAll('a[data-footnote-ref]').forEach((a) => {
+    const id = a.getAttribute('data-footnote-ref') || '';
+    const def = defs.get(id);
+    if (!def) { a.replaceWith(doc.createTextNode(a.textContent || '')); return; }
+    referenced.add(id);
+    const text = Array.from(def.childNodes).filter((n) => !(n instanceof Element && (n.tagName === 'SUP' || n.classList.contains('footnote-back')))).map((n) => n.textContent).join('').trim();
+    a.setAttribute('title', text);
+  });
+  defs.forEach((def, id) => { if (!referenced.has(id)) def.querySelector('.footnote-back')?.remove(); });
+}
+
 export const markdownToHtml = (markdownContent: string, inlineActual: boolean = false, options: MarkdownToHtmlOptions = {}): string => {
   if (!markdownContent) return '';
+  footnoteRefCount = new Map();
   const mode: MarkedMode = inlineActual ? 'preview' : 'rich';
 
   // 0. Frontmatter 先拆出来：交给 marked 的话 --- 会变成分割线，YAML 变成二级标题
@@ -801,7 +880,7 @@ export const markdownToHtml = (markdownContent: string, inlineActual: boolean = 
     if (inlineActual) {
       let rendered = '';
       try { rendered = katex.renderToString(clean, { displayMode: true, throwOnError: false }); } catch { rendered = escapeHtml(clean); }
-      html = `<div class="math-block">${rendered}</div>`;
+      html = `<div class="math-block" data-latex="${escapeHtml(clean)}">${rendered}</div>`;
     } else {
       html = `<div class="math-block" data-latex="${escapeHtml(clean)}">${escapeHtml(clean)}</div>`;
     }
@@ -848,6 +927,8 @@ export const markdownToHtml = (markdownContent: string, inlineActual: boolean = 
 
   transformCallouts(doc, inlineActual);
   transformToc(doc, mode);
+  transformEmbeds(doc);
+  if (mode === 'preview') linkFootnotes(doc);
 
   // 表格对齐：marked 输出 align 属性。Tiptap 的 TextAlign 只认 style；预览里样式表的 text-align 也会盖过 align 属性
   doc.querySelectorAll('th[align], td[align]').forEach((cell) => {

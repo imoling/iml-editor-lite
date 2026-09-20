@@ -30,6 +30,7 @@
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/language-data": "^6.5.2",
     "@codemirror/search": "^6.7.2",
+    "@replit/codemirror-vim": "^6.4.0",
     "@tiptap/core": "^2.11.5",
     "@tiptap/extension-bubble-menu": "^2.11.5",
     "@tiptap/extension-code-block-lowlight": "^2.11.5",
@@ -58,6 +59,7 @@
     "@vitejs/plugin-react": "^5.1.4",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
+    "docx": "^9.7.1",
     "dompurify": "^3.4.15",
     "electron": "^33.4.11",
     "electron-builder": "^26.8.1",
@@ -92,6 +94,14 @@
       "!dist-electron/**/*.test.js",
       "assets/logo.png",
       "assets/icon-mac.png"
+    ],
+    "protocols": [
+      {
+        "name": "iML Markdown Editor",
+        "schemes": [
+          "iml"
+        ]
+      }
     ],
     "fileAssociations": [
       {

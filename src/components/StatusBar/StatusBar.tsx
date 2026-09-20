@@ -66,6 +66,7 @@ export const StatusBar: React.FC = () => {
   const [showZoomMenu, setShowZoomMenu] = React.useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const activeTab = tabs.find(t => t.id === activeTabId);
+  const selectionText = useAppStore((st) => st.selectionText);
 
   useEffect(() => {
     if (!showZoomMenu) return;
@@ -79,6 +80,7 @@ export const StatusBar: React.FC = () => {
   if (!statusBarVisible) return null;
 
   const stats = activeTab ? countWords(activeTab.content || '') : null;
+  const selectedWords = activeTab && selectionText.trim() ? countWords(selectionText).words : 0;
 
   return (
     <footer className={`statusbar ${aiStatus.generating ? 'statusbar-ai' : ''}`}>
@@ -88,6 +90,7 @@ export const StatusBar: React.FC = () => {
         {stats ? (
           <>
             <span>{stats.words.toLocaleString()} 字</span>
+            {selectedWords > 0 && <span className="statusbar-selected" title="当前选中的字数">选中 {selectedWords.toLocaleString()} 字</span>}
             <span>共 {stats.lines} 行</span>
           </>
         ) : (
@@ -97,8 +100,13 @@ export const StatusBar: React.FC = () => {
       </div>
 
       {notice && !aiStatus.generating && (
-        // 一行放不下会被截断，悬停能看到全文（报错信息往往比较长）
-        <div className="statusbar-section statusbar-notice" key={notice.id} title={notice.text}>{notice.text}</div>
+        // 一行放不下会被截断，悬停能看到全文（报错信息往往比较长）；「已导出」这类提示带按钮，点过就收起
+        <div className="statusbar-section statusbar-notice" key={notice.id} title={notice.text}>
+          <span className="statusbar-notice__text">{notice.text}</span>
+          {notice.actions?.map((action) => (
+            <button key={action.label} className="statusbar-notice__action" onClick={() => { action.run(); useAppStore.setState({ notice: null }); }}>{action.label}</button>
+          ))}
+        </div>
       )}
 
       {aiStatus.generating && (

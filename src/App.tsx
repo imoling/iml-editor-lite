@@ -14,17 +14,23 @@ import { WhatsNewModal } from './components/WhatsNew/WhatsNewModal';
 import { latestWhatsNew, shouldShowWhatsNew } from './data/whatsNew';
 import { extractHeadings } from './utils/outline';
 import { ConfirmDialog } from './components/ConfirmDialog';
-import { exportActiveTabToPdf, exportActiveTabToHtml } from './utils/exportPdf';
+import { exportActiveTabToPdf, exportActiveTabToHtml, exportActiveTabToDocx, exportActiveTabToImage } from './utils/exportPdf';
 import { HistoryModal } from './components/History/HistoryModal';
 import { ImageCleanupModal } from './components/Library/ImageCleanupModal';
 import { SemanticIndexModal } from './components/AI/SemanticIndexModal';
 import { TranscribeConfigModal } from './components/AI/TranscribeConfigModal';
 import { AiSetupModal } from './components/AI/AiSetupModal';
 import { QuickOpenModal } from './components/QuickOpen/QuickOpenModal';
+import { CommandPalette } from './components/QuickOpen/CommandPalette';
 import { formatVersion, isNewerVersion } from './utils/version';
 import './styles/layout.css';
 
 /** 拉取主进程排队的「打开方式」/ 命令行文件并逐个打开（启动完成后与收到提醒时都会调用） */
+/** 取走主进程那边排着队的 iml:// 链接，逐个执行 */
+async function drainAppUrls() {
+  try { for (const action of await window.api.app.consumePendingUrls()) await useAppStore.getState().runAppUrl(action); } catch (e) { console.error('Failed to handle app url:', e); }
+}
+
 async function drainPendingOpenFiles() {
   try {
     const files = await window.api.app.consumePendingOpenFiles();
@@ -35,6 +41,9 @@ async function drainPendingOpenFiles() {
     console.error('Failed to open pending files:', e);
   }
 }
+
+/** 已经处理过的快速捕获请求（见下面 capture:append 的监听） */
+const handledCaptures = new Set<number>();
 
 const App: React.FC = () => {
   const { 
@@ -227,6 +236,14 @@ const App: React.FC = () => {
         return;
       }
 
+      // Cmd+Shift+P：命令面板（敲几个字找到要做的事）。再按一次收起
+      if (modKey && e.shiftKey && !e.altKey && e.code === 'KeyP') {
+        e.preventDefault();
+        if (ts.dialog === 'command-palette') ts.closeDialog();
+        else if (!modalOpen || ts.dialog === 'quick-open') ts.openDialog('command-palette');
+        return;
+      }
+
       // Cmd+Shift+T：重新打开刚关掉的标签页
       if (modKey && e.shiftKey && e.code === 'KeyT') {
         e.preventDefault();
@@ -321,10 +338,23 @@ const App: React.FC = () => {
     window.api.events.on('session:clear', () => clearSessionAndReload());
     // 笔记库目录被外部（同步盘 / 其他编辑器）改动：刷新树，未修改的标签页跟随磁盘
     window.api.events.on('library:changed', (paths: string[]) => useAppStore.getState().handleExternalChanges(paths));
+    // iml:// 链接：主进程已经解析、校验过，这里拉过来逐个执行
+    window.api.events.on('app-url', () => { void drainAppUrls(); });
+    // 用户的 CSS 片段被保存了：立刻重新应用
+    window.api.events.on('snippets:changed', () => { void useAppStore.getState().reloadUserCss(); });
+    // 快速捕获：主进程把小输入窗里的那句话交过来，由这边写进今天的日记（日记可能正开着），写完回个话
+    window.api.events.on('capture:append', async (req: { id: number; text: string }) => {
+      // events.on 注销不掉；开发模式下这个 effect 会跑两遍，监听器就有两个。「追加」不是幂等的，按请求 id 只处理一次
+      if (handledCaptures.has(req.id)) return;
+      handledCaptures.add(req.id);
+      let ok = false;
+      try { ok = await useAppStore.getState().captureToDaily(req.text); } catch { ok = false; }
+      window.api.events.send('capture:appended', { id: req.id, ok, error: ok ? undefined : '没写进去：笔记库没设置，或文件写入失败' });
+    });
     window.api.events.on('menu:new-file', () => createNewFile());
     window.api.events.on('menu:open-file', () => openFile());
     window.api.events.on('menu:save', () => saveActiveFile());
-    window.api.events.on('menu:export', (kind: 'pdf' | 'html') => (kind === 'html' ? exportActiveTabToHtml() : exportActiveTabToPdf()));
+    window.api.events.on('menu:export', (kind: 'pdf' | 'html' | 'docx' | 'image') => (kind === 'html' ? exportActiveTabToHtml() : kind === 'docx' ? exportActiveTabToDocx() : kind === 'image' ? exportActiveTabToImage() : exportActiveTabToPdf()));
     // macOS 上 ⌘W / ⌘⇧T 由原生菜单拦下（键不会再到达渲染进程），走这条；Windows 没有原生菜单，走上面的 keydown
     window.api.events.on('menu:close-tab', () => {
       const s = useAppStore.getState();
@@ -380,6 +410,8 @@ const App: React.FC = () => {
       }
       // 无论会话恢复是否成功，启动时传入的文件都要打开
       await drainPendingOpenFiles();
+      // 应用是被 iml:// 链接唤起来的：同样要等设置（笔记库在哪）读完再执行，不然「新建」找不到往哪建
+      await drainAppUrls();
       // 新安装或升级后展示一次新特性介绍
       try {
         const state = await window.api.app.getWhatsNewState();
@@ -488,6 +520,7 @@ const App: React.FC = () => {
       {dialog === 'transcribe-config' && <TranscribeConfigModal onClose={closeDialog} />}
       {dialog === 'ai-setup' && <AiSetupModal onClose={closeDialog} />}
       {dialog === 'quick-open' && <QuickOpenModal onClose={closeDialog} />}
+      {dialog === 'command-palette' && <CommandPalette onClose={closeDialog} />}
 
     </div>
   );

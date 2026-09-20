@@ -7,8 +7,8 @@ interface Props {
   onClose: () => void;
 }
 
-/** 把标题按命中区间切开，命中的部分高亮 */
-const Highlighted: React.FC<{ text: string; ranges: [number, number][] }> = ({ text, ranges }) => {
+/** 把标题按命中区间切开，命中的部分高亮（命令面板也用它） */
+export const Highlighted: React.FC<{ text: string; ranges: [number, number][] }> = ({ text, ranges }) => {
   if (ranges.length === 0) return <>{text}</>;
   const parts: React.ReactNode[] = [];
   let at = 0;
@@ -126,7 +126,10 @@ export const QuickOpenModal: React.FC<Props> = ({ onClose }) => {
                   title={hit.path}
                 >
                   <FileText size={14} className="quick-open__row-icon" />
-                  <span className="quick-open__title"><Highlighted text={hit.title} ranges={hit.ranges} /></span>
+                  <span className="quick-open__title">
+                    <Highlighted text={hit.title} ranges={hit.ranges} />
+                    {hit.alias && <span className="quick-open__alias">别名：{hit.alias}</span>}
+                  </span>
                   {hit.folder && <span className="quick-open__folder">{hit.folder}</span>}
                   {i === active && <span className="quick-open__enter"><CornerDownLeft size={12} /></span>}
                 </div>

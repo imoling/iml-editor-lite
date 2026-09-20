@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Moon, Sun, Monitor, Palette, Power, Save, Trash2, AlertTriangle, FolderOpen, Coffee, Type, ImageDown, Link2, SpellCheck, ShieldCheck, ImageOff } from 'lucide-react';
+import { X, Moon, Sun, Monitor, Palette, Power, Save, Trash2, AlertTriangle, FolderOpen, Coffee, Type, ImageDown, Link2, SpellCheck, ShieldCheck, ImageOff, Paintbrush, Keyboard } from 'lucide-react';
+import { QuickCaptureRow } from './QuickCaptureRow';
+import { libraryToReturnTo } from '../../../electron/shared/syncFolders';
+import { DEFAULT_CAPTURE_SHORTCUT } from '../../../electron/shared/capture';
 import { useAppStore, THEME_PRESETS, EDITOR_FONTS, PAGE_WIDTHS, DEFAULT_EDITOR_PREFS, normalizeEditorPrefs, applyEditorPrefs, type EditorPrefs } from '../../stores/appStore';
 
 type AppearanceMode = 'light' | 'dark' | 'system' | 'eye-protection';
@@ -28,12 +31,18 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
     startupBehavior: 'restore' as string,
     autoSave: true,
     defaultLibraryPath: '',
+    /** 放进同步盘之前笔记库在哪：「改回原来的目录」要用；不在同步盘里时为空 */
+    libraryPathBeforeSync: '',
     themeId: 'indigo',
     editorPrefs: DEFAULT_EDITOR_PREFS as EditorPrefs,
     imageCompression: true,
     fetchLinkTitle: true,
+    linkPreview: true,
+    userCss: true,
+    vimMode: false,
     spellcheck: false,
     aiEnabled: true,
+    quickCapture: { enabled: true, shortcut: DEFAULT_CAPTURE_SHORTCUT },
   });
 
   // 从磁盘加载并预览
@@ -46,23 +55,48 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
         startupBehavior: settings.startupBehavior || 'restore',
         autoSave: settings.autoSave ?? true,
         defaultLibraryPath: settings.defaultLibraryPath || '',
+        libraryPathBeforeSync: settings.libraryPathBeforeSync || '',
         themeId: settings.themeId || 'indigo',
         editorPrefs: normalizeEditorPrefs(settings.editorPrefs),
         imageCompression: settings.imageCompression ?? true,
         fetchLinkTitle: settings.fetchLinkTitle ?? true,
+        linkPreview: settings.linkPreview ?? true,
+        userCss: settings.userCss ?? true,
+        vimMode: !!settings.vimMode,
         spellcheck: !!settings.spellcheck,
         aiEnabled: settings.aiEnabled ?? true,
+        quickCapture: { enabled: settings.quickCapture?.enabled !== false, shortcut: settings.quickCapture?.shortcut || DEFAULT_CAPTURE_SHORTCUT },
       });
       applyAppearance(settings.appearanceMode || 'light');
       setTheme(settings.themeId || 'indigo');
     });
   }, [isOpen]);
 
-  // 把笔记库放进 iCloud Drive（为 iPad 端同步做准备）；没有 iCloud Drive 时按钮不显示
-  const [icloudPath, setIcloudPath] = useState<string | null>(null);
+  // 本机装了哪些同步盘（iCloud Drive、坚果云、OneDrive…）：一键把笔记库放进去，多台设备就共用一份了。没装的不显示
+  const [syncFolders, setSyncFolders] = useState<{ id: string; name: string; root: string; libraryPath: string; libraryExists: boolean }[]>([]);
   useEffect(() => {
-    window.api.app.getICloudLibraryPath().then(setIcloudPath).catch(() => setIcloudPath(null));
+    window.api.app.detectSyncFolders().then(setSyncFolders).catch(() => setSyncFolders([]));
   }, []);
+  /** 现在的笔记库是不是已经在某个同步盘里了 */
+  const syncedIn = syncFolders.find((f) => local.defaultLibraryPath === f.root || local.defaultLibraryPath.startsWith(f.root + (f.root.includes('\\') ? '\\' : '/')));
+  const moveLibraryInto = async (folder: { libraryPath: string; libraryExists: boolean }) => {
+    // 选了才建目录（检测的时候不建）：免得只是打开设置看一眼，同步盘里就多出一个空文件夹
+    if (!folder.libraryExists && !(await window.api.fs.exists(folder.libraryPath))) await window.api.fs.mkdir(folder.libraryPath);
+    // 记下放进去之前的位置，反悔时能一键改回来；本来就在（另一个）同步盘里的话保留最早那个
+    setLocal((s) => ({ ...s, defaultLibraryPath: folder.libraryPath, libraryPathBeforeSync: syncedIn ? s.libraryPathBeforeSync : s.defaultLibraryPath }));
+  };
+  /** 再点一下打了勾的同步盘，或点「改回原来的目录」：回到放进去之前的目录。笔记文件一律不动，只是换个地方看 */
+  const leaveSyncFolder = async () => {
+    const home = await window.api.app.homeLibraryPath();
+    const before = local.libraryPathBeforeSync;
+    const target = libraryToReturnTo([{ path: before, exists: !!before && (await window.api.fs.exists(before)) }, home]);
+    if (target) setLocal((s) => ({ ...s, defaultLibraryPath: target, libraryPathBeforeSync: '' }));
+    else {
+      // 原来的目录和默认目录都不在了：只能请用户自己选
+      const result = await window.api.dialog.open({ properties: ['openDirectory'] });
+      if (result && result.length > 0) setLocal((s) => ({ ...s, defaultLibraryPath: result[0], libraryPathBeforeSync: '' }));
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -86,7 +120,7 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
     setLocal((s) => ({ ...s, editorPrefs }));
     applyEditorPrefs(editorPrefs);
   };
-  const toggleRow = (key: 'imageCompression' | 'fetchLinkTitle' | 'spellcheck' | 'aiEnabled', icon: React.ReactNode, title: string, desc: string) => (
+  const toggleRow = (key: 'imageCompression' | 'fetchLinkTitle' | 'linkPreview' | 'userCss' | 'vimMode' | 'spellcheck' | 'aiEnabled', icon: React.ReactNode, title: string, desc: string) => (
     <div className="settings-row">
       <div className="settings-row__label">
         {icon}
@@ -208,7 +242,18 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
                 <div className="settings-divider" />
                 {toggleRow('fetchLinkTitle', <Link2 size={18} color="var(--text-muted)" />, '粘贴网址时取网页标题', '贴进来的只是一个网址时，访问它一次取标题，变成 [标题](网址)')}
                 <div className="settings-divider" />
+                {toggleRow('userCss', <Paintbrush size={18} color="var(--text-muted)" />, '自定义样式（CSS 片段）', '笔记库里 .iml/snippets.css 的样式会叠加到界面上，保存即生效；只是样式表，不执行任何代码，也不会联网')}
+                {local.userCss && !isStandalone && (
+                  <div className="quick-capture-row"><button className="btn btn-ghost btn-xs" onClick={() => void useAppStore.getState().revealUserCss()}>在{window.api.app.platform === 'darwin' ? '访达' : '资源管理器'}中显示片段文件</button><span className="quick-capture-row__status">还没有的话会先建一个，里面是几条注释掉的示例</span></div>
+                )}
+                <div className="settings-divider" />
+                {toggleRow('linkPreview', <Link2 size={18} color="var(--text-muted)" />, '链接悬浮预览', '鼠标在 [[链接]] 上停半秒，就地弹出那篇笔记（或那个小节）的内容')}
+                <div className="settings-divider" />
+                {toggleRow('vimMode', <Keyboard size={18} color="var(--text-muted)" />, '源码模式用 Vim 键位', 'hjkl 移动、i 进入插入、:w 保存……只在源码模式生效；富文本模式不受影响')}
+                <div className="settings-divider" />
                 {toggleRow('spellcheck', <SpellCheck size={18} color="var(--text-muted)" />, '拼写检查', '用系统词典给拼错的英文单词标红；中文笔记建议关闭')}
+                <div className="settings-divider" />
+                <QuickCaptureRow value={local.quickCapture} onChange={(quickCapture) => setLocal((s) => ({ ...s, quickCapture }))} />
               </div>
             </section>
 
@@ -264,14 +309,30 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
                     <div className="settings-row__desc">侧边栏的树根；新建与静默保存的笔记都放在这里</div>
                   </div>
                   <div className="row gap-10">
-                    {icloudPath && (
-                      <button onClick={() => setLocal((s) => ({ ...s, defaultLibraryPath: icloudPath }))} title={icloudPath} className="btn-link">☁︎ 使用 iCloud Drive</button>
-                    )}
                     <button onClick={handleSelectLibrary} className="btn-link"><FolderOpen size={12} /> 更改目录</button>
                   </div>
                 </div>
                 <div className="path-box">{local.defaultLibraryPath || '未设置'}</div>
-                <div className="hint">放在 iCloud Drive 或其他同步盘目录里即可多设备共用；外部改动会自动刷新，未保存的标签页会用橙点提示。</div>
+                {syncFolders.length > 0 && (
+                  <div className="sync-folders">
+                    <span className="sync-folders__label">放进同步盘，多台设备共用：</span>
+                    {syncFolders.map((f) => {
+                      const active = syncedIn?.id === f.id;
+                      return (
+                        <button key={f.id} onClick={() => void (active ? leaveSyncFolder() : moveLibraryInto(f))} title={active ? '再点一下：改回原来的目录（笔记文件不会动）' : f.libraryPath} className={`sync-folders__btn ${active ? 'sync-folders__btn--active' : ''}`}>
+                          ☁︎ {f.name}{active ? ' ✓' : ''}
+                        </button>
+                      );
+                    })}
+                    {syncedIn && <button onClick={() => void leaveSyncFolder()} className="btn-link sync-folders__leave">改回原来的目录</button>}
+                  </div>
+                )}
+                <div className="hint">
+                  {syncedIn
+                    ? `笔记库已经在「${syncedIn.name}」里，由它负责同步。${local.libraryPathBeforeSync ? `原来目录里的笔记还留在原处，没有自动搬过去；要合并的话，在访达里把它们拖进新目录即可。` : ''}`
+                    : '笔记库就是一个普通文件夹：放进任何同步盘的目录里，同步交给同步盘。只是换个地方看，笔记文件不会自动搬过去。'}
+                  外部改动会自动刷新，未保存的标签页会用橙点提示；覆盖之前版本历史会留底。
+                </div>
                 {!isStandalone && (
                   <>
                     <div className="settings-divider" />

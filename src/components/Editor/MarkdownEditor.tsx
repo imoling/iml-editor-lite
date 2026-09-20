@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CodeMirror, { ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
-import { EditorView } from '@codemirror/view';
+import { EditorView, keymap } from '@codemirror/view';
+import { Prec, Extension } from '@codemirror/state';
 import { autocompletion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import {
   search,
@@ -12,6 +13,7 @@ import {
   findPrevious,
   replaceNext,
   replaceAll,
+  selectNextOccurrence,
 } from '@codemirror/search';
 import { useAppStore } from '../../stores/appStore';
 import { markdownToHtml, htmlToMarkdown } from '../../utils/markdown';
@@ -20,6 +22,9 @@ import { resolveImagesInHtml, noteDirOf } from '../../utils/assetUrl';
 import { storeImageFile } from '../../utils/pasteImage';
 import { isSingleUrl, escapeLinkText, htmlWorthConverting } from '../../utils/pasteText';
 import { extractHeadings } from '../../utils/outline';
+import { wikiHeadingCandidates, toNameCandidates } from '../../utils/wikiComplete';
+import { readNoteForLink } from '../../utils/noteReader';
+import { fillEmbeds } from '../../utils/noteEmbed';
 import { loadMermaid } from '../../utils/mermaidLoader';
 import '../styles/editor.css';
 
@@ -65,9 +70,15 @@ export const MarkdownEditor: React.FC = () => {
   useEffect(() => {
     if (editorRef.current?.view && navigationRequest) {
       const view = editorRef.current.view;
-      const match = navigationRequest.heading.id.match(/^heading-(\d+)$/);
-      if (match) {
-        const lineIndex = parseInt(match[1]);
+      const { heading, blockId, line: targetLine } = navigationRequest;
+      let lineIndex = -1;
+      const match = heading?.id.match(/^heading-(\d+)$/);
+      // 待办面板给的就是行号
+      if (typeof targetLine === 'number') lineIndex = targetLine;
+      else if (match) lineIndex = parseInt(match[1]);
+      // [[笔记#^块]]：块 ID 写在那一行的末尾
+      else if (blockId) lineIndex = view.state.doc.toString().split('\n').findIndex((l) => l.trimEnd().endsWith(`^${blockId}`));
+      if (lineIndex >= 0) {
         const safeLineIndex = Math.min(lineIndex + 1, view.state.doc.lines);
         const line = view.state.doc.line(safeLineIndex);
         view.dispatch({
@@ -167,22 +178,61 @@ export const MarkdownEditor: React.FC = () => {
   const wikiCompletion = async (context: CompletionContext): Promise<CompletionResult | null> => {
     const word = context.matchBefore(/\[\[[^\]\n]*/);
     if (!word) return null;
-    let notes: { title: string; path: string }[] = [];
+    let notes: { title: string; path: string; aliases?: string[] }[] = [];
     try { notes = await window.api.search.listNotes(); } catch { notes = []; }
-    const names = [...new Set(notes.map((n) => (n.path.split(/[/\\]/).pop() || n.title).replace(/\.(md|markdown|mdown|mkd|txt)$/i, '')))];
-    return {
-      from: word.from + 2,
-      options: names.map((name) => ({ label: name, apply: `${name}]]`, type: 'text' })),
-      validFor: /^[^\]\n]*$/,
-    };
+    // [[笔记# → 列那篇笔记的小节
+    const { tabs, activeTabId: currentId } = useAppStore.getState();
+    const headings = await wikiHeadingCandidates(notes, word.text.slice(2), {
+      currentPath: currentId && !currentId.startsWith('new-') ? currentId : null,
+      currentContent: tabs.find((t) => t.id === currentId)?.content ?? '',
+      readNote: readNoteForLink,
+    }, 50);
+    if (headings) {
+      return {
+        from: word.from + 2,
+        options: headings.map((h) => ({ label: h.target, displayLabel: `${'　'.repeat(h.level - 1)}# ${h.heading}`, apply: `${h.target}]]`, type: 'text' })),
+        validFor: /^[^\]\n]*$/,
+      };
+    }
+    const options: { label: string; detail?: string; apply: string; type: string }[] = [];
+    const seen = new Set<string>();
+    for (const n of toNameCandidates(notes)) {
+      if (!seen.has(n.title)) { seen.add(n.title); options.push({ label: n.title, apply: `${n.title}]]`, type: 'text' }); }
+      // 别名：敲别名也能找到，落笔写成 [[文件名|别名]]（Obsidian 只认文件名）
+      for (const alias of n.aliases || []) options.push({ label: alias, detail: `→ ${n.title}`, apply: `${n.title}|${alias}]]`, type: 'text' });
+    }
+    return { from: word.from + 2, options, validFor: /^[^\]\n]*$/ };
   };
+
+  // Vim 键位：要用的人才加载这个库（单独一个包，不进主包）。`:w` 接到应用自己的保存上
+  const vimMode = useAppStore((st) => st.vimMode);
+  const [vimExt, setVimExt] = useState<Extension | null>(null);
+  useEffect(() => {
+    if (!vimMode) { setVimExt(null); return; }
+    let alive = true;
+    import('@replit/codemirror-vim').then(({ vim, Vim }) => {
+      if (!alive) return;
+      Vim.defineEx('write', 'w', () => { void useAppStore.getState().saveActiveFile(); });
+      setVimExt(vim());
+    }).catch((err) => console.error('Failed to load vim keymap:', err));
+    return () => { alive = false; };
+  }, [vimMode]);
 
   const extensions = useMemo(
     () => [
+      // Vim 必须排在最前面：它要先于别的键位拿到按键
+      ...(vimExt ? [vimExt] : []),
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       search(),
+      // ⌘D：选中下一处相同的文字（多光标一起改）。自带的搜索快捷键整体关掉了（查找由应用的面板接管），这一个单独接回来
+      Prec.high(keymap.of([{ key: 'Mod-d', run: selectNextOccurrence, preventDefault: true }])),
       autocompletion({ override: [wikiCompletion], activateOnTyping: true }),
       EditorView.updateListener.of((update) => {
+        // 状态栏的「选中 N 字」
+        if (update.selectionSet || update.docChanged) {
+          const { from, to } = update.state.selection.main;
+          useAppStore.getState().setSelectionText(from === to ? '' : update.state.sliceDoc(from, to));
+        }
         if (!useAppStore.getState().search.query) return;
         if (update.docChanged) recomputeMatches(update.view);
         if (update.docChanged || update.selectionSet) reportCounts(update.view);
@@ -253,7 +303,7 @@ export const MarkdownEditor: React.FC = () => {
         },
       }),
     ],
-    [activeTabId],
+    [activeTabId, vimExt],
   );
 
   // 预览 HTML 只在内容变化时重算；文件里的原生 HTML / SVG 先净化再注入
@@ -261,6 +311,17 @@ export const MarkdownEditor: React.FC = () => {
     () => resolveImagesInHtml(sanitizeHtml(markdownToHtml(content, true)), noteDirOf(activeTabId, useAppStore.getState().getNewNoteDir())),
     [content, activeTabId],
   );
+  // React 19 对 dangerouslySetInnerHTML 比的是对象身份、不是里面的字符串：每次渲染都给一个新的 { __html }，
+  // 它就每次都重设 innerHTML，渲染后填进去的东西（Mermaid 图、嵌入的内容）会被任何一次无关的重渲染冲掉
+  const previewMarkup = useMemo(() => ({ __html: previewHtml }), [previewHtml]);
+
+  // 预览里的嵌入 ![[…]]：内容要读别的文件，渲染完再异步填进去；被嵌入的那篇存盘了（libraryVersion）就重填
+  const libraryVersion = useAppStore((s) => s.libraryVersion);
+  useEffect(() => {
+    const root = previewRef.current;
+    if (!root || !previewHtml.includes('data-wiki-embed')) return;
+    void fillEmbeds(root, activeTabId && !activeTabId.startsWith('new-') ? activeTabId : null);
+  }, [previewHtml, libraryVersion, activeTabId]);
 
   // ── 左右滚动同步：以标题为锚点分段插值（段内按比例），比整篇按比例准得多 ──
   useEffect(() => {
@@ -358,7 +419,7 @@ export const MarkdownEditor: React.FC = () => {
         <div ref={previewRef} className="custom-scrollbar md-editor-preview-container md-pane__preview">
           <div
             className="tiptap-prosemirror markdown-body md-preview-body"
-            dangerouslySetInnerHTML={{ __html: previewHtml }}
+            dangerouslySetInnerHTML={previewMarkup}
             onClick={(e) => {
               const target = e.target as HTMLElement;
               const link = target.closest('[data-wiki-link]');
@@ -370,6 +431,13 @@ export const MarkdownEditor: React.FC = () => {
               if (tocItem) {
                 e.preventDefault();
                 previewRef.current?.querySelector(`#toc-heading-${tocItem.getAttribute('data-toc-index')}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                return;
+              }
+              // 脚注：上标 → 定义，↩ → 回到正文里第一次引用它的地方（都在预览区里滚，不动整个窗口）
+              const foot = target.closest<HTMLAnchorElement>('a[data-footnote-ref], a[data-footnote-back]');
+              if (foot) {
+                e.preventDefault();
+                previewRef.current?.querySelector(`[id="${CSS.escape((foot.getAttribute('href') || '').slice(1))}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 return;
               }
               // 其它链接交给系统浏览器，别让预览面板自己跳走

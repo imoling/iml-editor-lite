@@ -4,8 +4,18 @@ import type { UpdateInfo } from '../types/window';
 import { formatDate } from '../utils/date';
 import { deriveNoteTitle } from '../utils/noteTitle';
 import { useAskStore } from './askStore';
+import { extractHeadings } from '../utils/outline';
+import { resolveWikiTarget, findHeadingIndex, linkifyMention, noteBaseName } from '../../electron/shared/wikiLink';
+import { toggleTaskLine } from '../../electron/shared/tasks';
+import { appendCapture } from '../../electron/shared/capture';
+import type { AppUrlAction } from '../../electron/shared/appUrl';
+import { FileSortMode, DEFAULT_FILE_SORT, isFileSortMode } from '../utils/fileSort';
+import { applyUserCss, snippetsPathOf, SNIPPETS_TEMPLATE } from '../utils/userCss';
 
-export type DialogId = 'about' | 'shortcuts' | 'quick-open' | 'ai-config' | 'ai-setup' | 'image-config' | 'semantic-config' | 'transcribe-config' | 'settings' | 'whats-new' | 'history' | 'image-cleanup';
+const FILE_SORT_KEY = 'iml.fileSort';
+import { renameTagInMarkdown, isValidTagName, tagMatches } from '../../electron/shared/noteMeta';
+
+export type DialogId = 'about' | 'shortcuts' | 'quick-open' | 'command-palette' | 'ai-config' | 'ai-setup' | 'image-config' | 'semantic-config' | 'transcribe-config' | 'settings' | 'whats-new' | 'history' | 'image-cleanup';
 import { DAILY_DIR, TEMPLATE_DIR, DEFAULT_DAILY_TEMPLATE, SAMPLE_TEMPLATES, renderNoteTemplate } from '../utils/noteTemplates';
 
 export interface FileNode {
@@ -13,6 +23,9 @@ export interface FileNode {
   path: string;
   isDirectory: boolean;
   children?: FileNode[];
+  /** 修改 / 创建时间（毫秒）；拿不到时是 0 或没有 */
+  mtime?: number;
+  ctime?: number;
 }
 
 export interface Tab {
@@ -102,7 +115,12 @@ export const THEME_PRESETS: ThemeConfig[] = [
 ];
 
 export interface NavigationRequest {
-  heading: HeadingNode;
+  heading?: HeadingNode;
+  /** `[[笔记#^块]]`：跳到以 `^块ID` 结尾的那一段 */
+  blockId?: string;
+  /** 从待办面板点过来：源码模式按行号跳，富文本按这一行的文字找 */
+  line?: number;
+  lineText?: string;
   timestamp: number;
 }
 
@@ -121,7 +139,9 @@ export const DEFAULT_IMAGE_GEN_CONFIG: ImageGenConfig = {
   endpoint: '',
 };
 
-export type SidebarTab = 'library' | 'catalog' | 'tags' | 'search' | 'ask' | 'transcribe';
+/** 状态栏提示上的按钮（「打开」「在访达中显示」……）；点过就收起提示 */
+export interface NoticeAction { label: string; run: () => void }
+export type SidebarTab = 'library' | 'catalog' | 'tags' | 'tasks' | 'search' | 'ask' | 'transcribe';
 
 /** 正文排版：字体、字号、行距、页宽（富文本与预览共用） */
 export interface EditorPrefs {
@@ -199,19 +219,27 @@ export interface AppState {
   /** 当前编辑器注册的「把未写回的内容立刻同步到 store」钩子（保存 / 导出 / 关窗前调用） */
   editorFlush: (() => void) | null;
   /** 当前编辑器提供的两个动作：往光标处插一段文字（返回是否插成功）、在文末另起一个空的列表项并把光标放进去。侧边栏功能（转写）要用 */
-  editorActions: { insertText: (text: string) => boolean; startList: () => void } | null;
+  /** runSlash：按 id 执行一条斜杠菜单里的命令（命令面板的「插入…」靠它）；只有富文本编辑器提供 */
+  editorActions: { insertText: (text: string) => boolean; startList: () => void; runSlash?: (id: string) => boolean } | null;
+  /** 编辑器里当前选中的文字；没有选区时是空串。状态栏据此显示「选中 N 字」 */
+  selectionText: string;
+  setSelectionText: (text: string) => void;
   /** 最近一次「不是编辑器自己打的字」的改写（转写、纪要这类侧边栏功能写进笔记）。富文本编辑器看到 rev 变了就重载这篇，哪怕光标正在里面 */
   externalWrite: { id: string; rev: number } | null;
   sidebarTab: SidebarTab;
   /** 标签视图里选中的标签 */
   selectedTag: string | null;
-  /** 状态栏里一闪而过的提示（图片压缩了多少、恢复了哪个版本……） */
-  notice: { id: number; text: string } | null;
+  /** 状态栏里一闪而过的提示（图片压缩了多少、恢复了哪个版本……）；带按钮的会多停留一会儿 */
+  notice: { id: number; text: string; actions?: NoticeAction[] } | null;
   /** 专注模式：收起侧边栏与工具栏，当前段落以外的内容淡出，光标所在行保持在屏幕中间 */
   focusMode: boolean;
   sidebarWidth: number;
+  /** 文件树的排序方式（文件夹总在前、按名称）；记在 localStorage 里 */
+  fileSort: FileSortMode;
   /** 每次 +1 让搜索面板重新聚焦输入框 */
   globalSearchFocus: number;
+  /** 外面（iml://search 链接）指定要搜的词：搜索面板拿走之后清空 */
+  globalSearchQuery: string | null;
   /** 笔记库内容版本：树刷新 / 外部改动时 +1，反向链接面板据此重新查询 */
   libraryVersion: number;
   expandedPaths: string[];
@@ -242,6 +270,16 @@ export interface AppState {
   imageCompression: boolean;
   /** 粘贴网址时自动取网页标题 */
   fetchLinkTitle: boolean;
+  /** 鼠标停在 [[链接]] 上弹出预览卡片 */
+  linkPreview: boolean;
+  /** 应用 <笔记库>/.iml/snippets.css 里的自定义样式 */
+  userCss: boolean;
+  /** 源码模式用 Vim 键位 */
+  vimMode: boolean;
+  /** 读片段文件并应用（关着、或文件不存在就撤掉）。启动、切换笔记库、片段文件被保存时调用 */
+  reloadUserCss: () => Promise<void>;
+  /** 在访达里显示片段文件；还没有就先按示例模板建一个（模板全是注释，不改变外观） */
+  revealUserCss: () => Promise<void>;
   spellcheck: boolean;
   /** AI 总开关：关掉后所有 AI 入口隐藏，应用不会向任何模型服务发请求 */
   aiEnabled: boolean;
@@ -294,16 +332,46 @@ export interface AppState {
   getNewNoteDir: () => string;
   /** 主进程通知：笔记库里这些路径被外部改动 */
   handleExternalChanges: (paths: string[]) => Promise<void>;
-  /** 打开（不存在则按「模板/日记.md」或内置模板新建）今天的日记：<笔记库>/日记/YYYY-MM-DD.md */
-  openDailyNote: () => Promise<void>;
+  /** 打开（不存在则按「模板/日记.md」或内置模板新建）某一天的日记，默认今天：<笔记库>/日记/YYYY-MM-DD.md */
+  openDailyNote: (date?: Date) => Promise<void>;
+  /** 执行一个 iml:// 链接要做的事（主进程已经解析、校验过） */
+  runAppUrl: (action: AppUrlAction) => Promise<void>;
+  /** 确保某一天的日记存在（不存在就按模板建），但不打开它；返回路径，没有笔记库时返回 null */
+  ensureDailyNote: (date?: Date) => Promise<string | null>;
+  /** 快速捕获：把一句话带上时间追加到今天的日记末尾，不打开也不切过去 */
+  captureToDaily: (text: string) => Promise<boolean>;
   /** 列出 <笔记库>/模板 下的模板 */
   listTemplates: () => Promise<{ name: string; path: string }[]>;
   /** 用模板在目录里新建笔记（默认目录 = getNewNoteDir） */
   createNoteFromTemplate: (templatePath: string, dirPath?: string) => Promise<string | null>;
   /** 写入示例模板（已存在的不覆盖） */
   createSampleTemplates: () => Promise<void>;
-  /** 打开 [[目标]] 指向的笔记：按文件名或一级标题匹配，优先同目录；找不到就在当前笔记所在目录新建 */
+  /**
+   * 打开 [[目标]] 指向的笔记：按文件名、一级标题或别名匹配，优先同目录；找不到就在当前笔记所在目录新建。
+   * `[[笔记#小节]]` 打开后跳到小节，`[[#小节]]` 在本篇内跳，`[[笔记#^块]]` 跳到那一段。
+   */
   openWikiLink: (target: string) => Promise<void>;
+  /**
+   * 把 notePath 那篇里的一处「未链接提及」改成指向 targetPath 的 [[链接]]。
+   * 那篇有没存盘的改动时只改编辑器里的内容；否则直接写盘（覆盖前版本历史会留底）。
+   * 返回原文因此变长了多少个字符（同一篇里排在后面的提及要跟着挪位置）；原文对不上就什么都不动，返回 null。
+   */
+  linkMention: (notePath: string, mention: { offset: number; length: number; match: string }, targetPath: string) => Promise<number | null>;
+  /**
+   * 改写一篇（不一定是当前这篇）笔记，给侧边栏里「就地改别的笔记」的功能用：未链接提及转链接、勾待办、标签改名。
+   * 那篇开着且有没存盘的改动 → 只改编辑器里的；否则读盘、改、写盘（版本历史留底），开着的标签页同步更新且不变脏。
+   * transform 返回 null 表示「原文对不上，别动」，此时什么都不写、返回 null。
+   */
+  rewriteNote: (notePath: string, transform: (content: string) => string | null) => Promise<{ before: string; after: string } | null>;
+  /**
+   * 全库把标签 from 改成 to（子标签 from/x 跟着变成 to/x）；to 已经存在就是合并。
+   * 逐篇改写，每篇覆盖前版本历史都会留底。返回改了几篇、几篇没改成。
+   */
+  renameTag: (from: string, to: string) => Promise<{ changed: number; failed: number }>;
+  /** 打开待办所在的笔记并跳到那一行 */
+  openTask: (notePath: string, task: { line: number; text: string }) => Promise<void>;
+  /** 在待办面板里勾上 / 取消一条待办；那一行对不上了就不动，返回 false */
+  toggleTask: (notePath: string, task: { line: number; raw: string; done: boolean }, done: boolean) => Promise<boolean>;
   updateFileNode: (path: string, updates: Partial<FileNode>) => void;
   updateTabId: (oldId: string, newId: string, newTitle: string) => void;
   setExpanded: (path: string, expanded: boolean) => void;
@@ -330,8 +398,8 @@ export interface AppState {
   setSidebarTab: (tab: SidebarTab) => void;
   /** 打开侧边栏的标签视图并选中某个标签（点击正文里的 #标签 时调用） */
   openTag: (tag: string | null) => void;
-  /** 状态栏里的一行提示；报错类的可以给长一点的停留时间 */
-  notify: (text: string, ms?: number) => void;
+  /** 状态栏里的一行提示；报错类的可以给长一点的停留时间。带按钮（「打开」「在访达中显示」这类）的默认停 15 秒，给人时间点 */
+  notify: (text: string, ms?: number, actions?: NoticeAction[]) => void;
   toggleFocusMode: () => void;
   /** ⌘⇧F：打开侧边栏搜索面板并聚焦 */
   openGlobalSearch: () => void;
@@ -342,6 +410,7 @@ export interface AppState {
   /** 用给定关键词打开文档内查找（全文搜索结果点开后定位用） */
   showFindWith: (query: string) => void;
   setSidebarWidth: (width: number) => void;
+  setFileSort: (mode: FileSortMode) => void;
   refreshWorkspace: () => Promise<void>;
   openFileByPath: (filePath: string) => Promise<void>;
   openFile: () => Promise<void>;
@@ -422,14 +491,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   searchCommand: null,
   editorFlush: null,
   editorActions: null,
+  selectionText: '',
+  setSelectionText: (text) => { if (get().selectionText !== text) set({ selectionText: text }); },
   externalWrite: null,
   sidebarTab: 'library',
   selectedTag: null,
   notice: null,
   focusMode: false,
   globalSearchFocus: 0,
+  globalSearchQuery: null,
   libraryVersion: 0,
   sidebarWidth: 240,
+  fileSort: (() => { try { const v = localStorage.getItem(FILE_SORT_KEY); return isFileSortMode(v) ? v : DEFAULT_FILE_SORT; } catch { return DEFAULT_FILE_SORT; } })(),
   expandedPaths: [],
   navigationRequest: null,
   tabToClose: null,
@@ -456,6 +529,27 @@ export const useAppStore = create<AppState>((set, get) => ({
   imageGenConfig: DEFAULT_IMAGE_GEN_CONFIG,
   imageCompression: true,
   fetchLinkTitle: true,
+  linkPreview: true,
+  userCss: true,
+  vimMode: false,
+  reloadUserCss: async () => {
+    const root = get().workspacePath || get().defaultLibraryPath;
+    if (!get().userCss || !root) { applyUserCss(''); return; }
+    let css = '';
+    try { const res = await window.api.fs.readFile(snippetsPathOf(root)); if (res.success) css = res.content || ''; } catch { css = ''; }
+    applyUserCss(css);
+  },
+  revealUserCss: async () => {
+    const root = get().workspacePath || get().defaultLibraryPath;
+    if (!root) return;
+    const file = snippetsPathOf(root);
+    if (!(await window.api.fs.exists(file))) {
+      const dir = file.slice(0, Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\')));
+      if (!(await window.api.fs.exists(dir))) await window.api.fs.mkdir(dir);
+      await window.api.fs.writeFile(file, SNIPPETS_TEMPLATE);
+    }
+    window.api.shell.showItemInFolder(file);
+  },
   spellcheck: false,
   aiEnabled: true,
   editorPrefs: DEFAULT_EDITOR_PREFS,
@@ -625,6 +719,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 已展开的子目录补加载子节点
     await get().refreshWorkspace();
     window.api.library.watch(libraryPath).catch(() => {});
+    void get().reloadUserCss();
   },
 
   getNewNoteDir: () => {
@@ -663,13 +758,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     return folderPath;
   },
 
-  openDailyNote: async () => {
+  ensureDailyNote: async (date?: Date) => {
+    // 菜单、快捷键会把事件对象当参数传进来：不是日期的一律当今天
+    const day = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
     const root = get().workspacePath || get().defaultLibraryPath;
-    if (!root) return;
+    if (!root) return null;
     const sep = pathSep(root);
     const dir = `${root}${sep}${DAILY_DIR}`;
     if (!(await window.api.fs.exists(dir))) await window.api.fs.mkdir(dir);
-    const today = formatDate(new Date());
+    const today = formatDate(day);
     const filePath = `${dir}${sep}${today}.md`;
     if (!(await window.api.fs.exists(filePath))) {
       const tplPath = `${root}${sep}${TEMPLATE_DIR}${sep}日记.md`;
@@ -678,12 +775,52 @@ export const useAppStore = create<AppState>((set, get) => ({
         const tpl = await window.api.fs.readFile(tplPath);
         if (tpl.success && tpl.content) template = tpl.content;
       }
-      const res = await window.api.fs.writeFile(filePath, renderNoteTemplate(template, { title: today }));
-      if (!res.success) return;
+      // 补写过去某天的日记时，模板里的 {{date}} {{weekday}} 是那一天，不是今天
+      const res = await window.api.fs.writeFile(filePath, renderNoteTemplate(template, { title: today, date: day }));
+      if (!res.success) return null;
       set({ expandedPaths: [...new Set([...get().expandedPaths, dir])] });
       await get().refreshWorkspace();
     }
-    await get().openFileByPath(filePath);
+    return filePath;
+  },
+
+  openDailyNote: async (date?: Date) => {
+    const filePath = await get().ensureDailyNote(date);
+    if (filePath) await get().openFileByPath(filePath);
+  },
+
+  runAppUrl: async (action) => {
+    switch (action.action) {
+      case 'open-path': await get().openFileByPath(action.path); break;
+      case 'open-name': await get().openWikiLink(action.name); break;
+      case 'daily': await get().openDailyNote(); break;
+      case 'capture': await get().captureToDaily(action.text); break;
+      case 'search': get().openGlobalSearch(); set({ globalSearchQuery: action.query }); break;
+      case 'new': {
+        const dir = get().workspacePath || get().defaultLibraryPath;
+        if (!dir) return;
+        const sep = pathSep(dir);
+        // 标题做文件名；没给标题就用正文的第一行。永远不覆盖已有的文件
+        const base = (action.title || deriveNoteTitle(action.content) || '未命名').replace(/[\\/:*?"<>|#^[\]]/g, '').trim().slice(0, 80) || '未命名';
+        let name = base;
+        for (let i = 2; await window.api.fs.exists(`${dir}${sep}${name}.md`); i++) name = `${base} ${i}`;
+        const body = action.content || `# ${base}\n\n`;
+        const res = await window.api.fs.writeFile(`${dir}${sep}${name}.md`, body.endsWith('\n') ? body : `${body}\n`);
+        if (!res.success) return;
+        await get().refreshWorkspace();
+        await get().openFileByPath(`${dir}${sep}${name}.md`);
+        break;
+      }
+    }
+  },
+
+  captureToDaily: async (text: string) => {
+    if (!text.trim()) return false; // 先判空：别为了一句空话白建一篇日记
+    const now = new Date();
+    const filePath = await get().ensureDailyNote(now);
+    if (!filePath) return false;
+    // 不打开、不切过去：用户此刻在别的软件里。日记正开着的话 rewriteNote 会照顾好没存盘的改动
+    return !!(await get().rewriteNote(filePath, (content) => appendCapture(content, text, now)));
   },
 
   listTemplates: async () => {
@@ -734,26 +871,38 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   openWikiLink: async (target: string) => {
-    const name = target.trim();
-    if (!name) return;
+    const raw = target.trim();
+    if (!raw) return;
     const { activeTabId, workspacePath, defaultLibraryPath } = get();
     const currentDir = activeTabId && !activeTabId.startsWith('new-')
       ? activeTabId.substring(0, activeTabId.lastIndexOf(pathSep(activeTabId)))
       : (workspacePath || defaultLibraryPath);
-    const lower = name.toLowerCase();
-    let notes: { path: string; title: string }[] = [];
+    let notes: { path: string; title: string; aliases?: string[] }[] = [];
     try { notes = await window.api.search.listNotes(); } catch { notes = []; }
-    const basename = (p: string) => (p.split(/[/\\]/).pop() || '').replace(/\.(md|markdown|mdown|mkd|txt)$/i, '');
-    const candidates = notes.filter((n) => basename(n.path).toLowerCase() === lower || n.title.toLowerCase() === lower);
-    const pick = candidates.find((n) => currentDir && n.path.startsWith(currentDir + pathSep(n.path))) || candidates[0];
-    if (pick) {
-      await get().openFileByPath(pick.path);
+    const link = resolveWikiTarget(notes, raw, currentDir);
+
+    // 打开之后跳到 #小节 / #^块；小节对不上就停在笔记开头，不报错
+    const jump = (tabId: string | null) => {
+      if (link.block) { set({ navigationRequest: { blockId: link.block, timestamp: Date.now() } }); return; }
+      if (link.headings.length === 0) return;
+      const tab = get().tabs.find((t) => t.id === tabId);
+      if (!tab) return;
+      const headings = extractHeadings(tab.content);
+      const at = findHeadingIndex(headings, link.headings);
+      if (at !== -1) get().scrollToHeading(headings[at]);
+    };
+
+    if (!link.note) { jump(activeTabId); return; } // [[#小节]]：本篇内跳转
+    if (link.hit) {
+      await get().openFileByPath(link.hit.path);
+      jump(link.hit.path);
       return;
     }
-    // 新建
+    // 新建：名字只取笔记名那一段（不带 #小节；路径写法取最后一级）
+    const name = (link.note.split(/[/\\]/).pop() || '').replace(/[\\/:*?"<>|#^[\]]/g, '').trim();
     const dir = currentDir || workspacePath || defaultLibraryPath;
-    if (!dir) return;
-    const filePath = `${dir}${pathSep(dir)}${name.replace(/[\\/:*?"<>|]/g, '')}.md`;
+    if (!dir || !name) return;
+    const filePath = `${dir}${pathSep(dir)}${name}.md`;
     if (!(await window.api.fs.exists(filePath))) {
       const res = await window.api.fs.writeFile(filePath, `# ${name}\n\n`);
       if (!res.success) return;
@@ -761,6 +910,66 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     await get().openFileByPath(filePath);
   },
+
+  rewriteNote: async (notePath, transform) => {
+    const tab = get().tabs.find((t) => t.id === notePath);
+    if (tab?.isDirty) {
+      // 有没存盘的改动：只改编辑器里的内容，跟着用户下次保存一起落盘
+      let result: { before: string; after: string } | null = null;
+      get().editTabContent(notePath, (current) => {
+        const next = transform(current);
+        if (next !== null) result = { before: current, after: next };
+        return next ?? current;
+      });
+      return result;
+    }
+    const read = await window.api.fs.readFile(notePath);
+    if (!read.success) return null;
+    const before = read.content || '';
+    const after = transform(before);
+    if (after === null) return null;
+    if (after === before) return { before, after };
+    const written = await window.api.fs.writeFile(notePath, after); // 覆盖前版本历史会留底
+    if (!written.success) return null;
+    if (tab) {
+      set((state) => ({
+        tabs: state.tabs.map((t) => (t.id === notePath ? { ...t, content: after, isDirty: false, diskSig: contentSig(after) } : t)),
+        externalWrite: { id: notePath, rev: (state.externalWrite?.rev ?? 0) + 1 },
+      }));
+    }
+    return { before, after };
+  },
+
+  linkMention: async (notePath, mention, targetPath) => {
+    const done = await get().rewriteNote(notePath, (content) => linkifyMention(content, mention.offset, mention.length, mention.match, noteBaseName(targetPath)));
+    return done ? done.after.length - done.before.length : null;
+  },
+
+  renameTag: async (from, to) => {
+    const a = from.trim().replace(/^#/, '');
+    const b = to.trim().replace(/^#/, '');
+    if (!a || !isValidTagName(b) || a === b) return { changed: 0, failed: 0 };
+    let notes: { path: string }[] = [];
+    try { notes = await window.api.search.notesByTag(a); } catch { notes = []; }
+    let changed = 0;
+    let failed = 0;
+    for (const note of notes) {
+      const done = await get().rewriteNote(note.path, (content) => renameTagInMarkdown(content, a, b));
+      if (!done) failed++;
+      else if (done.after !== done.before) changed++;
+    }
+    // 正看着的就是被改名的标签（或它的子标签）：跟过去，别停在一个已经不存在的标签上
+    const selected = get().selectedTag;
+    if (selected && tagMatches(selected, a)) set({ selectedTag: b + selected.slice(a.length) });
+    return { changed, failed };
+  },
+
+  openTask: async (notePath, task) => {
+    await get().openFileByPath(notePath);
+    if (get().activeTabId === notePath) set({ navigationRequest: { line: task.line, lineText: task.text, timestamp: Date.now() } });
+  },
+
+  toggleTask: async (notePath, task, done) => !!(await get().rewriteNote(notePath, (content) => toggleTaskLine(content, task, done))),
 
   handleExternalChanges: async (paths: string[]) => {
     await get().refreshWorkspace();
@@ -890,10 +1099,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   openAsk: () => { set({ sidebarTab: 'ask', sidebarVisible: true, focusMode: false }); useAskStore.getState().requestFocus(); },
   showFindWith: (query) => set((state) => ({ findVisible: true, replaceVisible: false, search: { ...state.search, query } })),
   openTag: (tag) => set({ selectedTag: tag, sidebarTab: 'tags', sidebarVisible: true, focusMode: false }),
-  notify: (text, ms = 5000) => {
+  notify: (text, ms, actions) => {
     const id = Date.now();
-    set({ notice: { id, text } });
-    setTimeout(() => { if (get().notice?.id === id) set({ notice: null }); }, ms);
+    set({ notice: actions?.length ? { id, text, actions } : { id, text } });
+    setTimeout(() => { if (get().notice?.id === id) set({ notice: null }); }, ms ?? (actions?.length ? 15000 : 5000));
   },
   toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
   setSidebarTab: (tab: SidebarTab) => {
@@ -905,6 +1114,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   setSidebarWidth: (width) => set({ sidebarWidth: Math.min(600, Math.max(240, width)) }),
+  setFileSort: (mode) => { try { localStorage.setItem(FILE_SORT_KEY, mode); } catch { /* 记不住也不影响这次排序 */ } set({ fileSort: mode }); },
   refreshWorkspace: async () => {
     const { workspacePath, expandedPaths } = get();
     if (!workspacePath) return;
@@ -1179,11 +1389,15 @@ export const useAppStore = create<AppState>((set, get) => ({
           imageGenConfig: settings.imageGenConfig || DEFAULT_IMAGE_GEN_CONFIG,
           imageCompression: settings.imageCompression ?? true,
           fetchLinkTitle: settings.fetchLinkTitle ?? true,
+          linkPreview: settings.linkPreview ?? true,
+          userCss: settings.userCss ?? true,
+          vimMode: !!settings.vimMode,
           spellcheck: !!settings.spellcheck,
           aiEnabled: settings.aiEnabled ?? true,
           editorPrefs: normalizeEditorPrefs(settings.editorPrefs),
         });
         applyEditorPrefs(get().editorPrefs);
+        void get().reloadUserCss(); // 设置里开 / 关了「自定义样式」
         if (settings.themeId) get().setTheme(settings.themeId);
         get().applyAppearance(settings.appearanceMode || 'light');
         // 笔记库路径变化（含设置窗口里改动后广播回来）时重新加载树
@@ -1196,10 +1410,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   saveSettings: async () => {
-    const { appearanceMode, startupBehavior, autoSave, defaultLibraryPath, imageGenConfig, theme, imageCompression, fetchLinkTitle, spellcheck, aiEnabled, editorPrefs } = get();
+    const { appearanceMode, startupBehavior, autoSave, defaultLibraryPath, imageGenConfig, theme, imageCompression, fetchLinkTitle, linkPreview, userCss, vimMode, spellcheck, aiEnabled, editorPrefs } = get();
     await window.api.app.saveSettings({
       appearanceMode, startupBehavior, autoSave, defaultLibraryPath, imageGenConfig,
-      imageCompression, fetchLinkTitle, spellcheck, aiEnabled, editorPrefs,
+      imageCompression, fetchLinkTitle, linkPreview, userCss, vimMode, spellcheck, aiEnabled, editorPrefs,
       themeId: theme?.id,
     });
   },
@@ -1408,3 +1622,7 @@ if (isMainWindow) {
   window.addEventListener('beforeunload', flushSessionNow);
   window.addEventListener('blur', flushSessionNow);
 }
+
+// 开发模式下把 store 挂到 window 上：端到端测试要核对「标签页里的内容和磁盘是不是一致」这类界面上看不出来的状态。
+// 生产包里 import.meta.env.DEV 是 false，这一段会被整个去掉
+if (import.meta.env.DEV && typeof window !== 'undefined') (window as unknown as { __imlStore?: typeof useAppStore }).__imlStore = useAppStore;

@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>对标 Obsidian：功能差距分析与补齐建议</title>
+<style>
+:root{--ink:#1d1d1f;--sub:#6e6e73;--line:#e5e5ea;--bg:#f5f5f7;--accent:#c8102e;--accent-soft:color-mix(in srgb,#c8102e 8%,#fff);--ok:#1f8a4c;--ok-bg:#e7f5ec;--mid:#a86400;--mid-bg:#fdf1dc;--no:#8e8e93;--no-bg:#f0f0f3}
+*{box-sizing:border-box}
+body{max-width:1040px;margin:40px auto 80px;padding:0 24px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;line-height:1.7;color:var(--ink);font-size:15px}
+h1{font-size:28px;margin:0 0 6px;letter-spacing:-.01em}
+h2{margin:2.4em 0 .6em;font-size:21px;padding-bottom:6px;border-bottom:2px solid var(--accent)}
+h3{margin:1.6em 0 .4em;font-size:16px}
+p{margin:.6em 0}
+a{color:#0a58ca;text-decoration:none}a:hover{text-decoration:underline}
+.meta{color:var(--sub);font-size:13px;margin-bottom:20px}
+code{background:#f2f2f7;padding:1px 5px;border-radius:4px;font-size:.88em;font-family:"SF Mono",Menlo,monospace}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13.5px}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--bg);font-weight:600;white-space:nowrap}
+td.c{white-space:nowrap;text-align:center}
+td.n{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
+.chip{display:inline-block;padding:0 8px;border-radius:999px;font-size:12px;line-height:20px;font-weight:600;white-space:nowrap}
+.ok{background:var(--ok-bg);color:var(--ok)}
+.mid{background:var(--mid-bg);color:var(--mid)}
+.no{background:var(--no-bg);color:var(--no)}
+.sz{background:#eef1ff;color:#3b47c4}
+.ev{background:#fff;border:1px solid var(--line);color:var(--sub);font-weight:500}
+.lead{background:var(--accent-soft);border-left:3px solid var(--accent);padding:14px 18px;border-radius:0 8px 8px 0;margin:16px 0}
+.lead p{margin:.35em 0}
+.note{background:var(--bg);border-radius:8px;padding:10px 14px;color:var(--sub);font-size:13px;margin:12px 0}
+.note p{margin:.3em 0}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
+.card{border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card h4{margin:0 0 4px;font-size:14px}
+.card .big{font-size:26px;font-weight:700;letter-spacing:-.02em}
+.card p{margin:2px 0 0;color:var(--sub);font-size:12.5px;line-height:1.5}
+.bars{margin:14px 0}
+.bar-row{display:grid;grid-template-columns:120px 1fr 120px;align-items:center;gap:12px;margin:7px 0;font-size:13px}
+.bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--no-bg)}
+.bar i{display:block;height:100%}
+.bar .b-ok{background:#34a866}.bar .b-mid{background:#f0a93a}.bar .b-no{background:#d1d1d6}
+.bar-row span:last-child{color:var(--sub);font-size:12px;text-align:right}
+.legend{font-size:12px;color:var(--sub);display:flex;gap:14px;margin-top:4px}
+.legend b{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.tier{border:1px solid var(--line);border-radius:10px;margin:14px 0;overflow:hidden}
+.tier>header{padding:10px 16px;background:var(--bg);font-weight:600;display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.tier>header small{color:var(--sub);font-weight:400}
+.tier table{margin:0;border:0}
+.tier th,.tier td{border-left:0;border-right:0}
+.tier tr:last-child td{border-bottom:0}
+.score{display:grid;grid-template-columns:90px 1fr 34px;gap:10px;align-items:center;font-size:13px;margin:5px 0}
+.score .t{height:10px;border-radius:5px;background:var(--no-bg);overflow:hidden}
+.score .t i{display:block;height:100%;background:#8e8e93;border-radius:5px}
+.score.hi .t i{background:#34a866}.score.lo .t i{background:#e0574f}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+ul{padding-left:1.3em;margin:.5em 0}
+li{margin:.25em 0}
+.src{font-size:12px;color:var(--sub)}
+@media(max-width:760px){.grid,.two{grid-template-columns:1fr}.bar-row{grid-template-columns:90px 1fr}.bar-row span:last-child{display:none}}
+</style>
+</head>
+<body>
+
+<h1>对标 Obsidian：功能差距分析与补齐建议</h1>
+<div class="meta">2026-09-20 · 基于 iML Markdown Editor v26.3.1 当前代码 · Obsidian 一侧的数据于同日联网抓取，口径与局限见文末</div>
+
+<div class="lead">
+<p><strong>一句话结论：</strong>Obsidian 的口碑立在三样东西上——<strong>本地纯文本</strong>、<strong>链接</strong>、<strong>插件生态</strong>。前两样我们已有大半；第三样我们决定不做，对策是「把最常装的插件内置」。对照官方下载榜 Top 30，<strong>我们已内置其中 8 个、部分覆盖 6 个</strong>。</p>
+<p><strong>最该补的有两类：</strong>一是<strong>链接的最后几针</strong>（<code>[[笔记#小节]]</code> 跳转、<code>![[嵌入]]</code> 渲染、未链接提及、别名、悬浮预览）——都是 1~5 天的活，补完后从 Obsidian 搬来的库才算真能用；二是下载榜上<strong>证据最硬、我们又正好差一层皮的</strong>：日历（312 万）、全库待办（Tasks 428 万）、标签改名（Tag Wrangler 110 万）、快速捕获（QuickAdd 213 万）。</p>
+<p><strong>别丢的优势：</strong>Obsidian 官方明确不内置 AI，用户要装 Copilot + Smart Connections + Ollama 自己拼；而连反对 AI 进笔记库的人都认可的三种用法——相似度搜索、相关笔记、语音转文字——正好是我们已经内置的三样。</p>
+</div>
+
+<div class="note" style="border-left:3px solid var(--ok);border-radius:0 8px 8px 0">
+<p><strong>实施进展（2026-09-20 当天）：</strong>第一档 #1~#6 和第二档的 #7 日历已经做完，尚未发版。下面各节的「有 / 部分 / 没有」统计是<strong>动工之前</strong>的状态，留作对照。</p>
+<p>已实现：<code>[[笔记#小节]]</code>、<code>[[#本篇小节]]</code>、<code>[[笔记#^块]]</code> 跳转（含 <code>[[笔记#</code> 小节补全）· 别名 <code>aliases</code>（解析、补全、快速打开）· 未链接提及（一键转成链接）· 悬浮预览 · <code>![[嵌入]]</code>（笔记、小节、块、图片、音频；图片按文件名全库查找）· 命令面板（⌘⇧P）· 日记月历。顺带修了一个老问题：目录里点同名标题总是跳到第一个。</p>
+<p><strong>同日第二批也已完成：</strong>#8 全库待办（侧边栏「待办」页，认 <code>📅 日期</code> 与 <code>[due:: 日期]</code>，打勾写回原笔记）· #9 标签改名 / 合并（标签面板右键）· #10 快速捕获（全局快捷键 ⌃⌥N，可在设置里改）· 导出 PDF / HTML 时展开嵌入。月历按反馈钉在了侧边栏底部。</p>
+<p><strong>同日第三批也已完成：</strong>#12 属性面板可视化编辑（文本 / 日期 / 勾选 / 列表，逐字段改、其余原文不动）· #14 文件树排序 · #11 同步盘一键配置（iCloud / 坚果云 / OneDrive / Dropbox 等，检测到才显示）· 命令面板新增「插入：表格 / 公式 / 提示块…」· 悬浮预览开关 · 状态栏选区字数。</p>
+<p><strong>第四批（2026-09-21）：</strong>#15 导出 Word（.docx，标题 / 列表 / 表格 / 代码 / 脚注 / 图片 / 嵌入，公式以 LaTeX 原文保留）与导出长图（PNG，超长自动分张）· #16 小项：源码模式 ⌘D 选中下一个相同词、可选的 Vim 键位、快速打开 / 命令面板支持拼音首字母、脚注点击跳转、⌥↑ / ⌥↓ 整块移动、用户 CSS 片段（<code>.iml/snippets.css</code>，屏蔽远程资源）、<code>![[视频]]</code> 内嵌播放与 <code>![[PDF]]</code> 文件卡片、<code>iml://</code> 链接唤起（打开 / 新建 / 日记 / 捕获 / 搜索）。顺带修了一个老问题：切换标签页后按 ⌘Z 会把上一篇笔记的内容撤销进当前这篇。</p>
+<p><strong>导出的收尾（2026-09-21）：</strong>导出成功的提示带「打开」「在访达中显示」按钮；长图末尾带「来自 iML Markdown Editor」角标（分成几张时每张都有），分张改在段落边界切、不再切断一行字。同步盘一键配置可以反悔了：打了勾的再点一下或点「改回原来的目录」就回到放进去之前的目录，说明里写明笔记文件不会自动搬。</p>
+<p>已知未做：自定义快捷键（#13，要把现有硬编码的按键处理整体改成注册表驱动）；#16 里的列表 / 标题折叠；PDF 只做了文件卡片，没有页内预览；被嵌入笔记里的流程图在导出时不渲染；第三档 #17~#24 按约定未动。</p>
+</div>
+
+<h2>一、现在的位置</h2>
+
+<div class="grid">
+<div class="card"><h4>已经对齐</h4><div class="big" style="color:var(--ok)">27 项</div><p>双链、反链、标签、快速打开、多标签、模板、日记、版本历史、表格 / 公式 / Mermaid / Callout、专注模式……</p></div>
+<div class="card"><h4>有但不完整</h4><div class="big" style="color:var(--mid)">14 项</div><p>嵌入、别名、属性编辑、全局搜索、脚注、附件、折叠、多光标、同步、移动端、主题……</p></div>
+<div class="card"><h4>完全没有</h4><div class="big" style="color:var(--no)">21 项</div><p>命令面板、悬浮预览、图谱、块引用、分栏、Canvas / Bases / 看板、日历、自定义快捷键、剪藏、URI……</p></div>
+</div>
+<p class="src">按 Obsidian 功能表拆成 9 类 62 项逐项核对源码；AI 与杂项另计（AI 一侧我们多于 Obsidian 核心，见第六节）。</p>
+
+<div class="bars">
+<div class="bar-row"><span>编辑体验</span><div class="bar"><i class="b-ok" style="width:56%"></i><i class="b-mid" style="width:33%"></i><i class="b-no" style="width:11%"></i></div><span>5 有 · 3 部分 · 1 无</span></div>
+<div class="bar-row"><span>链接与知识网络</span><div class="bar"><i class="b-ok" style="width:33%"></i><i class="b-mid" style="width:22%"></i><i class="b-no" style="width:45%"></i></div><span>3 有 · 2 部分 · 4 无</span></div>
+<div class="bar-row"><span>文件与库</span><div class="bar"><i class="b-ok" style="width:67%"></i><i class="b-mid" style="width:17%"></i><i class="b-no" style="width:16%"></i></div><span>8 有 · 2 部分 · 2 无</span></div>
+<div class="bar-row"><span>内容类型</span><div class="bar"><i class="b-ok" style="width:64%"></i><i class="b-mid" style="width:36%"></i></div><span>7 有 · 4 部分 · 0 无</span></div>
+<div class="bar-row"><span>模板与日记</span><div class="bar"><i class="b-ok" style="width:50%"></i><i class="b-no" style="width:50%"></i></div><span>2 有 · 0 部分 · 2 无</span></div>
+<div class="bar-row"><span>白板与数据库</span><div class="bar"><i class="b-no" style="width:100%"></i></div><span>0 有 · 0 部分 · 3 无</span></div>
+<div class="bar-row"><span>导出与发布</span><div class="bar"><i class="b-ok" style="width:33%"></i><i class="b-no" style="width:67%"></i></div><span>2 有 · 0 部分 · 4 无</span></div>
+<div class="bar-row"><span>同步与多端</span><div class="bar"><i class="b-mid" style="width:67%"></i><i class="b-no" style="width:33%"></i></div><span>0 有 · 2 部分 · 1 无</span></div>
+<div class="bar-row"><span>扩展性</span><div class="bar"><i class="b-mid" style="width:20%"></i><i class="b-no" style="width:80%"></i></div><span>0 有 · 1 部分 · 4 无</span></div>
+<div class="legend"><span><b style="background:#34a866"></b>有</span><span><b style="background:#f0a93a"></b>部分</span><span><b style="background:#d1d1d6"></b>没有</span></div>
+</div>
+
+<p><strong>「链接与知识网络」是最该补的一栏</strong>：它是 Obsidian 的立身之本，我们的短板也最集中，而且缺的每一项都不大。「白板与数据库」「扩展性」两栏全灰，其中大部分是有意的取舍。</p>
+
+<h2>二、Obsidian 用户真正在乎什么</h2>
+
+<p>排序综合了四类证据：评测里好评关键词的频次、按「要解决的事」聚合后的插件下载量、Practical PKM 2026 社区评分、官方论坛功能请求的赞数。</p>
+
+<table>
+<thead><tr><th>#</th><th>能力</th><th>证据</th><th>我们</th></tr></thead>
+<tbody>
+<tr><td class="c">1</td><td><strong>本地优先 · 纯 Markdown · 数据归自己</strong></td><td>所有来源里的第一好评。Product Hunt 173 条评价（4.9 / 5）中：本地存储 33 次、Markdown 25 次、隐私 15 次</td><td class="c"><span class="chip ok">有</span></td></tr>
+<tr><td class="c">2</td><td><strong>链接</strong>：双链、反链、未链接提及、局部图谱</td><td>评测公认最有实际价值的能力；论坛用户说反链面板能「一下子把遗忘的关联全翻出来」。全局图谱只负责拉新</td><td class="c"><span class="chip mid">大半</span></td></tr>
+<tr><td class="c">3</td><td><strong>多端同步可靠</strong></td><td>官方 Sync 社区评分 4.6（全场最高）；不愿付费的人撑起了同步类插件合计 650 万+ 下载；中文用户头号痛点</td><td class="c"><span class="chip mid">iCloud</span></td></tr>
+<tr><td class="c">4</td><td><strong>可扩展、可定制</strong></td><td>Product Hunt 好评第一关键词（社区插件 45 次）——同时也是头号抱怨来源：「折腾」</td><td class="c"><span class="chip no">不做</span></td></tr>
+<tr><td class="c">5</td><td><strong>模板 · 日记 · 快速捕获</strong></td><td>Templater 565 万、Calendar 312 万、QuickAdd 213 万、Periodic Notes 76 万。用户直接要求把 Calendar 和 Periodic Notes 并入核心</td><td class="c"><span class="chip mid">缺日历 / 捕获</span></td></tr>
+<tr><td class="c">6</td><td><strong>结构化视图</strong>：属性 + 数据库</td><td>Dataview 500 万；Bases 社区评分 4.4，是近两年最受欢迎的官方更新，用户正从 Dataview 迁往免写代码的 Bases</td><td class="c"><span class="chip no">无</span></td></tr>
+<tr><td class="c">7</td><td><strong>画图 / 白板 / 思维导图</strong></td><td>Excalidraw 808 万，下载量第一；而官方 Canvas 评分仅 3.5、功能停滞——需求远大于官方供给</td><td class="c"><span class="chip mid">Mermaid / AI 生图</span></td></tr>
+<tr><td class="c">8</td><td><strong>任务管理</strong></td><td>Tasks 428 万、Kanban 268 万、TaskNotes 163 万、Day Planner 89 万；Bases 至今不支持任务条目</td><td class="c"><span class="chip no">无汇总</span></td></tr>
+<tr><td class="c">9</td><td><strong>编辑体验的完成度</strong></td><td>Advanced Tables 321 万、Editing Toolbar 192 万、Outliner 142 万；「完全所见即所得」792 赞、「就地编辑嵌入块」1078 赞（功能请求第一）</td><td class="c"><span class="chip ok">多数已有</span></td></tr>
+<tr><td class="c">10</td><td><strong>找得回来 + AI</strong></td><td>Omnisearch 190 万、Claudian 217 万、Copilot 199 万、Smart Connections 121 万。增速最快的一类，官方明确不内置</td><td class="c"><span class="chip ok">领先</span></td></tr>
+</tbody>
+</table>
+
+<div class="two">
+<div>
+<h3>社区给 Obsidian 各部分打的分</h3>
+<div class="score hi"><span>Sync</span><div class="t"><i style="width:92%"></i></div><span>4.6</span></div>
+<div class="score hi"><span>桌面端</span><div class="t"><i style="width:90%"></i></div><span>4.5</span></div>
+<div class="score hi"><span>社区插件</span><div class="t"><i style="width:90%"></i></div><span>4.5</span></div>
+<div class="score hi"><span>Bases</span><div class="t"><i style="width:88%"></i></div><span>4.4</span></div>
+<div class="score"><span>Publish</span><div class="t"><i style="width:74%"></i></div><span>3.7</span></div>
+<div class="score"><span>主题</span><div class="t"><i style="width:74%"></i></div><span>3.7</span></div>
+<div class="score"><span>Canvas</span><div class="t"><i style="width:70%"></i></div><span>3.5</span></div>
+<div class="score lo"><span>移动端</span><div class="t"><i style="width:62%"></i></div><span>3.1</span></div>
+<p class="src">Practical PKM《2026 Obsidian Report Card》，满分 5。未披露受访人数，样本偏重度用户。</p>
+</div>
+<div>
+<h3>被抱怨最多的地方 = 我们的机会</h3>
+<ul>
+<li><strong>上手门槛高、开局一片空白</strong>——Product Hunt 批评关键词第一</li>
+<li><strong>折腾插件</strong>——「整个下午都在调查询和过滤器」；插件弃置、更新搞坏库、互相冲突</li>
+<li><strong>同步要么付费要么折腾</strong>——官方 4~8 美元 / 月且需外币支付</li>
+<li><strong>移动端慢</strong>——评分最低，约 30% 插件不兼容</li>
+<li><strong>搜索不按相关性排序</strong>、无语义 / 模糊匹配（官方路线图上还挂着）</li>
+<li><strong>国内网络</strong>——插件市场在 GitHub 上，常打不开</li>
+<li><strong>迁出去思源的四条理由</strong>：开箱即用、所见即所得、中文排版、不依赖插件</li>
+</ul>
+</div>
+</div>
+
+<h2>三、下载榜 Top 30：哪些我们已经内置</h2>
+
+<p>这张表最直接地回答「还差什么」。下载量取自 Obsidian 官方统计（7,835 个插件，累计约 1.5 亿次下载）。</p>
+
+<table>
+<thead><tr><th>#</th><th>插件</th><th>下载量</th><th>解决什么</th><th>我们</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td class="c">1</td><td>Excalidraw</td><td class="n">808 万</td><td>手绘白板、示意图</td><td class="c"><span class="chip no">无</span></td><td>Mermaid、AI 生成 SVG 只接住「规整的图」，接不住「随手画」。见建议 #20</td></tr>
+<tr><td class="c">2</td><td>Templater</td><td class="n">565 万</td><td>动态模板</td><td class="c"><span class="chip mid">部分</span></td><td>有模板 + 日期 / 标题变量；无脚本（也不打算有）</td></tr>
+<tr><td class="c">3</td><td>Dataview</td><td class="n">500 万</td><td>把笔记当数据库查</td><td class="c"><span class="chip no">无</span></td><td>「问你的笔记」接住一部分；2025-04 后已停更，用户在迁往 Bases</td></tr>
+<tr><td class="c">4</td><td>Tasks</td><td class="n">428 万</td><td>全库待办汇总</td><td class="c"><span class="chip no">无</span></td><td>只有单篇内的任务列表。见建议 #8</td></tr>
+<tr><td class="c">5</td><td>Advanced Tables</td><td class="n">321 万</td><td>表格好编辑</td><td class="c"><span class="chip ok">内置</span></td><td>富文本模式可视化增删行列、对齐；无排序、无公式</td></tr>
+<tr><td class="c">6</td><td>Git</td><td class="n">317 万</td><td>版本回溯 + 同步</td><td class="c"><span class="chip mid">一半</span></td><td>「回溯」那一半由版本历史内置；「同步」那一半没有</td></tr>
+<tr><td class="c">7</td><td>Calendar</td><td class="n">312 万</td><td>侧栏月历跳日记</td><td class="c"><span class="chip no">无</span></td><td>日记已有，只差这层皮。见建议 #7</td></tr>
+<tr><td class="c">8</td><td>Style Settings</td><td class="n">270 万</td><td>外观可视化调节</td><td class="c"><span class="chip mid">部分</span></td><td>字体 / 字号 / 行距 / 页宽 / 5 套配色 / 亮暗护眼均可调；不能加载用户 CSS</td></tr>
+<tr><td class="c">9</td><td>Kanban</td><td class="n">268 万</td><td>看板</td><td class="c"><span class="chip no">无</span></td><td>不建议单做；可作为待办页的一种视图</td></tr>
+<tr><td class="c">10</td><td>Remotely Save</td><td class="n">225 万</td><td>WebDAV / S3 免费同步</td><td class="c"><span class="chip no">无</span></td><td>见建议 #19</td></tr>
+<tr><td class="c">11</td><td>Iconize</td><td class="n">223 万</td><td>文件夹图标</td><td class="c"><span class="chip no">无</span></td><td>纯装饰，不建议做</td></tr>
+<tr><td class="c">12</td><td>Claudian</td><td class="n">217 万</td><td>让 Claude Code 等 agent 直接操作笔记库</td><td class="c"><span class="chip mid">天然可用</span></td><td>我们的库就是普通文件夹，agent 今天就能直接读写；没有内嵌入口。见建议 #22</td></tr>
+<tr><td class="c">13</td><td>QuickAdd</td><td class="n">213 万</td><td>快速捕获</td><td class="c"><span class="chip no">无</span></td><td>没有全局快捷键。见建议 #10</td></tr>
+<tr><td class="c">14</td><td>Copilot</td><td class="n">199 万</td><td>库内 AI 对话、问库</td><td class="c"><span class="chip ok">内置</span></td><td>问你的笔记（⌘J）+ AI 气泡，本机模型托管</td></tr>
+<tr><td class="c">15</td><td>Editing Toolbar</td><td class="n">192 万</td><td>可见的格式工具栏</td><td class="c"><span class="chip ok">内置</span></td><td>—</td></tr>
+<tr><td class="c">16</td><td>Omnisearch</td><td class="n">190 万</td><td>按相关性排序的搜索</td><td class="c"><span class="chip ok">大半</span></td><td>标题加权 + 语义补充结果；不搜 PDF、无 OCR</td></tr>
+<tr><td class="c">17</td><td>Minimal Theme Settings</td><td class="n">181 万</td><td>主题配置</td><td class="c"><span class="chip mid">部分</span></td><td>同 #8</td></tr>
+<tr><td class="c">18</td><td>Importer（官方）</td><td class="n">169 万</td><td>从别处迁入</td><td class="c"><span class="chip mid">部分</span></td><td>Obsidian / Typora 的库靠逐字保真直接打开；Evernote、Notion 无导入</td></tr>
+<tr><td class="c">19</td><td>TaskNotes</td><td class="n">163 万</td><td>一任务一笔记</td><td class="c"><span class="chip no">无</span></td><td>同 #4</td></tr>
+<tr><td class="c">20</td><td>Outliner</td><td class="n">142 万</td><td>大纲式列表操作</td><td class="c"><span class="chip no">无</span></td><td>列表项整块上下移动、折叠。见建议 #16</td></tr>
+<tr><td class="c">21</td><td>Homepage</td><td class="n">134 万</td><td>启动首页</td><td class="c"><span class="chip ok">内置</span></td><td>起始页</td></tr>
+<tr><td class="c">22</td><td>Smart Connections</td><td class="n">121 万</td><td>语义搜索、相关笔记</td><td class="c"><span class="chip ok">内置</span></td><td>嵌入模型也由应用托管</td></tr>
+<tr><td class="c">23</td><td>Recent Files</td><td class="n">119 万</td><td>最近文件</td><td class="c"><span class="chip ok">内置</span></td><td>—</td></tr>
+<tr><td class="c">24</td><td>Tag Wrangler</td><td class="n">110 万</td><td>标签批量改名、合并</td><td class="c"><span class="chip no">无</span></td><td>标签面板只能筛选和打开。见建议 #9</td></tr>
+<tr><td class="c">25</td><td>Linter</td><td class="n">107 万</td><td>规整 Markdown 格式</td><td class="c"><span class="chip no">理念相反</span></td><td>我们的原则是不动用户没碰过的原文</td></tr>
+<tr><td class="c">26</td><td>BRAT</td><td class="n">106 万</td><td>装测试版插件</td><td class="c">—</td><td>不适用</td></tr>
+<tr><td class="c">27</td><td>Notebook Navigator</td><td class="n">99 万</td><td>换个文件浏览器</td><td class="c">—</td><td>不适用</td></tr>
+<tr><td class="c">28</td><td>Admonition</td><td class="n">97 万</td><td>提示块</td><td class="c"><span class="chip ok">内置</span></td><td>Callout，语法与 Obsidian 通用</td></tr>
+<tr><td class="c">29</td><td>Self-hosted LiveSync</td><td class="n">94 万</td><td>自建实时同步</td><td class="c"><span class="chip no">无</span></td><td>同 #10</td></tr>
+<tr><td class="c">30</td><td>Day Planner</td><td class="n">89 万</td><td>日程时间块</td><td class="c"><span class="chip no">无</span></td><td>同 #4</td></tr>
+</tbody>
+</table>
+
+<div class="note">
+<p><strong>读数字时注意：</strong>下载量是安装包的累计下载，<strong>每次自动更新都计数</strong>。发版频繁的被放大（Excalidraw 发过 385 个版本）；而 Calendar 自 2021 年起没更新过，312 万更接近真实装机——<strong>所以日历的需求比排名看上去还要硬</strong>。另外国内用户多走镜像安装，中文向插件的数字偏低。</p>
+</div>
+
+<h3>官方论坛呼声最高的功能请求</h3>
+<table>
+<thead><tr><th>请求</th><th>赞</th><th>我们</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>就地编辑嵌入块</td><td class="n">1078</td><td class="c"><span class="chip no">无</span></td><td>我们连嵌入的渲染都还没有——但这条说明嵌入被重度使用</td></tr>
+<tr><td>文件列表自定义排序</td><td class="n">980</td><td class="c"><span class="chip no">无</span></td><td>文件树固定按名称排，没有可选项</td></tr>
+<tr><td>批量改标签</td><td class="n">811</td><td class="c"><span class="chip no">无</span></td><td>—</td></tr>
+<tr><td>完全所见即所得</td><td class="n">792</td><td class="c"><span class="chip ok">有</span></td><td>富文本模式</td></tr>
+<tr><td>用 H1 / 标题代替文件名</td><td class="n">712</td><td class="c"><span class="chip mid">部分</span></td><td>快速打开和链接解析都认一级标题</td></tr>
+<tr><td>全库查找替换</td><td class="n">650</td><td class="c"><span class="chip no">无</span></td><td>有版本历史兜底，做起来比别人安全</td></tr>
+<tr><td>当普通 .md 编辑器用</td><td class="n">552</td><td class="c"><span class="chip ok">有</span></td><td>Obsidian 到 1.14（2026-09 内测）才支持打开库外文件</td></tr>
+<tr><td>PDF 标注</td><td class="n">498</td><td class="c"><span class="chip no">无</span></td><td>—</td></tr>
+<tr><td>清理孤儿附件</td><td class="n">240</td><td class="c"><span class="chip ok">有</span></td><td>未引用图片清理</td></tr>
+</tbody>
+</table>
+
+<h2>四、逐项对照</h2>
+
+<table>
+<thead><tr><th>类别</th><th>Obsidian 功能</th><th>我们</th><th>现状说明</th></tr></thead>
+<tbody>
+<tr><td rowspan="9"><strong>链接与<br>知识网络</strong></td><td><code>[[双链]]</code> + 补全 + 不存在即建</td><td class="c"><span class="chip ok">有</span></td><td>富文本、源码两种模式都有补全</td></tr>
+<tr><td>反向链接面板</td><td class="c"><span class="chip ok">有</span></td><td>目录页底部，带命中片段</td></tr>
+<tr><td>标签 + 层级标签 + 标签面板</td><td class="c"><span class="chip ok">有</span></td><td>正文 <code>#标签</code> 与 frontmatter <code>tags:</code> 都认</td></tr>
+<tr><td><code>![[笔记]]</code> 嵌入</td><td class="c"><span class="chip mid">部分</span></td><td>原文保真保留，但<strong>不渲染</strong>成嵌入内容，只显示成一个链接</td></tr>
+<tr><td>别名 <code>aliases</code></td><td class="c"><span class="chip mid">部分</span></td><td><code>[[目标|显示名]]</code> 可用；frontmatter 的 <code>aliases:</code> 不参与链接解析和快速打开</td></tr>
+<tr><td><code>[[笔记#小节]]</code> 跳到小节</td><td class="c"><span class="chip no">无</span></td><td>现在把 <code>笔记#小节</code> 整串当笔记名去匹配，<strong>点了会新建一篇怪名字的笔记</strong>——从 Obsidian 搬来的库里这种链接很多，接近 bug</td></tr>
+<tr><td>悬浮预览（Page preview）</td><td class="c"><span class="chip no">无</span></td><td>链接上只有一行 title 提示</td></tr>
+<tr><td>未链接提及</td><td class="c"><span class="chip no">无</span></td><td>反链只匹配 <code>[[标题</code></td></tr>
+<tr><td>块引用 <code>^block-id</code> / 关系图谱</td><td class="c"><span class="chip no">无</span></td><td>—</td></tr>
+
+<tr><td rowspan="7"><strong>文件与库</strong></td><td>库、文件树、多标签页、会话恢复</td><td class="c"><span class="chip ok">有</span></td><td>标签页快捷键齐全，关闭栈可重开，未保存内容重启不丢</td></tr>
+<tr><td>快速切换</td><td class="c"><span class="chip ok">有</span></td><td>⌘T，模糊匹配，无命中回车新建</td></tr>
+<tr><td>书签 / 最近文件</td><td class="c"><span class="chip ok">有</span></td><td>星标 + 起始页</td></tr>
+<tr><td>文件恢复 / 版本历史</td><td class="c"><span class="chip ok">有</span></td><td>每次保存留快照、逐行 diff——比 Obsidian 的 File recovery 做得细</td></tr>
+<tr><td>全局搜索</td><td class="c"><span class="chip mid">部分</span></td><td>多词 AND + 标题加权 + 语义补充结果；无正则、无 <code>tag:</code> <code>path:</code> 过滤</td></tr>
+<tr><td>命令面板</td><td class="c"><span class="chip no">无</span></td><td>⌘P 现在是「导出 PDF」；只有正文里的斜杠菜单</td></tr>
+<tr><td>分栏 / 并排两篇</td><td class="c"><span class="chip no">无</span></td><td>同一时刻只渲染一个编辑器</td></tr>
+
+<tr><td rowspan="6"><strong>编辑体验</strong></td><td>实时预览 / 源码</td><td class="c"><span class="chip ok">有</span></td><td>富文本 + 源码分屏双模，未编辑的块逐字保真写回</td></tr>
+<tr><td>大纲、专注 / 打字机模式</td><td class="c"><span class="chip ok">有</span></td><td>专注模式仅富文本生效</td></tr>
+<tr><td>折叠标题 / 列表</td><td class="c"><span class="chip mid">部分</span></td><td>只有源码模式能折；富文本不能</td></tr>
+<tr><td>多光标</td><td class="c"><span class="chip mid">部分</span></td><td>源码模式 Alt 点击可用，⌘D 选下一处被关了</td></tr>
+<tr><td>字数统计</td><td class="c"><span class="chip mid">部分</span></td><td>全文字数；无选区字数</td></tr>
+<tr><td>Vim 模式</td><td class="c"><span class="chip no">无</span></td><td>—</td></tr>
+
+<tr><td rowspan="5"><strong>内容类型</strong></td><td>表格、任务、公式、Mermaid、代码高亮、Callout、<code>==高亮==</code></td><td class="c"><span class="chip ok">有</span></td><td>Callout 语法与 Obsidian 通用</td></tr>
+<tr><td>属性（Properties）可视化编辑</td><td class="c"><span class="chip mid">部分</span></td><td>有折叠属性卡片，但编辑仍是改 YAML 原文</td></tr>
+<tr><td>脚注</td><td class="c"><span class="chip mid">部分</span></td><td>能渲染，无跳转 / 回跳</td></tr>
+<tr><td>附件</td><td class="c"><span class="chip mid">部分</span></td><td>图片管得很好（自动 WebP、孤儿清理）；不支持通用文件附件</td></tr>
+<tr><td>PDF / 视频嵌入</td><td class="c"><span class="chip mid">部分</span></td><td>音频可以；PDF、视频在资源白名单之外</td></tr>
+
+<tr><td rowspan="3"><strong>模板与日记</strong></td><td>模板 + 变量、每日笔记</td><td class="c"><span class="chip ok">有</span></td><td>⌘⇧D 打开今天</td></tr>
+<tr><td>日历视图</td><td class="c"><span class="chip no">无</span></td><td>—</td></tr>
+<tr><td>唯一笔记前缀</td><td class="c"><span class="chip no">无</span></td><td>—</td></tr>
+
+<tr><td><strong>白板与数据库</strong></td><td>Canvas、Bases / Dataview、看板</td><td class="c"><span class="chip no">无</span></td><td>—</td></tr>
+
+<tr><td rowspan="2"><strong>导出与发布</strong></td><td>导出 PDF / HTML</td><td class="c"><span class="chip ok">有</span></td><td>HTML 是单文件、图片内联</td></tr>
+<tr><td>Word / 长图 / 发布网站 / 幻灯片</td><td class="c"><span class="chip no">无</span></td><td>Obsidian 自己也靠 Pandoc 插件（55 万）出 Word</td></tr>
+
+<tr><td rowspan="3"><strong>同步与多端</strong></td><td>同步</td><td class="c"><span class="chip mid">部分</span></td><td>一键把库放到 iCloud Drive + 外部改动跟随；无 WebDAV / Git</td></tr>
+<tr><td>移动端</td><td class="c"><span class="chip mid">骨架</span></td><td>iPad 工程已起步，未编译验证</td></tr>
+<tr><td>网页剪藏</td><td class="c"><span class="chip no">无</span></td><td>只有「粘贴 HTML 转 Markdown」「粘贴网址取标题」</td></tr>
+
+<tr><td rowspan="3"><strong>扩展性</strong></td><td>主题 / CSS 片段</td><td class="c"><span class="chip mid">部分</span></td><td>不能加载用户 CSS</td></tr>
+<tr><td>自定义快捷键</td><td class="c"><span class="chip no">无</span></td><td>全部硬编码</td></tr>
+<tr><td>插件、URI scheme、CLI</td><td class="c"><span class="chip no">无</span></td><td>插件系统已决定不做</td></tr>
+</tbody>
+</table>
+
+<h2>五、补齐建议</h2>
+
+<p>量级：<span class="chip sz">S</span> 1~2 天　<span class="chip sz">M</span> 一周内　<span class="chip sz">L</span> 两周以上　<span class="chip sz">XL</span> 独立立项。「依据」一栏标明这条建议靠的是调研数据，还是我自己的判断。</p>
+
+<div class="tier">
+<header><span>第一档 · 把链接织完</span><small>共用现有搜索索引，建议整批进 26.4</small></header>
+<table>
+<thead><tr><th>#</th><th>功能</th><th>怎么做 / 为什么</th><th>依据</th><th>量级</th></tr></thead>
+<tbody>
+<tr><td class="c">1</td><td><strong><code>[[笔记#小节]]</code> 跳转</strong></td><td>先修这个：现在点这种链接会新建一篇叫「笔记#小节」的笔记。解析时拆出 <code>#</code> 后半段，打开后滚到对应标题（大纲已有标题定位）。我们主打「直接打开 Obsidian 的库」，不修等于自己拆台</td><td><span class="chip ev">正确性问题</span></td><td class="c"><span class="chip sz">S</span></td></tr>
+<tr><td class="c">2</td><td><strong><code>![[笔记]]</code> 嵌入渲染</strong></td><td>富文本里做成只读节点视图，预览里展开；保存时原文不动（保真机制已保证）；防循环嵌入。只读就够——Obsidian 自己也还没做到就地编辑</td><td><span class="chip ev">功能请求第一 1078 赞</span></td><td class="c"><span class="chip sz">M</span></td></tr>
+<tr><td class="c">3</td><td><strong>未链接提及</strong></td><td>反链面板加一组「提到了这篇但没加链接」，一键转成 <code>[[链接]]</code>。全文索引已有，换个查询而已。之后可叠加语义版——但只建议、用户点了才连，不自动改</td><td><span class="chip ev">评测：最有实际价值</span></td><td class="c"><span class="chip sz">S</span></td></tr>
+<tr><td class="c">4</td><td><strong>别名 <code>aliases</code></strong></td><td>索引已在解析 frontmatter，把 <code>aliases</code> 加进链接解析、<code>[[</code> 补全和快速打开</td><td><span class="chip ev">兼容 Obsidian 库</span></td><td class="c"><span class="chip sz">S</span></td></tr>
+<tr><td class="c">5</td><td><strong>悬浮预览</strong></td><td>鼠标停在 <code>[[链接]]</code> 上弹出目标笔记的渲染预览。渲染管线和读文件的 IPC 都现成</td><td><span class="chip ev">我的判断</span> 调研没找到它的独立口碑数据；旁证是官方 1.7 仍在给它加功能</td><td class="c"><span class="chip sz">S</span></td></tr>
+<tr><td class="c">6</td><td><strong>命令面板</strong></td><td>把菜单项、斜杠命令、智能菜单收成一张命令注册表，界面复用快速打开的模糊匹配。建议 ⌘⇧P，或把 ⌘P 让出来</td><td><span class="chip ev">我的判断</span> 同样没有口碑数据。理由来自我们自己：功能越加越多，现在只能翻菜单；它也是「自定义快捷键」的前置</td><td class="c"><span class="chip sz">M</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="tier">
+<header><span>第二档 · 下载榜上证据最硬的缺口</span><small>按证据强度排序，各自独立</small></header>
+<table>
+<thead><tr><th>#</th><th>功能</th><th>怎么做 / 为什么</th><th>依据</th><th>量级</th></tr></thead>
+<tbody>
+<tr><td class="c">7</td><td><strong>日历视图</strong></td><td>侧边栏一个月历，有日记的日子打点，点哪天开哪天。日记已有，只差这层皮。<strong>小到可以直接塞进 26.4</strong></td><td><span class="chip ev">Calendar 312 万</span> 四年没更新仍排第 7；用户要求并入核心</td><td class="c"><span class="chip sz">S~M</span></td></tr>
+<tr><td class="c">8</td><td><strong>全库待办汇总</strong></td><td>索引时抽出 <code>- [ ]</code>，侧边栏一页「待办」按笔记 / 日期分组，勾选直接写回原文。会议纪要里的待办自动汇进来，和转写形成闭环。以后要看板，就是这一页的另一种视图</td><td><span class="chip ev">任务类合计约 950 万</span> Tasks 428 + Kanban 268 + TaskNotes 163 + Day Planner 89</td><td class="c"><span class="chip sz">M</span></td></tr>
+<tr><td class="c">9</td><td><strong>标签改名 / 合并</strong></td><td>标签面板右键改名，批量改写全库的 <code>#标签</code> 和 frontmatter。有版本历史兜底，做批量改写比 Obsidian 更让人放心。同一套机制顺带可做<strong>全库查找替换</strong>（650 赞）</td><td><span class="chip ev">Tag Wrangler 110 万 + 811 赞</span></td><td class="c"><span class="chip sz">S~M</span></td></tr>
+<tr><td class="c">10</td><td><strong>快速捕获</strong></td><td>全局快捷键呼出一个小输入窗，回车追加到今天的日记（或收件箱笔记），不用先切到应用。Obsidian 移动端评分最低的原因正是「记一句话要等整个应用加载」</td><td><span class="chip ev">QuickAdd 213 万 · Thino 44 万</span></td><td class="c"><span class="chip sz">S~M</span></td></tr>
+<tr><td class="c">11</td><td><strong>同步盘一键配置</strong></td><td>设置里已有「放到 iCloud Drive」，照样子加坚果云 / OneDrive / Dropbox 本地目录的识别和一键指向。不写同步引擎，只是把「用同步盘就行」这件事说清楚、做顺手</td><td><span class="chip ev">中文用户头号痛点</span> 少数派建议新手从坚果云起步</td><td class="c"><span class="chip sz">S</span></td></tr>
+<tr><td class="c">12</td><td><strong>属性面板可视化编辑</strong></td><td>现有的 frontmatter 卡片升级成逐字段控件：文本 / 列表 / 日期 / 勾选 / 标签。是以后任何「按属性筛选」的前置</td><td><span class="chip ev">Bases 4.4 分的地基</span></td><td class="c"><span class="chip sz">M</span></td></tr>
+<tr><td class="c">13</td><td><strong>自定义快捷键</strong></td><td>依赖 #6 的命令注册表，有了它这项才便宜</td><td><span class="chip ev">我的判断</span></td><td class="c"><span class="chip sz">M</span></td></tr>
+<tr><td class="c">14</td><td><strong>文件树排序选项</strong></td><td>名称 / 修改时间 / 创建时间，升降序。现在固定按名称</td><td><span class="chip ev">980 赞</span> 请求的是手动拖排，我们先补最基本的</td><td class="c"><span class="chip sz">S</span></td></tr>
+<tr><td class="c">15</td><td><strong>导出 Word / 长图</strong></td><td>国内场景刚需：发同事要 Word，发群要长图。上次升级方案已列，仍未做</td><td><span class="chip ev">Pandoc 55 万</span> + 国内使用习惯</td><td class="c"><span class="chip sz">M</span></td></tr>
+<tr><td class="c">16</td><td><strong>小项打包</strong></td><td>列表项整块上下移动与折叠（Outliner 142 万）；PDF / 视频嵌入；用户 CSS 片段（读库里的 <code>.iml/snippets.css</code>，不执行代码——最便宜的「开放」）；URI scheme；选区字数；脚注跳转；源码模式恢复 ⌘D、Vim 开关；快速打开支持拼音首字母</td><td><span class="chip ev">混合</span></td><td class="c"><span class="chip sz">各 S</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="tier">
+<header><span>第三档 · 大件，需要你拍板</span><small>每一项都值得单独讨论</small></header>
+<table>
+<thead><tr><th>#</th><th>功能</th><th>判断</th><th>量级</th></tr></thead>
+<tbody>
+<tr><td class="c">17</td><td><strong>局部关系图谱</strong></td><td><strong>建议做，只做局部。</strong>调研印证了分工：全局图谱「一堆点，什么也做不了」，多名用户直接关掉；但「图谱」又是 Product Hunt 好评关键词（16 次）——它负责<strong>拉新</strong>，不负责留存。所以按「脸面」来做：当前笔记周围 1~2 跳，并且画出别人没有的「语义相近」边（相关笔记的数据现成）</td><td class="c"><span class="chip sz">M</span></td></tr>
+<tr><td class="c">18</td><td><strong>并排窗格</strong></td><td>要拆掉「只有一个活动编辑器」的假设，牵动 store 和快捷键。建议先做轻量版：右侧并排一个<strong>只读</strong>预览窗格</td><td class="c"><span class="chip sz">M / L</span></td></tr>
+<tr><td class="c">19</td><td><strong>WebDAV 同步</strong></td><td><strong>这是我的建议和调研排序分歧最大的一项，请你定。</strong>调研里同步排第 3、是中文用户头号痛点，也和你「支持 iCloud 以外云盘」的设想一致。我仍建议排后：Obsidian 的同步之痛主要发生在<strong>手机</strong>上，而我们目前只有桌面端——电脑之间用同步盘目录（#11）已经够用；同步引擎是「做不好就丢数据」的功能，值得等 iPad 端有实质进展时一起设计</td><td class="c"><span class="chip sz">L</span></td></tr>
+<tr><td class="c">20</td><td><strong>手绘图块</strong></td><td>下载量第一的需求（808 万），而官方 Canvas 多年不支持手绘（509 赞）。Excalidraw 本身是开源的 React 组件，理论上可以作为一种图块嵌进来，导出的 SVG 里自带可再编辑的数据——Markdown 里仍是一个普通图片链接，符合我们的保真原则，也和 iPad 手写的方向一致。<strong>但我还没评估过接入成本</strong>（包体积、懒加载、与现有图片管线的配合），先列为待评估</td><td class="c"><span class="chip sz">L？</span></td></tr>
+<tr><td class="c">21</td><td><strong>网页剪藏</strong></td><td>官方 Web Clipper 被评为「现存最好的网页剪藏」。分两步：先做应用内的「粘贴网址 → 抓正文转成笔记」，够用就不做浏览器扩展——扩展要上架、要维护，是另一条产品线</td><td class="c"><span class="chip sz">M → L</span></td></tr>
+<tr><td class="c">22</td><td><strong>给 agent 留个门</strong></td><td>增长最快的用法：Claudian 2026 年才起来就到第 12 名，官方也在 2026-02 出了 CLI。我们的库是普通文件夹，Claude Code 今天就能直接用——<strong>零成本的第一步是在 README 写清楚这一点</strong>。再进一步可以出一个只读的 MCP 服务，把我们已有的语义检索暴露出去（这是纯文件夹给不了 agent 的）</td><td class="c"><span class="chip sz">文档 → M</span></td></tr>
+<tr><td class="c">23</td><td><strong>属性视图（轻量 Bases）</strong></td><td>长期看这是最大的真缺口（Dataview 500 万、Bases 4.4 分），但属于重度用户。不做查询语言——用户正是因为不想写代码才从 Dataview 迁去 Bases。只做「按属性 / 标签筛出的笔记列表，可切表格」。依赖 #12</td><td class="c"><span class="chip sz">L</span></td></tr>
+<tr><td class="c">24</td><td><strong>块引用 <code>^id</code></strong></td><td>重度用户才用。先保证「原文保真、点了能跳过去」，补全到块缓做</td><td class="c"><span class="chip sz">M / L</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>搜索：调研改变了我原来的建议</h3>
+<p>我原本想建议加 <code>tag:</code> <code>path:</code> 过滤语法和正则。但调研显示用户要的不是这个：Omnisearch 的 190 万下载和官方路线图指向的都是<strong>「按相关性排序、能容错、能语义匹配」</strong>——这些我们已经有大半（标题加权 + 语义补充结果）。所以过滤语法降为可有可无的小项。</p>
+
+<h2>六、建议不做的</h2>
+
+<table>
+<thead><tr><th>功能</th><th>为什么不做</th></tr></thead>
+<tbody>
+<tr><td><strong>插件系统</strong></td><td>9 月 19 日已定。调研补了一条理由：插件是 Obsidian 的头号好评，也是头号抱怨（弃置、冲突、更新搞坏库），2026 年还出过借共享库投放木马的安全事件</td></tr>
+<tr><td><strong>Canvas 白板</strong></td><td>XL 级投入；官方自己做了也只拿到 3.5 分、功能停滞。真实需求是「手绘」，由 #20 去接</td></tr>
+<tr><td><strong>全局图谱</strong></td><td>好看没用，只做局部</td></tr>
+<tr><td><strong>查询语言（Dataview 式）</strong></td><td>用户正在逃离它。自然语言问笔记更适合我们</td></tr>
+<tr><td><strong>格式规整（Linter 式）</strong></td><td>和「不动用户没碰过的原文」的保真原则相反</td></tr>
+<tr><td><strong>Publish、幻灯片、文件夹图标、主题市场</strong></td><td>离「记笔记」太远，或纯装饰。Publish 官方评分也只有 3.7</td></tr>
+</tbody>
+</table>
+
+<h2>七、别丢的优势</h2>
+
+<p>Obsidian CEO 的立场是「不要把理解外包给 AI」，核心里不做任何通用 AI 助手，只给外部 agent 留接口。这给「想要开箱即用、内置、能接本机模型的轻量 AI」的用户留出了一个明确的空位。</p>
+
+<table>
+<thead><tr><th>我们有的</th><th>Obsidian 用户要怎么才能有</th></tr></thead>
+<tbody>
+<tr><td><strong>本机实时转写 + 区分说话人 + 点句回听 + 打点</strong></td><td>基本拼不出来。「会议转写和摘要」在调研里是常见的 AI 使用场景，但只能靠外接服务，没有时间轴联动</td></tr>
+<tr><td><strong>「问你的笔记」</strong>（强制标出处、识别拒答）</td><td>Copilot（199 万）+ 自配嵌入模型 + 自配对话模型</td></tr>
+<tr><td><strong>语义搜索 / 相关笔记</strong></td><td>Smart Connections（121 万）</td></tr>
+<tr><td><strong>应用自己托管本机模型</strong></td><td>自己装 Ollama，再到每个插件里填地址。调研里用户对本地 AI 的三大抱怨——配置复杂、分块行为不透明、质量不如云端——前两条正是我们解决的</td></tr>
+<tr><td><strong>AI 请求去向常驻可见</strong></td><td>没有对应物，各插件各管各的</td></tr>
+<tr><td><strong>所见即所得，且保存逐字保真</strong></td><td>「完全所见即所得」是 792 赞的老请求；迁去思源的人列的第二条理由就是它</td></tr>
+<tr><td><strong>直接打开任意 .md 文件</strong></td><td>552 赞的老请求，1.14（2026-09 内测）才支持</td></tr>
+<tr><td><strong>每次保存的版本历史 + diff</strong></td><td>核心的 File recovery 只按时间间隔留快照；要 diff 得上 Git 插件（317 万）</td></tr>
+<tr><td><strong>图片自动压缩 + 孤儿清理</strong></td><td>240 赞的请求，1.12 才部分解决</td></tr>
+</tbody>
+</table>
+
+<div class="note">
+<p><strong>一条值得写进产品原则的反对意见：</strong>《Keep AI Out of Your Vault》认为 AI 摘要会稀释个人知识库、自动链接和自动整理不可取；作者能接受的用法只有三种——<strong>相似度搜索、找相关笔记、语音转文字</strong>。这三样正好是我们已经做的。路线图里的「AI 建议标签 / 归档」坚持「只建议、用户确认」是对的，未链接提及的语义版（#3）也应如此。</p>
+</div>
+
+<h2>八、建议的节奏</h2>
+
+<table>
+<thead><tr><th>版本</th><th>主题</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><strong>26.4</strong></td><td>把链接织完</td><td>#1~#6 整批 + #7 日历。对外一句话：「从 Obsidian 搬过来，链接全都能用」</td></tr>
+<tr><td><strong>26.5</strong></td><td>下载榜上的缺口</td><td>#8 全库待办、#9 标签改名、#10 快速捕获、#11 同步盘一键配置、#12 属性面板、#13 自定义快捷键、#14 文件排序</td></tr>
+<tr><td><strong>26.6</strong></td><td>一张脸面</td><td>#17 局部图谱（链接 + 语义）、#18 只读并排窗格、#15 导出 Word / 长图；期间评估 #20 手绘图块</td></tr>
+<tr><td>之后</td><td>看反馈</td><td>剪藏、WebDAV、轻量属性视图、MCP；与转写二期、iPad 端一起排</td></tr>
+</tbody>
+</table>
+
+<p>转写二期（系统声音）和路线图里的 AI 小项（整篇总结、建议标签 / 归档）不在这份对比范围内，与上面不冲突，可以插在任何一版里。</p>
+
+<h2>数据来源与局限</h2>
+<div class="note">
+<p><strong>我们这一侧：</strong>逐项核对当前源码（<code>src/</code>、<code>electron/</code>），以代码为准——README 写了但代码里没有的按「没有」算。命令面板、嵌入渲染、分栏、图谱、标签改名、文件树排序、表格排序、全局快捷键这几条另外单独复查过。</p>
+<p><strong>插件下载量：</strong>Obsidian 官方 <a href="https://github.com/obsidianmd/obsidian-releases">community-plugin-stats.json</a>（2026-09-20 抓取），与 <a href="https://www.obsidianstats.com/most-downloaded">obsidianstats.com</a> 交叉核对一致。累计下载含自动更新，不等于装机量。</p>
+<p><strong>社区评分：</strong><a href="https://practicalpkm.com/2026-obsidian-report-card/">Practical PKM · 2026 Obsidian Report Card</a>（未披露受访人数，样本偏重度用户）。<strong>好评 / 批评关键词：</strong><a href="https://www.producthunt.com/products/obsidian/reviews">Product Hunt</a> 173 条评价。<strong>功能请求赞数：</strong><a href="https://forum.obsidian.md/c/feature-requests/8">官方论坛</a>。<strong>版本更新：</strong><a href="https://obsidian.md/changelog/">官方 changelog</a>、<a href="https://obsidian.md/roadmap/">路线图</a>。</p>
+<p><strong>图谱口碑：</strong><a href="https://forum.obsidian.md/t/whats-the-point-of-the-graph-view-how-are-you-using-it/71316">论坛讨论</a>、<a href="https://www.xda-developers.com/obsidian-plugin-makes-graph-feature-less-overwhelming-useful/">XDA</a>。<strong>中文用户：</strong>少数派 <a href="https://sspai.com/post/104619">七种同步方式</a>、<a href="https://sspai.com/post/95363">迁往思源的理由</a>、<a href="https://sspai.com/post/96091">插件推荐</a>，<a href="https://forum-zh.obsidian.md/t/topic/9288">Obsidian 中文论坛</a>。<strong>AI：</strong><a href="https://www.ssp.sh/brain/using-obsidian-with-ai/">Keep AI Out of Your Vault</a>、<a href="https://www.shadow.do/blog/does-obsidian-have-ai">官方对 AI 的态度</a>。</p>
+<p><strong>没拿到的：</strong>Reddit 原帖（只有二手汇总）、V2EX 两个帖子的正文、知乎正文（403）；B 站只有一条数据点。中文用户部分的证据因此偏弱，主要靠少数派和中文论坛。命令面板、悬浮预览、快速切换、书签这几项核心功能没找到独立的口碑来源，相关建议已在表中标为「我的判断」。</p>
+<p>原始数据缓存在 <code>~/Library/Caches/iml-research/</code>（插件统计全量、功能请求排序、changelog）。</p>
+</div>
+
+</body>
+</html>

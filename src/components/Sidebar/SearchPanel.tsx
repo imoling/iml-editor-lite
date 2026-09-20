@@ -28,6 +28,14 @@ export const SearchPanel: React.FC = () => {
     window.api.search.status().then(setStatus).catch(() => setStatus(null));
   }, [focusNonce]);
 
+  // iml://search?q=… 指定了要搜的词：填进输入框（后面的搜索照常由 query 触发），然后清掉这个一次性的请求
+  const requested = useAppStore((s) => s.globalSearchQuery);
+  useEffect(() => {
+    if (requested === null) return;
+    setQuery(requested);
+    useAppStore.setState({ globalSearchQuery: null });
+  }, [requested]);
+
   useEffect(() => {
     const q = query.trim();
     if (!q) {

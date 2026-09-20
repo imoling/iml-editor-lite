@@ -7,7 +7,7 @@ import DOMPurify from 'dompurify';
 export function sanitizeHtml(html: string): string {
   return DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true, svg: true, svgFilters: true },
-    ADD_ATTR: ['data-code', 'data-type', 'data-checked', 'data-latex', 'data-height', 'data-mermaid-block', 'data-svg-block', 'data-wiki-link', 'target'],
+    ADD_ATTR: ['data-code', 'data-type', 'data-checked', 'data-latex', 'data-height', 'data-mermaid-block', 'data-svg-block', 'data-wiki-link', 'data-wiki-embed', 'data-embed-label', 'target'],
     ADD_TAGS: ['mermaid-block', 'svg-block'],
   });
 }

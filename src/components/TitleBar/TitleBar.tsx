@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore, needsSavePrompt } from '../../stores/appStore';
 import {
-  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles, History, Focus, ImageOff, Network, Wand2, Search, MessageCircleQuestion, Mic,
+  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles, History, Focus, ImageOff, Network, Wand2, Search, MessageCircleQuestion, Mic, ChevronRight,
 } from 'lucide-react';
-import { exportActiveTabToPdf, exportActiveTabToHtml } from '../../utils/exportPdf';
+import { exportActiveTabToPdf, exportActiveTabToHtml, exportActiveTabToDocx, exportActiveTabToImage } from '../../utils/exportPdf';
 import { isNewerVersion } from '../../utils/version';
 
 type MenuId = 'file' | 'edit' | 'view' | 'intel' | 'help';
@@ -131,6 +131,8 @@ export const TitleBar: React.FC = () => {
           <MenuDivider />
           <MenuItem icon={<FileDown size={14} />} label="导出为 PDF" hint="⌘P" disabled={!activeTab} onClick={run(exportActiveTabToPdf)} />
           <MenuItem icon={<FileDown size={14} />} label="导出为 HTML" hint="⇧⌘E" disabled={!activeTab} onClick={run(exportActiveTabToHtml)} />
+          <MenuItem icon={<FileDown size={14} />} label="导出为 Word" disabled={!activeTab} onClick={run(() => void exportActiveTabToDocx())} />
+          <MenuItem icon={<FileDown size={14} />} label="导出为长图" disabled={!activeTab} onClick={run(() => void exportActiveTabToImage())} />
           <MenuDivider />
           {/* Windows 没有原生菜单，这几项得在这里也能找到；关闭右侧 / 已保存 / 全部 留在标签页右键里 */}
           <MenuItem icon={<X size={14} />} label="关闭标签页" hint="⌘W" disabled={!activeTab} onClick={run(() => activeTabId && requestCloseTab(activeTabId))} />
@@ -148,7 +150,9 @@ export const TitleBar: React.FC = () => {
           <MenuItem label="全选" hint="⌘A" onClick={run(() => document.execCommand('selectAll'))} />
         </Menu>
 
-        <Menu id="view" label="视图" width={180}>
+        <Menu id="view" label="视图" width={200}>
+          <MenuItem icon={<ChevronRight size={14} />} label="命令面板…" hint="⇧⌘P" onClick={run(() => openDialog('command-palette'))} />
+          <MenuDivider />
           <MenuItem icon={<SidebarIcon size={14} />} label={sidebarVisible ? '隐藏侧边栏' : '显示侧边栏'} hint="⌘\" onClick={run(toggleSidebar)} />
           <MenuItem icon={<Focus size={14} />} label={focusMode ? '退出专注模式' : '专注模式'} hint="⇧⌘." onClick={run(toggleFocusMode)} />
           <MenuDivider />

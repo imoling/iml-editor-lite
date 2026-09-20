@@ -253,6 +253,27 @@
 .quick-open__row--active .quick-open__row-icon { color: var(--color-brand-indigo); }
 .quick-open__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quick-open__hl { background: none; color: var(--color-brand-indigo); font-weight: 700; }
+/* 设置 · 笔记库：检测到的同步盘，一键放进去 */
+.sync-folders { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sync-folders__label { font-size: 12px; color: var(--text-muted); }
+.sync-folders__btn { padding: 2px 10px; border-radius: 12px; border: 1px solid var(--border-subtle); background: none; font-size: 12px; font-family: inherit; color: var(--text-secondary); cursor: pointer; }
+.sync-folders__btn:hover { border-color: var(--color-brand-indigo); color: var(--color-brand-indigo); }
+.sync-folders__btn--active { border-color: color-mix(in srgb, var(--color-brand-indigo) 45%, transparent); color: var(--color-brand-indigo); background-color: color-mix(in srgb, var(--color-brand-indigo) 8%, transparent); }
+.sync-folders__btn--active:hover { background-color: color-mix(in srgb, var(--color-brand-indigo) 16%, transparent); }
+.sync-folders__leave { font-size: 12px; margin-left: 2px; }
+
+/* 设置 · 快速捕获：开关下面一行——快捷键、状态、试一下 */
+.quick-capture-row { display: flex; align-items: center; gap: 10px; padding: 0 0 4px 30px; }
+.quick-capture-row__keys { flex-shrink: 0; min-width: 72px; padding: 4px 12px; border-radius: 8px; border: 1px solid var(--border-subtle); background-color: var(--bg-elevated); color: var(--text-primary); font-size: 13px; font-family: inherit; letter-spacing: 0.04em; cursor: pointer; }
+.quick-capture-row__keys:hover { border-color: var(--color-brand-indigo); }
+.quick-capture-row__keys--recording { border-color: var(--color-brand-indigo); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand-indigo) 18%, transparent); }
+.quick-capture-row__status { flex: 1; font-size: 12px; color: var(--text-muted); }
+.quick-capture-row__status--warn { color: #d93025; }
+
+/* 命令面板：和「快速打开」一套样子，左边多一个分组、右边多一个快捷键 */
+.command-palette__group { flex-shrink: 0; min-width: 44px; font-size: 11px; color: var(--text-muted); }
+.command-palette__keys { flex-shrink: 0; margin-left: auto; padding: 1px 6px; border-radius: 5px; font-size: 11px; font-family: inherit; color: var(--text-muted); background-color: var(--bg-hover-editor); border: 1px solid var(--border-subtle); }
+.quick-open__alias { margin-left: 8px; font-size: 12px; color: var(--text-muted); }
 .quick-open__folder { flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-muted); }
 .quick-open__enter { flex-shrink: 0; display: flex; color: var(--text-muted); }
 .quick-open__empty { padding: 28px 16px; text-align: center; font-size: 13px; color: var(--text-muted); }
@@ -460,6 +481,8 @@
 .popover-menu__label { font-size: 10px; color: var(--text-muted); padding: 4px 10px 2px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
 .template-menu { top: 100%; left: auto; right: 0; min-width: 180px; margin-top: 4px; }
 .template-menu .popover-menu__item { gap: 6px; justify-content: flex-start; }
+.sort-menu { min-width: 190px; }
+.sort-menu__check { display: inline-flex; width: 14px; flex-shrink: 0; color: var(--color-brand-indigo); }
 
 /* ── 模型配置：服务类型卡片 ── */
 .svc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }

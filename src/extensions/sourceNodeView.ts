@@ -13,8 +13,12 @@ export interface SourceNodeViewOptions {
   multiline?: boolean;
   /** 单击还是双击进入编辑 */
   editOn?: 'click' | 'dblclick';
-  /** 画出展示态；可以往 display 里挂自己的按钮（记得 stopPropagation） */
-  render: (display: HTMLElement, node: PMNode, api: { edit: () => void }) => void;
+  /**
+   * 画出展示态；可以往 display 里挂自己的按钮（记得 stopPropagation）。
+   * 要放输入框、勾选框这类自己接键盘鼠标的控件，给它（或它的容器）加上 data-interactive：
+   * 这些元素上的事件不交给 ProseMirror，双击也不会进原文编辑。改完调 api.commit(新的原文) 写回节点。
+   */
+  render: (display: HTMLElement, node: PMNode, api: { edit: () => void; commit: (source: string) => void }) => void;
   getSource: (node: PMNode) => string;
   /** 由编辑后的原文得到新属性；返回 null 表示删除整个节点 */
   toAttrs: (source: string, node: PMNode) => Record<string, unknown> | null;
@@ -91,13 +95,29 @@ export function createSourceNodeView(o: SourceNodeViewOptions): NodeView {
     o.editor.view.dispatch(tr);
   };
 
+  /** 展示态里的控件直接给出新的原文（不经过 textarea） */
+  const commit = (source: string) => {
+    if (!o.editor.isEditable || source === o.getSource(node) || typeof o.getPos !== 'function') return;
+    const pos = o.getPos();
+    if (typeof pos !== 'number') return;
+    const attrs = o.toAttrs(source, node);
+    const tr = o.editor.state.tr;
+    if (attrs === null) tr.delete(pos, pos + node.nodeSize);
+    else tr.setNodeMarkup(pos, undefined, { ...node.attrs, ...attrs });
+    o.editor.view.dispatch(tr);
+  };
+
+  // 用事件派发那一刻的路径判断，不用 target.closest：控件自己的处理函数可能已经把 target 从 DOM 里换掉了
+  // （双击属性名 → 名字换成输入框），那时再往上找祖先就找不到了
+  const interactive = (event: Event) => event.composedPath().some((n) => n instanceof HTMLElement && n.hasAttribute('data-interactive'));
+
   const paint = () => {
     display.innerHTML = '';
-    o.render(display, node, { edit });
+    o.render(display, node, { edit, commit });
   };
 
   dom.addEventListener(o.editOn ?? 'dblclick', (e) => {
-    if (input) return;
+    if (input || interactive(e)) return;
     e.preventDefault();
     e.stopPropagation();
     edit();
@@ -107,8 +127,8 @@ export function createSourceNodeView(o: SourceNodeViewOptions): NodeView {
 
   return {
     dom,
-    // 编辑态下所有事件都留给 textarea；展示态交给 ProseMirror（单击选中节点，Delete 可删）
-    stopEvent: () => !!input,
+    // 编辑态下所有事件都留给 textarea；展示态交给 ProseMirror（单击选中节点，Delete 可删），自带交互的控件除外
+    stopEvent: (event) => !!input || interactive(event),
     ignoreMutation: () => true,
     update: (updated) => {
       if (updated.type !== node.type) return false;

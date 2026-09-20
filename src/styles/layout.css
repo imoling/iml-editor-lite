@@ -746,6 +746,66 @@ button.transcribe-note--link:hover { filter: brightness(0.97); }
 .search-result__path { font-size: 10px; color: var(--text-muted); margin: 2px 0 4px; }
 .search-result__snippet { font-size: 11px; color: var(--text-secondary); line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .search-result__snippet mark { background: rgba(250, 204, 21, 0.45); color: inherit; border-radius: 2px; padding: 0 1px; }
+/* 标签改名：就地出现的一小块，输入框下面一行说明会发生什么 */
+.tags-panel__rename { margin: 10px 8px; padding: 8px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--color-brand-indigo) 35%, transparent); background-color: color-mix(in srgb, var(--color-brand-indigo) 5%, transparent); }
+.tags-panel__rename-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
+.tags-panel__rename-hint { font-size: 10.5px; line-height: 1.5; color: var(--text-muted); margin-top: 6px; }
+.tags-panel__rename-hint--error { color: #d93025; }
+
+.statusbar-selected { color: var(--color-brand-indigo); }
+
+/* ── 全库待办 ── */
+.tasks-panel { padding: 0 8px; }
+.tasks-panel__head { display: flex; align-items: center; padding: 0 4px 6px; }
+.tasks-panel__title { flex: 1; margin: 0; padding-left: 4px; }
+.tasks-panel__group { margin-bottom: 12px; }
+.tasks-panel__group-title { display: flex; align-items: center; gap: 4px; padding: 3px 6px; font-size: 11px; font-weight: 600; color: var(--text-muted); }
+.tasks-panel__group-title--overdue { color: #d93025; }
+.tasks-panel__group-title--note { cursor: pointer; border-radius: 6px; color: var(--text-secondary); }
+.tasks-panel__group-title--note:hover { background-color: var(--bg-hover-editor); color: var(--text-primary); }
+.task-row { display: flex; align-items: flex-start; gap: 6px; padding-top: 3px; padding-bottom: 3px; padding-right: 4px; border-radius: 6px; }
+.task-row:hover { background-color: var(--bg-hover-editor); }
+.task-row__check { flex-shrink: 0; margin: 3px 0 0; width: 13px; height: 13px; accent-color: var(--color-brand-indigo); cursor: pointer; }
+.task-row__body { flex: 1; min-width: 0; cursor: pointer; font-size: 12px; line-height: 1.5; color: var(--text-primary); }
+.task-row__text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+.task-row__meta { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); min-width: 0; }
+.task-row__due { flex-shrink: 0; padding: 0 5px; border-radius: 6px; background-color: color-mix(in srgb, var(--color-brand-indigo) 10%, transparent); color: var(--color-brand-indigo); }
+.task-row__due--overdue { background-color: color-mix(in srgb, #d93025 12%, transparent); color: #d93025; }
+.task-row--done .task-row__text { text-decoration: line-through; color: var(--text-muted); }
+
+/* ── 日记月历：钉在笔记库页底部，不跟着文件树滚 ── */
+.calendar-panel { flex-shrink: 0; max-height: 60%; overflow-y: auto; padding: 10px 8px 10px; border-top: 1px solid var(--border-subtle); }
+/* 窗口很矮时也给文件树留一截，月历太高就自己滚 */
+.sidebar-content { min-height: 96px; }
+.calendar-panel__title { margin-top: 0; }
+.calendar-panel__nav { display: flex; align-items: center; gap: 4px; padding: 2px 4px 6px; }
+.calendar-panel__month { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.calendar-panel__count { font-size: 10px; color: var(--text-muted); background: var(--bg-elevated); border-radius: 8px; padding: 0 6px; }
+.calendar-panel__today { border: none; background: none; font-size: 11px; color: var(--color-brand-indigo); cursor: pointer; padding: 0 4px; }
+.calendar-panel__today:hover { text-decoration: underline; }
+.calendar-panel__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.calendar-panel__weekday { text-align: center; font-size: 10px; color: var(--text-muted); padding-bottom: 2px; }
+.calendar-panel__day {
+  position: relative; aspect-ratio: 1; max-height: 34px; border: 1px solid transparent; border-radius: 8px; background: none;
+  font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-secondary); cursor: pointer; padding: 0;
+}
+.calendar-panel__day:hover { background-color: var(--bg-hover-editor); }
+.calendar-panel__day--dim { opacity: 0.35; }
+/* 有日记：数字加重，下面一个主题色的点 */
+.calendar-panel__day--has { color: var(--text-primary); font-weight: 600; }
+.calendar-panel__day--has::after { content: ''; position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background-color: var(--color-brand-indigo); }
+.calendar-panel__day--today { border-color: color-mix(in srgb, var(--color-brand-indigo) 55%, transparent); color: var(--color-brand-indigo); font-weight: 600; }
+.calendar-panel__day--active { background-color: color-mix(in srgb, var(--color-brand-indigo) 14%, transparent); }
+.calendar-panel__day--pending { border-style: dashed; border-color: var(--color-brand-indigo); }
+.calendar-panel__confirm { display: flex; align-items: center; gap: 6px; margin-top: 6px; padding: 4px 6px 4px 8px; border-radius: 8px; font-size: 11px; color: var(--text-secondary); background-color: color-mix(in srgb, var(--color-brand-indigo) 6%, transparent); }
+
+/* 未链接提及：片段右边带一个「链接」按钮，平时淡、悬停到这一行才显出来 */
+.sidebar-section-title--toggle { display: flex; align-items: center; gap: 2px; margin-top: 10px; cursor: pointer; user-select: none; }
+.sidebar-section-title--toggle:hover { opacity: 1; }
+.mention-row { display: flex; align-items: flex-start; gap: 6px; margin-top: 2px; }
+.mention-row > span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.mention-row__link { flex-shrink: 0; display: inline-flex; align-items: center; gap: 2px; padding: 1px 6px; border-radius: 6px; border: 1px solid transparent; background: none; font-size: 10px; color: var(--color-brand-indigo); cursor: pointer; opacity: 0.55; }
+.mention-row:hover .mention-row__link { opacity: 1; border-color: color-mix(in srgb, var(--color-brand-indigo) 35%, transparent); background-color: color-mix(in srgb, var(--color-brand-indigo) 8%, transparent); }
 
 
 /* ── 标签视图 / 相关笔记 / 语义结果 ── */
@@ -767,7 +827,10 @@ button.transcribe-note--link:hover { filter: brightness(0.97); }
 .semantic-card { margin-top: 24px; }
 
 /* 状态栏提示 */
-.statusbar-notice { color: var(--color-brand-indigo); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw; animation: notice-in 0.2s ease-out; }
+.statusbar-notice { color: var(--color-brand-indigo); font-weight: 500; white-space: nowrap; gap: 8px; max-width: 46vw; animation: notice-in 0.2s ease-out; }
+.statusbar-notice__text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.statusbar-notice__action { flex-shrink: 0; border: 0; border-radius: 4px; padding: 1px 7px; font: inherit; font-size: 11px; line-height: 16px; color: var(--color-brand-indigo); background: color-mix(in srgb, var(--color-brand-indigo) 12%, transparent); cursor: pointer; }
+.statusbar-notice__action:hover { background: color-mix(in srgb, var(--color-brand-indigo) 22%, transparent); }
 .statusbar-ai-dest { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
 .statusbar-ai-dest__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent-green); }
 .statusbar-ai-dest__dot--cloud { background: var(--color-accent-orange); }

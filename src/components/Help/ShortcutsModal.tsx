@@ -28,6 +28,7 @@ const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose }) => {
           { label: '新建文档', keys: [modKey, 'N'] },
           { label: '打开文件', keys: [modKey, 'O'] },
           { label: '快速打开笔记（敲几个字就跳过去）', keys: [modKey, 'T'] },
+          { label: '命令面板（敲几个字找到要做的事）', keys: [modKey, '⇧', 'P'] },
           { label: '切换笔记库', keys: [modKey, '⇧', 'O'] },
           { label: '保存', keys: [modKey, 'S'] },
           { label: '另存为', keys: [modKey, '⇧', 'S'] },

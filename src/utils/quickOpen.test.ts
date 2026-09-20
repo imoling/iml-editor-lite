@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { matchTerm, rankNotes, folderOf } from './quickOpen';
+import { matchTerm, matchInitials, rankNotes, folderOf } from './quickOpen';
 
 const ROOT = '/lib';
 const NOTES = [
@@ -77,6 +77,46 @@ describe('rankNotes', () => {
   it('结果带上相对文件夹，条数有上限', () => {
     expect(rankNotes(NOTES, '原则', { root: ROOT })[0].folder).toBe('读书笔记');
     expect(rankNotes(NOTES, '', { root: ROOT, limit: 3 })).toHaveLength(3);
+  });
+});
+
+describe('拼音首字母', () => {
+  const notes = [
+    { path: '/lib/项目周会.md', title: '项目周会' },
+    { path: '/lib/读书笔记.md', title: '读书笔记：《原则》' },
+    { path: '/lib/xmzh-notes.md', title: 'xmzh notes' },
+    { path: '/lib/2026-09-18.md', title: '会议记录', aliases: ['项目复盘'] },
+  ];
+  it('敲首字母能找到，高亮落在对应的汉字上', () => {
+    const hit = rankNotes(notes, 'dsbj')[0];
+    expect(hit.title).toBe('读书笔记：《原则》');
+    expect(hit.ranges.map(([a, b]) => hit.title.slice(a, b))).toEqual(['读书笔记']);
+    expect(rankNotes(notes, 'zh').map((h) => h.title)).toContain('项目周会');
+  });
+  it('标题里本来就有这串英文的排在前面；别名也能用首字母找', () => {
+    expect(rankNotes(notes, 'xmzh').map((h) => h.title)).toEqual(['xmzh notes', '项目周会']);
+    expect(rankNotes(notes, 'xmfp').map((h) => [h.title, h.alias])).toEqual([['会议记录', '项目复盘']]);
+  });
+  it('不放宽到噪音：单个字母不算、首字母不连着不算、纯英文标题不走这条路', () => {
+    expect(matchInitials('项目周会', 'x')).toBeNull();
+    expect(matchInitials('项目周会', 'xzh')).toBeNull();
+    expect(matchInitials('project notes', 'pn')).toBeNull();
+    expect(matchInitials('项目周会', '周会')).toBeNull();
+  });
+});
+
+describe('别名', () => {
+  const notes = [
+    { path: '/lib/2026-09-18.md', title: '项目周会', aliases: ['例会', 'Weekly Sync'] },
+    { path: '/lib/例会须知.md', title: '例会须知' },
+  ];
+  it('敲别名也能找到那篇，并带上是哪个别名命中的', () => {
+    const hits = rankNotes(notes, 'weekly');
+    expect(hits.map((h) => [h.title, h.alias])).toEqual([['项目周会', 'Weekly Sync']]);
+  });
+  it('标题本身命中时不标别名；别名整段相等排在标题只是包含的前面', () => {
+    expect(rankNotes(notes, '周会')[0]).toMatchObject({ title: '项目周会', alias: undefined });
+    expect(rankNotes(notes, '例会').map((h) => [h.title, h.alias])).toEqual([['项目周会', '例会'], ['例会须知', undefined]]);
   });
 });
 

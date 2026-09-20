@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { FileText, FilePlus } from 'lucide-react';
+import { FileText, FilePlus, Hash } from 'lucide-react';
 import type { WikiLinkCandidate } from '../../extensions/WikiLinkSuggestion';
 
 interface Props {
@@ -29,15 +29,21 @@ export const WikiLinkMenu: React.FC<Props> = ({ items, selectedIndex, anchor, on
       ) : (
         items.map((item, index) => (
           <div
-            key={item.path || `new:${item.title}`}
+            key={item.heading ? `h:${index}:${item.title}` : item.path || `new:${item.title}`}
             className={`slash-menu__item ${index === selectedIndex ? 'slash-menu__item--active' : ''}`}
             onMouseEnter={() => onHover(index)}
             onClick={() => onSelect(item)}
           >
-            <div className="slash-menu__icon">{item.create ? <FilePlus size={14} /> : <FileText size={14} />}</div>
+            <div className="slash-menu__icon">{item.create ? <FilePlus size={14} /> : item.heading ? <Hash size={14} /> : <FileText size={14} />}</div>
             <div className="flex-1">
-              <div className="slash-menu__title">{item.create ? `新建「${item.title}」` : item.title}</div>
-              {!item.create && <div className="slash-menu__desc truncate">{item.path.split(/[/\\]/).slice(-2).join('/')}</div>}
+              {item.heading ? (
+                <div className="slash-menu__title" style={{ paddingLeft: (item.heading.level - 1) * 10 }}>{item.heading.text}</div>
+              ) : (
+                <>
+                  <div className="slash-menu__title">{item.create ? `新建「${item.title}」` : item.alias ? `${item.alias} → ${item.title}` : item.title}</div>
+                  {!item.create && <div className="slash-menu__desc truncate">{item.path.split(/[/\\]/).slice(-2).join('/')}</div>}
+                </>
+              )}
             </div>
           </div>
         ))

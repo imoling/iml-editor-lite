@@ -22,6 +22,9 @@ import { WikiLinkSuggestion } from '../../extensions/WikiLinkSuggestion';
 import { Frontmatter } from '../../extensions/Frontmatter';
 import { Callout } from '../../extensions/Callout';
 import { Toc } from '../../extensions/Toc';
+import { WikiEmbed } from '../../extensions/WikiEmbed';
+import { FootnoteLinks } from '../../extensions/FootnoteLinks';
+import { MoveBlock } from '../../extensions/MoveBlock';
 import { RawBlock, RawInline } from '../../extensions/RawHtml';
 import { TimestampLinks } from '../../extensions/TimestampLinks';
 import { InlineMath } from '../../extensions/InlineMath';
@@ -43,6 +46,9 @@ export const editorExtensions = [
   Frontmatter,
   Callout,
   Toc,
+  WikiEmbed,
+  FootnoteLinks,
+  MoveBlock,
   RawBlock,
   RawInline,
   TimestampLinks,

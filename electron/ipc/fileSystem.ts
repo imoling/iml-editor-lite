@@ -1,9 +1,11 @@
-import { ipcMain, dialog, BrowserWindow, shell } from 'electron';
+import { ipcMain, dialog, BrowserWindow, shell, nativeImage } from 'electron';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import type { NoteHistory } from '../history';
 import { assetFileName, IMAGE_EXT_RE, AUDIO_EXT_RE } from '../assets';
+import { planTiles, planRanges, maxImageHeight, numberedPath } from '../shared/imageTiles';
+import { BRAND_CSS, brandFooterHtml, brandBand } from '../shared/imageBrand';
 
 /** 导出（PDF / HTML）共用的样式：与应用内预览保持同一套语义（提示块、目录、标签、属性卡片、脚注） */
 const EXPORT_CSS = `
@@ -35,15 +37,71 @@ const EXPORT_CSS = `
   .footnotes { margin-top: 2em; padding-top: 0.8em; border-top: 1px solid #e5e7eb; font-size: 0.9em; color: #57606a; }
   .footnote-ref { color: #4f46e5; }
   .math-block { text-align: center; margin: 1em 0; }
+  .note-embed { margin: 1em 0; padding: 2px 0 2px 14px; border-left: 3px solid #c7d2fe; }
+  .note-embed[data-embed-kind="image"] { border-left: none; padding-left: 0; }
+  .note-embed__head { font-size: 0.85em; font-weight: 600; color: #4f46e5; margin-bottom: 2px; }
+  .note-embed__hint { font-size: 0.85em; color: #8b949e; font-style: italic; }
+  .note-embed__body h1 { font-size: 1.35em; } .note-embed__body h2 { font-size: 1.2em; }
 `;
 
-const exportDocument = (htmlContent: string, title: string, baseHref?: string) => `<!DOCTYPE html>
+/** 长图：固定成手机上好读的宽度，四周留白；滚动条不能截进图里 */
+const IMAGE_CSS_WIDTH = 750;
+const IMAGE_SCALE = 2;
+const IMAGE_VIEW_HEIGHT = 4000;
+const IMAGE_EXTRA_CSS = `
+  html, body { margin: 0; background: #fff; }
+  body { width: ${IMAGE_CSS_WIDTH}px; max-width: none; box-sizing: border-box; padding: 40px 44px 48px; }
+  ::-webkit-scrollbar { display: none; }
+${BRAND_CSS}`;
+
+/** 角标里的小 logo：应用图标缩到 40 像素（图里显示 20 个 CSS 像素 × 2 倍），转成 data: 地址内联。取不到就不放图 */
+let brandLogoDataUrl: string | null | undefined;
+function brandLogo(): string | null {
+  if (brandLogoDataUrl === undefined) {
+    try {
+      const icon = nativeImage.createFromPath(path.join(__dirname, '../../assets/logo.png'));
+      brandLogoDataUrl = icon.isEmpty() ? null : icon.resize({ width: 40, height: 40 }).toDataURL();
+    } catch {
+      brandLogoDataUrl = null;
+    }
+  }
+  return brandLogoDataUrl;
+}
+
+/**
+ * 保存到哪。正式使用时问用户；开发时的冒烟测试（IML_SMOKE_EXPORT_DIR）直接存进指定目录——系统的保存对话框没法自动化。
+ */
+async function askSavePath(window: BrowserWindow, defaultName: string, filter: { name: string; extensions: string[] }): Promise<string | null> {
+  const smokeDir = process.env.NODE_ENV === 'development' ? process.env.IML_SMOKE_EXPORT_DIR : '';
+  if (smokeDir) return path.join(smokeDir, path.basename(defaultName));
+  const res = await dialog.showSaveDialog(window, { defaultPath: defaultName, filters: [filter] });
+  return res.canceled || !res.filePath ? null : res.filePath;
+}
+
+/**
+ * 这次运行里导出过的文件。状态栏提示上的「打开 / 在访达中显示」只认这里面的路径——渲染层不能拿任意路径来让系统打开。
+ */
+const exportedFiles = new Set<string>();
+function rememberExported(...files: string[]) {
+  for (const f of files) exportedFiles.add(path.normalize(f));
+}
+/** 打开导出的文件（系统默认应用）或在访达 / 资源管理器里选中它。冒烟测试时不真开，记到导出目录的 .opened.log 里供脚本核对 */
+async function openExported(target: string, how: 'open' | 'reveal'): Promise<boolean> {
+  const file = path.normalize(String(target || ''));
+  if (!exportedFiles.has(file)) return false;
+  const smokeDir = process.env.NODE_ENV === 'development' ? process.env.IML_SMOKE_EXPORT_DIR : '';
+  if (smokeDir) { await fs.promises.appendFile(path.join(smokeDir, '.opened.log'), `${how} ${file}\n`); return true; }
+  if (how === 'reveal') { shell.showItemInFolder(file); return true; }
+  return (await shell.openPath(file)) === '';
+}
+
+const exportDocument = (htmlContent: string, title: string, baseHref?: string, extraCss = '') => `<!DOCTYPE html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8">
     <title>${title.replace(/[<>&]/g, '')}</title>
     ${baseHref ? `<base href="${baseHref}">` : ''}
-    <style>${EXPORT_CSS}</style>
+    <style>${EXPORT_CSS}${extraCss}</style>
   </head>
   <body>${htmlContent}</body>
 </html>`;
@@ -216,12 +274,8 @@ export function setupFileSystemIPC(deps: FileSystemDeps = {}) {
        const window = BrowserWindow.fromWebContents(event.sender);
        if (!window) return { success: false, error: 'No window found' };
        
-       const savePath = await dialog.showSaveDialog(window, {
-         defaultPath: defaultPath.replace('.md', '.pdf'),
-         filters: [{ name: 'PDF Document', extensions: ['pdf'] }]
-       });
-       
-       if (savePath.canceled || !savePath.filePath) return { success: false, canceled: true };
+       const target = await askSavePath(window, defaultPath.replace(/\.(md|markdown|mdown|mkd|txt)$/i, '') + '.pdf', { name: 'PDF Document', extensions: ['pdf'] });
+       if (!target) return { success: false, canceled: true };
        
        const dirPath = !activeFilePath.startsWith('new-') ? path.dirname(activeFilePath) : os.homedir();
        const baseHref = `file:///${dirPath.replace(/\\/g, '/').replace(/^\//, '')}/`;
@@ -251,10 +305,10 @@ export function setupFileSystemIPC(deps: FileSystemDeps = {}) {
           margins: { top: 1, bottom: 1, left: 1, right: 1 }
        });
        
-       await fs.promises.writeFile(savePath.filePath, pdfBuffer);
+       await fs.promises.writeFile(target, pdfBuffer);
        printWindow.close();
-       
-       return { success: true, path: savePath.filePath };
+       rememberExported(target);
+       return { success: true, path: target };
     } catch (error: any) {
       console.error("PDF Export Error:", error);
       return { success: false, error: error.message };
@@ -262,35 +316,153 @@ export function setupFileSystemIPC(deps: FileSystemDeps = {}) {
   });
 
 
+  // 渲染层已经生成好的文件（Word 文档）：问用户存哪，写盘
+  ipcMain.handle('export:saveFile', async (event, defaultName: string, bytes: Uint8Array, filterName: string, extension: string) => {
+    try {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window) return { success: false, error: 'No window found' };
+      const ext = String(extension || '').replace(/[^a-z0-9]/gi, '');
+      const target = await askSavePath(window, String(defaultName || '未命名').replace(/\.(md|markdown|mdown|mkd|txt)$/i, '') + '.' + ext, { name: String(filterName || ext), extensions: [ext] });
+      if (!target) return { success: false, canceled: true };
+      await fs.promises.writeFile(target, Buffer.from(bytes));
+      rememberExported(target);
+      return { success: true, path: target };
+    } catch (error: any) {
+      console.error('Save export error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 导出为长图（PNG）：发群里、发朋友圈用。隐藏的离屏窗口里排好版，一块一块截下来再拼成一张
+  ipcMain.handle('export:image', async (event, htmlContent: string, defaultPath: string, activeFilePath: string) => {
+    let shotWindow: BrowserWindow | null = null;
+    try {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window) return { success: false, error: 'No window found' };
+      const target = await askSavePath(window, defaultPath.replace(/\.(md|markdown|mdown|mkd|txt)$/i, '') + '.png', { name: 'PNG 图片', extensions: ['png'] });
+      if (!target) return { success: false, canceled: true };
+
+      const dirPath = !activeFilePath.startsWith('new-') ? path.dirname(activeFilePath) : os.homedir();
+      const baseHref = `file:///${dirPath.replace(/\\/g, '/').replace(/^\//, '')}/`;
+      // 先按「每个点 1 个像素」开窗口，加载完量出真实比例后再调整（见下面）
+      shotWindow = new BrowserWindow({
+        show: false, width: IMAGE_CSS_WIDTH * IMAGE_SCALE, height: IMAGE_VIEW_HEIGHT * IMAGE_SCALE, useContentSize: true, enableLargerThanScreen: true, frame: false,
+        webPreferences: { nodeIntegration: false, contextIsolation: true, offscreen: true },
+      });
+      const tmpFile = path.join(os.tmpdir(), `iml-export-${Date.now()}.html`);
+      await fs.promises.writeFile(tmpFile, exportDocument(htmlContent + brandFooterHtml(brandLogo()), path.basename(defaultPath), baseHref, IMAGE_EXTRA_CSS), 'utf8');
+      try { await shotWindow.loadFile(tmpFile); } finally { fs.promises.unlink(tmpFile).catch(() => {}); }
+      const wc = shotWindow.webContents;
+      // 成品要固定 1500 像素宽（750 排版 × 2 倍），不能取决于用户的屏幕：
+      // 离屏窗口每个点截出几个像素，Retina 屏是 2、普通屏是 1。先截一小块量出这个比例，再反推窗口大小和页面缩放
+      const probe = await wc.capturePage({ x: 0, y: 0, width: 20, height: 20 });
+      const density = Math.max(0.5, probe.getSize().width / 20);
+      const zoom = IMAGE_SCALE / density;
+      shotWindow.setContentSize(Math.round((IMAGE_CSS_WIDTH * IMAGE_SCALE) / density), Math.round((IMAGE_VIEW_HEIGHT * IMAGE_SCALE) / density));
+      wc.setZoomFactor(zoom);
+      // 图片、字体都到位了再量高度，不然量出来的偏矮；最多等 6 秒，坏掉的图不能把导出卡死
+      const measured: { docHeight: number; footerTop: number; cuts: number[] } = await wc.executeJavaScript(`Promise.race([
+        Promise.all([document.fonts ? document.fonts.ready : null, ...Array.from(document.images).map((img) => img.complete ? null : new Promise((r) => { img.onload = img.onerror = r; }))]),
+        new Promise((r) => setTimeout(r, 6000)),
+      ]).then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const docHeight = Math.ceil(document.documentElement.scrollHeight);
+        const brand = document.querySelector('.export-brand');
+        const box = brand ? brand.getBoundingClientRect() : null;
+        // 分张时可以切的位置：段落、列表项、表格行、代码块这些的底边（文档坐标）
+        const cuts = Array.from(document.body.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, pre, tr, hr, img, figure, blockquote, .callout, .note-embed, .math-block'), (el) => Math.floor(el.getBoundingClientRect().bottom + window.scrollY)).sort((a, b) => a - b);
+        // 角标连同它上面的留白（margin-top）一起算进那一条，拼到别的图末尾时正文和角标之间才有同样的距离
+        r({ docHeight, cuts, footerTop: box ? Math.floor(box.top + window.scrollY - parseFloat(getComputedStyle(brand).marginTop)) : docHeight });
+      }))))`);
+      const { docHeight } = measured;
+      const band = brandBand(docHeight, measured.footerTop);
+
+      // 截一次页面、按这次截图自己的比例把某一段裁出来（实际像素和 CSS 像素可能不是整数倍关系：系统缩放）
+      const captureBand = async (scrollTo: number, topInShot: number, cssHeight: number) => {
+        await wc.executeJavaScript(`new Promise((r) => { window.scrollTo(0, ${scrollTo}); requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 120))); })`);
+        const shot = await wc.capturePage();
+        const size = shot.getSize();
+        const ratio = size.height / IMAGE_VIEW_HEIGHT;
+        const cropped = shot.crop({ x: 0, y: Math.round(topInShot * ratio), width: size.width, height: Math.max(1, Math.round(cssHeight * ratio)) });
+        return { bitmap: cropped.toBitmap(), ...cropped.getSize() };
+      };
+
+      // 每张图末尾都要拼上角标那一条，分张时给它留出高度；切在段落边界上，别把一行字切成两半
+      const ranges = planRanges(docHeight, maxImageHeight(IMAGE_CSS_WIDTH, IMAGE_SCALE) - band.height, measured.cuts.filter((c) => c < band.top));
+      const groups = ranges.map((range) => planTiles(docHeight, IMAGE_VIEW_HEIGHT, range.top, range.top + range.height));
+      // 角标那一条单独截一次：最后一张图里它本来就在，前面几张拼到末尾
+      const brandScroll = Math.max(0, docHeight - IMAGE_VIEW_HEIGHT);
+      const brandStrip = groups.length > 1 && band.height > 0 ? await captureBand(brandScroll, band.top - brandScroll, band.height) : null;
+      const saved: string[] = [];
+      for (let g = 0; g < groups.length; g++) {
+        const strips: Buffer[] = [];
+        let width = 0;
+        let height = 0;
+        for (const tile of groups[g]) {
+          const piece = await captureBand(tile.scrollTo, tile.offsetInShot, tile.height);
+          if (!strips.length && g > 0) {
+            // 后面几张的开头补一段和第一张页顶一样的留白（40 CSS 像素），不然正文顶着图的上边
+            const pad = Math.round((piece.height / tile.height) * 40);
+            strips.push(Buffer.alloc(piece.width * pad * 4, 0xff));
+            height += pad;
+          }
+          width = piece.width;
+          height += piece.height;
+          strips.push(piece.bitmap);
+        }
+        if (brandStrip && g < groups.length - 1 && brandStrip.width === width) {
+          strips.push(brandStrip.bitmap);
+          height += brandStrip.height;
+        }
+        // 各块宽度一样，原始位图首尾相接就是一张竖着拼好的图
+        const whole = nativeImage.createFromBitmap(Buffer.concat(strips), { width, height });
+        const file = numberedPath(target, g, groups.length);
+        await fs.promises.writeFile(file, whole.toPNG());
+        saved.push(file);
+      }
+      rememberExported(...saved);
+      return { success: true, path: saved[0], paths: saved };
+    } catch (error: any) {
+      console.error('Image Export Error:', error);
+      return { success: false, error: error.message };
+    } finally {
+      if (shotWindow && !shotWindow.isDestroyed()) shotWindow.destroy();
+    }
+  });
+
   // Export to a single-file HTML（图片内联）
   ipcMain.handle('export:html', async (event, htmlContent: string, defaultPath: string, activeFilePath: string) => {
     try {
       const window = BrowserWindow.fromWebContents(event.sender);
       if (!window) return { success: false, error: 'No window found' };
-      const savePath = await dialog.showSaveDialog(window, {
-        defaultPath: defaultPath.replace(/\.(md|markdown|mdown|mkd|txt)$/i, '') + '.html',
-        filters: [{ name: 'HTML', extensions: ['html'] }],
-      });
-      if (savePath.canceled || !savePath.filePath) return { success: false, canceled: true };
+      const target = await askSavePath(window, defaultPath.replace(/\.(md|markdown|mdown|mkd|txt)$/i, '') + '.html', { name: 'HTML', extensions: ['html'] });
+      if (!target) return { success: false, canceled: true };
       const dirPath = !activeFilePath.startsWith('new-') ? path.dirname(activeFilePath) : os.homedir();
       const body = await inlineLocalImages(htmlContent, dirPath);
-      await fs.promises.writeFile(savePath.filePath, exportDocument(body, path.basename(savePath.filePath, '.html')), 'utf8');
-      return { success: true, path: savePath.filePath };
+      await fs.promises.writeFile(target, exportDocument(body, path.basename(target, '.html')), 'utf8');
+      rememberExported(target);
+      return { success: true, path: target };
     } catch (error: any) {
       console.error('HTML Export Error:', error);
       return { success: false, error: error.message };
     }
   });
 
+  // 状态栏「已导出」提示上的两个按钮
+  ipcMain.handle('export:open', (_event, target: string) => openExported(target, 'open'));
+  ipcMain.handle('export:reveal', (_event, target: string) => openExported(target, 'reveal'));
+
   // Read directory
   ipcMain.handle('fs:readDir', async (_, dirPath: string) => {
     try {
       const normalizedPath = path.normalize(dirPath);
       const dirents = await fs.promises.readdir(normalizedPath, { withFileTypes: true });
-      const files = dirents.map(dirent => ({
-        name: dirent.name,
-        path: path.join(dirPath, dirent.name),
-        isDirectory: dirent.isDirectory()
+      // 带上修改 / 创建时间：文件树可以按时间排序。个别文件 stat 失败（权限、刚被删）不影响整个目录
+      const files = await Promise.all(dirents.map(async (dirent) => {
+        const full = path.join(dirPath, dirent.name);
+        let mtime = 0;
+        let ctime = 0;
+        try { const st = await fs.promises.stat(path.normalize(full)); mtime = st.mtimeMs; ctime = st.birthtimeMs || st.ctimeMs; } catch { /* 留 0 */ }
+        return { name: dirent.name, path: full, isDirectory: dirent.isDirectory(), mtime, ctime };
       }));
       files.sort((a, b) => {
         if (a.isDirectory && !b.isDirectory) return -1;

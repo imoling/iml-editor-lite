@@ -165,6 +165,20 @@ export function frontmatterTags(yaml: string): string[] {
   return out;
 }
 
+/** frontmatter 里的 aliases / alias 字段：这篇笔记的别名，`[[别名]]` 也能链到它（列表或逗号分隔的字符串都认） */
+export function frontmatterAliases(yaml: string): string[] {
+  const out: string[] = [];
+  for (const field of parseFrontmatter(yaml)) {
+    if (!/^alias(es)?$/i.test(field.key)) continue;
+    const values = Array.isArray(field.value) ? field.value : field.value.split(',');
+    for (const v of values) {
+      const alias = v.trim();
+      if (alias && !out.some((x) => x.toLowerCase() === alias.toLowerCase())) out.push(alias);
+    }
+  }
+  return out;
+}
+
 /** 一篇笔记的全部标签（frontmatter + 正文），按出现顺序去重，大小写不敏感 */
 export function extractTags(markdown: string): string[] {
   const { yaml, body } = splitFrontmatter(markdown || '');
@@ -223,3 +237,134 @@ export function calloutLabel(type: string, title?: string | null): string {
 
 /** `[!NOTE]- 标题` 这样的首行 */
 export const CALLOUT_HEAD_RE = /^\s*\[!([A-Za-z][\w-]*)\]([+-]?)[ \t]*(.*)$/;
+
+// ── 标签改名 / 合并 ──────────────────────────────────────────────────────────
+
+/** 能不能当标签名：不带 #，不能有空格，不能是纯数字 / 颜色值（和识别标签用的是同一套规则） */
+export function isValidTagName(name: string): boolean {
+  const n = (name || '').trim();
+  return !!n && matchTagAt(`#${n}`, '') === n;
+}
+
+/** 改名后的标签：from 本身 → to，子标签 from/x → to/x（子级那一段保留原样） */
+const renamed = (tag: string, from: string, to: string) => to + tag.slice(from.length);
+
+const blankSame = (s: string) => s.replace(/[^\n]/g, ' ');
+/** 一行里不该找标签的地方抹成等长空格：行内代码、链接地址、双链、HTML 注释。下标和原行一致，才能就地替换 */
+const maskLine = (line: string) => line
+  .replace(/`[^`]*`/g, blankSame)
+  .replace(/<!--.*?-->/g, blankSame)
+  .replace(/\]\([^)]*\)/g, blankSame)
+  .replace(/\[\[[^\]]*\]\]/g, blankSame);
+
+function renameInYamlItem(item: string, from: string, to: string): string {
+  const m = /^(\s*)(["']?)(#?)(.*?)\2(\s*)$/.exec(item);
+  if (!m || !tagMatches(m[4], from)) return item;
+  return `${m[1]}${m[2]}${m[3]}${renamed(m[4], from, to)}${m[2]}${m[5]}`;
+}
+
+const yamlTagKey = (item: string) => item.trim().replace(/^["']|["']$/g, '').replace(/^#/, '').toLowerCase();
+
+/**
+ * 一组标签项改名，并去掉合并后重复的。没有任何一项真的改了就返回 null——
+ * 调用方据此整行原样保留，不因为「拆开又拼回去」给用户的文件带来无谓的改动。
+ */
+function renameItems(items: string[], from: string, to: string): string[] | null {
+  let changed = false;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of items) {
+    const next = renameInYamlItem(item, from, to);
+    if (next !== item) changed = true;
+    const k = yamlTagKey(next);
+    if (k && seen.has(k)) continue;
+    if (k) seen.add(k);
+    out.push(next);
+  }
+  return changed ? out : null;
+}
+
+/** frontmatter 里的 tags / tag：行内列表 [a, b]、块列表（- a）、逗号或空格分隔的字符串都改；合并后重复的去掉 */
+function renameInFrontmatter(lines: string[], from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const key = /^(tags?\s*:)(.*)$/i.exec(lines[i]);
+    if (!key) { out.push(lines[i]); continue; }
+    const value = key[2];
+
+    const inline = /^(\s*)\[(.*)\](\s*)$/.exec(value);
+    if (inline) {
+      const items = renameItems(inline[2].split(','), from, to);
+      out.push(items ? `${key[1]}${inline[1]}[${items.join(',')}]${inline[3]}` : lines[i]);
+      continue;
+    }
+
+    if (value.trim()) {
+      // 字符串写法 `tags: a, b c`：偶数位是标签、奇数位是它们之间的分隔符，分隔符原样留着
+      const lead = /^\s*/.exec(value)![0];
+      const tokens = value.trim().split(/([,\s]+)/);
+      const tags = tokens.filter((_, idx) => idx % 2 === 0);
+      const items = renameItems(tags, from, to);
+      if (!items) { out.push(lines[i]); continue; }
+      // 去重之后项数可能少了：分隔符统一用原来的第一个
+      const sep = tokens[1] ?? ', ';
+      out.push(key[1] + lead + (items.length === tags.length ? tokens.map((t, idx) => (idx % 2 === 0 ? items[idx / 2] : t)).join('') : items.join(sep)));
+      continue;
+    }
+
+    // 块列表：后面连着的 `- item` 行
+    out.push(lines[i]);
+    const block: { prefix: string; item: string; line: string }[] = [];
+    while (i + 1 < lines.length && /^\s*-\s+/.test(lines[i + 1])) {
+      i++;
+      const m = /^(\s*-\s+)(.*)$/.exec(lines[i])!;
+      block.push({ prefix: m[1], item: m[2], line: lines[i] });
+    }
+    const items = renameItems(block.map((x) => x.item), from, to);
+    if (!items) { out.push(...block.map((x) => x.line)); continue; }
+    // 保留每一项原来的缩进写法；去重丢掉的是后出现的那几项
+    const seen = new Set<string>();
+    for (const entry of block) {
+      const next = renameInYamlItem(entry.item, from, to);
+      const k = yamlTagKey(next);
+      if (k && seen.has(k)) continue;
+      if (k) seen.add(k);
+      out.push(entry.prefix + next);
+    }
+  }
+  return out;
+}
+
+/**
+ * 把一篇笔记里的标签 from 改成 to：正文的 `#from`、`#from/子级`，和 frontmatter 的 tags。
+ * 围栏代码、行内代码、链接地址、双链里的不动。没有要改的地方时返回原字符串（同一个引用）。
+ */
+export function renameTagInMarkdown(markdown: string, from: string, to: string): string {
+  const source = markdown || '';
+  const a = from.trim().replace(/^#/, '');
+  const b = to.trim().replace(/^#/, '');
+  if (!a || !b || a === b) return source;
+  const fm = splitFrontmatter(source);
+  const lines = source.split('\n');
+  const fmLines = fm.block === null ? 0 : fm.block.split('\n').length;
+
+  const head = fmLines ? [lines[0], ...renameInFrontmatter(lines.slice(1, fmLines - 1), a, b), lines[fmLines - 1]] : [];
+  let fence: string | null = null;
+  const body = lines.slice(fmLines).map((line) => {
+    const f = /^\s*(?:>\s*)*(`{3,}|~{3,})/.exec(line);
+    if (f) {
+      if (!fence) fence = f[1][0];
+      else if (f[1][0] === fence) fence = null;
+      return line;
+    }
+    if (fence || !line.includes('#')) return line;
+    let next = line;
+    // 从右往左换，前面的下标不受影响
+    for (const hit of findTags(maskLine(line)).reverse()) {
+      if (tagMatches(hit.tag, a)) next = `${next.slice(0, hit.from + 1)}${renamed(hit.tag, a, b)}${next.slice(hit.to)}`;
+    }
+    return next;
+  });
+  const result = [...head, ...body].join('\n');
+  return result === source ? source : result;
+}

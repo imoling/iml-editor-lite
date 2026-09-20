@@ -1,5 +1,5 @@
 import type { Editor } from '@tiptap/core';
-import { Selection } from '@tiptap/pm/state';
+import { Selection, EditorState } from '@tiptap/pm/state';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import { lexTopLevel, markdownToHtml } from './markdown';
 import { splitFrontmatter } from '../../electron/shared/noteMeta';
@@ -47,7 +47,7 @@ export function clearSourceMap(editor: Editor) {
 const COMPATIBLE: Record<string, string[]> = {
   frontmatter: ['frontmatter'],
   heading: ['heading'],
-  paragraph: ['paragraph', 'image', 'math', 'toc'],
+  paragraph: ['paragraph', 'image', 'math', 'toc', 'wikiEmbed'],
   text: ['paragraph'],
   code: ['codeBlock', 'diagram', 'svgBlock'],
   list: ['bulletList', 'orderedList', 'taskList'],
@@ -134,6 +134,19 @@ export function registerSource(editor: Editor, markdown: string): SourceMap | nu
   const map: SourceMap = { head, headDefs, blocks, eol, endsWithNewline: text.endsWith('\n'), origin };
   sourceMaps.set(editor, map);
   return map;
+}
+
+/**
+ * 换成另一篇笔记的内容，并把撤销历史清空。
+ *
+ * 所有标签页共用一个编辑器实例。只 setContent 的话，「载入新文档」这一步也在撤销栈里：
+ * 切到另一篇之后随手按一下 ⌘Z，上一篇的整篇内容就被「撤销」回来、写进了当前这篇——开着自动保存时，磁盘上的文件会被另一篇笔记覆盖。
+ * ProseMirror 没有「清空历史」的接口，通行的做法是用同一份文档、同一批插件重建一次状态：文档节点对象不变，历史是新的。
+ */
+export function loadDocFresh(editor: Editor, html: string) {
+  editor.commands.setContent(html, false);
+  const { state, view } = editor;
+  view.updateState(EditorState.create({ doc: state.doc, plugins: state.plugins }));
 }
 
 /**

@@ -6,7 +6,7 @@ import type { Editor } from '@tiptap/core';
 import { useAppStore } from '../../stores/appStore';
 import { markdownToHtml } from '../../utils/markdown';
 import { serializeDoc } from '../../utils/incrementalMarkdown';
-import { registerSource, placeCursorAfterFrontmatter } from '../../utils/sourceMap';
+import { registerSource, placeCursorAfterFrontmatter, loadDocFresh } from '../../utils/sourceMap';
 import { searchPluginKey } from '../../extensions/SearchExtension';
 import { editorExtensions } from './editorExtensions';
 import { useEditorAI } from './useEditorAI';
@@ -24,6 +24,11 @@ import { WikiLinkMenu } from './WikiLinkMenu';
 import type { SuggestionProps } from '@tiptap/suggestion';
 import { storeImageFile, persistDataUrl } from '../../utils/pasteImage';
 import { isSingleUrl } from '../../utils/pasteText';
+import { normalizeHeading } from '../../../electron/shared/wikiLink';
+import { extractHeadings } from '../../utils/outline';
+import { wikiHeadingCandidates, toNameCandidates } from '../../utils/wikiComplete';
+import { readNoteForLink } from '../../utils/noteReader';
+import { jumpToFootnote } from '../../extensions/FootnoteLinks';
 import '../styles/editor.css';
 
 /** 粘贴网址后异步取到了网页标题：找到刚插入的那条「文字 = 地址」的链接，把文字换成标题 */
@@ -137,6 +142,16 @@ export const TiptapEditor: React.FC = () => {
     const { registerEditorActions } = useAppStore.getState();
     registerEditorActions({
       insertText: (text) => { const ed = editorRef.current as Editor | null; if (!ed || ed.isDestroyed) return false; return ed.chain().focus().insertContent(text).run(); },
+      // 命令面板的「插入…」：和在正文里敲 / 选同一项走的是同一段代码，只是没有要先删掉的 `/xxx`
+      runSlash: (id) => {
+        const ed = editorRef.current as Editor | null;
+        if (!ed || ed.isDestroyed) return false;
+        const item = buildSlashItems().find((x) => x.id === id);
+        if (!item) return false;
+        const at = ed.state.selection.from;
+        item.run(ed, { from: at, to: at });
+        return true;
+      },
       startList: () => {
         const ed = editorRef.current as Editor | null;
         if (!ed || ed.isDestroyed) return;
@@ -160,6 +175,9 @@ export const TiptapEditor: React.FC = () => {
           useAppStore.getState().openWikiLink(link.getAttribute('data-wiki-link') || '');
           return true;
         }
+        // 点击脚注引用 [^1] → 跳到它的定义（按住 ⌘ / Ctrl 时照常落光标，方便改这几个字）
+        const footnote = (event.target as HTMLElement).closest('[data-footnote-ref]');
+        if (footnote && !event.metaKey && !event.ctrlKey && jumpToFootnote(_view, footnote.getAttribute('data-footnote-ref') || '')) return true;
         // 点击 #标签 → 侧边栏标签视图（光标照常落位，不拦截）
         const tag = (event.target as HTMLElement).closest('.tag-chip[data-tag]');
         if (tag) useAppStore.getState().openTag(tag.getAttribute('data-tag'));
@@ -309,6 +327,8 @@ export const TiptapEditor: React.FC = () => {
       }
     },
     onUpdate: () => scheduleSyncRef.current(),
+    // 状态栏的「选中 N 字」
+    onSelectionUpdate: ({ editor: ed }) => { const { from, to, empty } = ed.state.selection; useAppStore.getState().setSelectionText(empty ? '' : ed.state.doc.textBetween(from, to, '\n')); },
     onBlur: () => flushSyncRef.current(),
   });
 
@@ -469,9 +489,9 @@ export const TiptapEditor: React.FC = () => {
     prevEditorRef.current = editor;
 
     if (isNewEditor) {
-      // 新实例时强制用 store 中的真实内容初始化，确保 data URL 图片不丢失
+      // 新实例时强制用 store 中的真实内容初始化，确保 data URL 图片不丢失；这一步不该留在撤销栈里
       lastSyncedMdRef.current = null;
-      editor.commands.setContent(newHtml, false);
+      loadDocFresh(editor, newHtml);
       registerSource(editor, activeTab.content);
       placeCursorAfterFrontmatter(editor);
       return;
@@ -509,9 +529,9 @@ export const TiptapEditor: React.FC = () => {
       return;
     }
 
-    // tab 切换：直接更新内容
+    // tab 切换：换文档，并清空撤销历史（不然在这一篇里按 ⌘Z 会把上一篇的内容撤回来，见 loadDocFresh）
     lastSyncedMdRef.current = null;
-    editor.commands.setContent(newHtml, false);
+    loadDocFresh(editor, newHtml);
     // 登记原文对照表：保存时没被编辑过的块直接写回原文（见 sourceMap.ts）
     registerSource(editor, activeTab.content);
     placeCursorAfterFrontmatter(editor);
@@ -519,17 +539,34 @@ export const TiptapEditor: React.FC = () => {
 
   useEffect(() => {
     if (editor && navigationRequest) {
-      const { heading } = navigationRequest;
+      const { heading, blockId, lineText } = navigationRequest;
       let foundPos = -1;
-      
+      // 待办面板点过来的：只比字（去掉 Markdown 记号和空白），加粗、行内代码不影响
+      const bare = (t: string) => t.replace(/[^\p{L}\p{N}]/gu, '');
+      const wantedLine = lineText ? bare(lineText) : '';
+      // 标题里有公式 / 链接时，目录给的文字和节点文字可能差几个符号：精确的找不到再按宽松的来
+      let loosePos = -1;
+      const wanted = heading ? normalizeHeading(heading.text) : '';
+      // 同名标题（每一节下面都有个「待办」）：要的是第几个，就数到第几个，不能一律停在第一个
+      const tabContent = useAppStore.getState().tabs.find((t) => t.id === useAppStore.getState().activeTabId)?.content ?? '';
+      const twins = heading ? extractHeadings(tabContent).filter((h) => h.level === heading.level && h.text === heading.text) : [];
+      let skip = Math.max(0, twins.findIndex((h) => h.id === heading?.id));
+
       editor.state.doc.descendants((node, pos) => {
         if (foundPos !== -1) return false;
-        if (node.type.name === 'heading' && node.attrs.level === heading.level && node.textContent === heading.text) {
-          foundPos = pos;
-          return false;
+        if (heading && node.type.name === 'heading') {
+          if (node.attrs.level === heading.level && node.textContent === heading.text) {
+            if (skip-- === 0) { foundPos = pos; return false; }
+            return true;
+          }
+          if (loosePos === -1 && normalizeHeading(node.textContent) === wanted) loosePos = pos;
         }
+        // [[笔记#^块]]：块 ID 写在那一段的末尾
+        if (blockId && node.isTextblock && node.textContent.trimEnd().endsWith(`^${blockId}`)) { foundPos = pos; return false; }
+        if (wantedLine && node.isTextblock && bare(node.textContent).startsWith(wantedLine)) { foundPos = pos; return false; }
         return true;
       });
+      if (foundPos === -1) foundPos = loosePos;
 
       if (foundPos !== -1) {
         editor.commands.focus(foundPos);
@@ -573,15 +610,17 @@ export const TiptapEditor: React.FC = () => {
     openLink: () => {},
     openAI: () => {},
   });
+  /** 斜杠菜单和命令面板共用的一份命令（对话框类的动作经 slashActionsRef 取到最新的） */
+  const buildSlashItems = () => createSlashItems({
+    openTable: () => slashActionsRef.current.openTable(),
+    openImage: () => slashActionsRef.current.openImage(),
+    openLink: () => slashActionsRef.current.openLink(),
+    openAI: () => slashActionsRef.current.openAI(),
+    openDailyNote: () => useAppStore.getState().openDailyNote(),
+  });
 
   useEffect(() => {
-    slashMenuRegistry.items = (query) => filterSlashItems(createSlashItems({
-      openTable: () => slashActionsRef.current.openTable(),
-      openImage: () => slashActionsRef.current.openImage(),
-      openLink: () => slashActionsRef.current.openLink(),
-      openAI: () => slashActionsRef.current.openAI(),
-      openDailyNote: () => useAppStore.getState().openDailyNote(),
-    }).filter((item) => item.id !== 'ai' || useAppStore.getState().aiEnabled), query);
+    slashMenuRegistry.items = (query) => filterSlashItems(buildSlashItems().filter((item) => item.id !== 'ai' || useAppStore.getState().aiEnabled), query);
     slashMenuRegistry.handlers = {
       onStart: (props) => setSlash({ props, index: 0 }),
       onUpdate: (props) => setSlash((prev) => ({ props, index: prev && prev.props.items.length === props.items.length ? prev.index : 0 })),
@@ -613,11 +652,17 @@ export const TiptapEditor: React.FC = () => {
   wikiRef.current = wiki;
   useEffect(() => {
     wikiLinkRegistry.items = async (query) => {
-      let notes: { title: string; path: string }[] = [];
+      let notes: { title: string; path: string; aliases?: string[] }[] = [];
       try { notes = await window.api.search.listNotes(); } catch { notes = []; }
-      // 用文件名做候选（[[ ]] 里习惯写文件名），标题不同再补一条
-      const byName = notes.map((n) => ({ ...n, title: (n.path.split(/[/\\]/).pop() || n.title).replace(/\.(md|markdown|mdown|mkd|txt)$/i, '') }));
-      return filterWikiCandidates(byName, query);
+      // [[笔记# → 列那篇笔记的小节
+      const { tabs, activeTabId: currentId } = useAppStore.getState();
+      const headings = await wikiHeadingCandidates(notes, query, {
+        currentPath: currentId && !currentId.startsWith('new-') ? currentId : null,
+        currentContent: tabs.find((t) => t.id === currentId)?.content ?? '',
+        readNote: readNoteForLink,
+      });
+      if (headings) return headings.map((h) => ({ title: h.target, path: h.path, heading: { text: h.heading, level: h.level } }));
+      return filterWikiCandidates(toNameCandidates(notes), query);
     };
     wikiLinkRegistry.handlers = {
       onStart: (props) => setWiki({ props, index: 0 }),
@@ -770,7 +815,9 @@ export const TiptapEditor: React.FC = () => {
           document.body
         )}
 
-        <div className="tiptap-page" onClick={() => editor.chain().focus().run()} style={{
+        {/* 点页面空白处也能开始写。但来自输入框 / 按钮 / 节点视图里可交互区域的点击不算：
+            不然属性卡片里的输入框刚拿到焦点就被抢回编辑器，打的字全进了正文 */}
+        <div className="tiptap-page" onClick={(e) => { if (!(e.target as HTMLElement).closest('input, textarea, select, button, [data-interactive]')) editor.chain().focus().run(); }} style={{
           transform: `scale(${zoom / 100})`
         }}>
           <EditorBubbleMenu

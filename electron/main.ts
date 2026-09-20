@@ -10,6 +10,9 @@ import { setupSemantic, syncSemanticIndex, stopSemanticServer, isSemanticServerA
 import { setupAsr, stopAsr, confirmDiscardTranscript, forgetUnsavedTranscript } from './asr';
 import { describeRelease } from './update';
 import { NoteHistory } from './history';
+import { setupQuickCapture } from './capture';
+import { syncFolderCandidates, labelCloudStorageDir, SYNC_LIBRARY_NAME } from './shared/syncFolders';
+import { parseAppUrl, appUrlFromArgv, APP_URL_SCHEME, AppUrlAction } from './shared/appUrl';
 import { registerAssetScheme, handleAssetProtocol, findOrphanImages, filterTrashable, fetchPageTitle } from './assets';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -154,6 +157,8 @@ function saveConfig(config: any) {
   }
 }
 
+let quickCapture: ReturnType<typeof setupQuickCapture> | null = null;
+
 function getAppSettings() {
   const { userDataPath } = getPaths();
   const settingsPath = path.join(userDataPath, 'app-settings.json');
@@ -250,6 +255,35 @@ function openFileFromOS(filePath: string) {
   }
 }
 
+// ── iml:// 链接（Raycast、快捷指令、浏览器书签调起应用）──
+// 和上面的文件一样走「入队 + 提醒，渲染进程来拉」：应用还没起来时点的链接也不会丢。
+const pendingAppUrls: AppUrlAction[] = [];
+
+function openAppUrl(raw: string) {
+  const action = parseAppUrl(raw);
+  if (!action) { console.warn('[url] ignored:', String(raw).slice(0, 120)); return; }
+  pendingAppUrls.push(action);
+  const quiet = action.action === 'capture'; // 追加一句话不该把窗口带到前面，用户此刻在别的软件里
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (!quiet) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); }
+    mainWindow.webContents.send('app-url');
+  } else if (app.isReady()) {
+    createWindow();
+  }
+}
+
+ipcMain.handle('app:consumePendingUrls', () => {
+  const urls = [...pendingAppUrls];
+  pendingAppUrls.length = 0;
+  return urls;
+});
+
+// macOS：链接经 open-url 事件进来，应用还没 ready 时也可能触发，所以在最外层注册
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  openAppUrl(url);
+});
+
 // 版本号与待打开文件队列不依赖 ready，尽早注册：preload 同步读版本号时句柄必须已经挂上
 ipcMain.on('app:version', (event) => {
   // 冒烟测试：IML_SMOKE_VERSION=26.1.0 让应用以为自己是旧版本，用来看真实的「发现新版本」提醒
@@ -282,7 +316,10 @@ if (process.platform !== 'darwin') {
   } else {
     app.on('second-instance', (_event, argv, workingDirectory) => {
       const file = documentFromArgv(argv, workingDirectory);
-      if (file) {
+      const url = appUrlFromArgv(argv);
+      if (url) {
+        openAppUrl(url);
+      } else if (file) {
         openFileFromOS(file);
       } else if (mainWindow && !mainWindow.isDestroyed()) {
         if (mainWindow.isMinimized()) mainWindow.restore();
@@ -291,6 +328,8 @@ if (process.platform !== 'darwin') {
     });
     const initialFile = documentFromArgv(process.argv, process.cwd());
     if (initialFile) pendingOpenFiles.push(initialFile);
+    const initialUrl = appUrlFromArgv(process.argv);
+    if (initialUrl) { const action = parseAppUrl(initialUrl); if (action) pendingAppUrls.push(action); }
   }
 }
 const aiAbortControllers = new Map<string, AbortController>();
@@ -457,6 +496,8 @@ function setupAppMenu() {
           accelerator: 'Cmd+Shift+E',
           click: () => mainWindow?.webContents.send('menu:export', 'html'),
         },
+        { label: '导出为 Word…', click: () => mainWindow?.webContents.send('menu:export', 'docx') },
+        { label: '导出为长图…', click: () => mainWindow?.webContents.send('menu:export', 'image') },
         { type: 'separator' },
         // 标签页是渲染进程管的，但 Cmd+W 得在这里占住：否则 role:'close' 会拿走它去关窗口
         {
@@ -500,7 +541,14 @@ function setupAppMenu() {
     },
     {
       label: '视图',
+      // 命令面板放在「视图」最上面：和窗口里那套菜单的位置一致
       submenu: [
+        {
+          label: '命令面板…',
+          accelerator: 'Cmd+Shift+P',
+          click: () => mainWindow?.webContents.send('dialog:open', 'command-palette'),
+        },
+        { type: 'separator' as const },
         ...(isDev ? [
           { role: 'reload' as const, label: '重新加载' },
           { role: 'forceReload' as const, label: '强制重新加载' },
@@ -563,6 +611,11 @@ function setupAppMenu() {
 }
 
 app.whenReady().then(() => {
+  // 只有打包后的正式应用才去登记 iml:// ：开发时登记的话，系统会把这个协议绑到通用的 Electron 程序上
+  if (app.isPackaged) app.setAsDefaultProtocolClient(APP_URL_SCHEME);
+  // 冒烟测试：IML_SMOKE_URL 模拟系统递进来一个链接
+  if (isDev && process.env.IML_SMOKE_URL) { const action = parseAppUrl(process.env.IML_SMOKE_URL); if (action) pendingAppUrls.push(action); }
+
   // 0. 本地图片协议
   try {
     handleAssetProtocol();
@@ -576,6 +629,13 @@ app.whenReady().then(() => {
     setupFileSystemIPC({ history });
   } catch (err) {
     console.error('Failed to setup FileSystem IPC:', err);
+  }
+
+  // 快速捕获：全局快捷键 + 小输入窗，把一句话追加到今天的日记
+  try {
+    quickCapture = setupQuickCapture({ getSettings: getAppSettings, getMainWindow: () => mainWindow, history, smokeHidden: isDev && process.env.IML_SMOKE_OFFSCREEN === '1' });
+  } catch (err) {
+    console.error('Failed to setup quick capture:', err);
   }
 
   // 版本历史
@@ -670,6 +730,8 @@ app.whenReady().then(() => {
       libraryWatcher = fs.watch(dirPath, { recursive: true }, (_type, filename) => {
         if (!filename) return;
         const rel = filename.toString();
+        // 用户的 CSS 片段在隐藏目录里，单独通知一声：保存它就立刻生效
+        if (/^\.iml[\\/]snippets\.css$/.test(rel)) { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('snippets:changed'); return; }
         // 隐藏文件（.DS_Store、同步盘的临时文件等）不触发
         if (rel.split(/[\\/]/).some((seg) => seg.startsWith('.'))) return;
         libraryChanged.add(path.join(dirPath, rel));
@@ -696,7 +758,16 @@ app.whenReady().then(() => {
   ipcMain.handle('search:query', (_event, query: string, limit?: number) => searchIndex.search(String(query || ''), limit));
   ipcMain.handle('search:status', () => searchIndex.status());
   ipcMain.handle('search:listNotes', () => searchIndex.listNotes());
-  ipcMain.handle('search:backlinks', (_event, title: string) => searchIndex.backlinks(String(title || '')));
+  ipcMain.handle('search:backlinks', (_event, nameOrPath: string) => searchIndex.backlinks(String(nameOrPath || '')));
+  // 用系统默认应用打开笔记库里的附件（嵌入的 PDF 卡片上的「打开」）。只认库里的、已经进了索引的附件，别的路径一律不开
+  ipcMain.handle('search:openAttachment', async (_event, filePath: string) => {
+    const target = searchIndex.knownAttachment(String(filePath || ''));
+    if (!target) return false;
+    return (await shell.openPath(target)) === '';
+  });
+  ipcMain.handle('search:findAttachment', (_event, name: string, fromDir?: string | null) => searchIndex.findAttachment(String(name || ''), fromDir ? String(fromDir) : null));
+  ipcMain.handle('search:tasks', (_event, includeDone?: boolean) => searchIndex.listTasks(!!includeDone));
+  ipcMain.handle('search:unlinkedMentions', (_event, filePath: string) => searchIndex.unlinkedMentions(String(filePath || '')));
   ipcMain.handle('search:tags', () => searchIndex.listTags());
   ipcMain.handle('search:notesByTag', (_event, tag: string) => searchIndex.notesByTag(String(tag || '')));
 
@@ -720,22 +791,36 @@ app.whenReady().then(() => {
   // 粘贴链接时取网页标题
   ipcMain.handle('web:fetchTitle', (_event, url: string) => fetchPageTitle(String(url || '')));
 
-  // iCloud Drive 下的笔记库路径（不存在 iCloud Drive 时返回 null）；选用时自动建目录
-  ipcMain.handle('app:getICloudLibraryPath', () => {
+  // 本机装了哪些同步盘：设置里给出「一键把笔记库放进去」。只看、不建目录——用户选了才建
+  ipcMain.handle('app:detectSyncFolders', () => {
     const home = app.getPath('home');
-    const cloudRoot = process.platform === 'darwin'
-      ? path.join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs')
-      : process.platform === 'win32'
-        ? path.join(home, 'iCloudDrive')
-        : '';
-    if (!cloudRoot || !fs.existsSync(cloudRoot)) return null;
-    const lib = path.join(cloudRoot, 'iML Notes');
-    try {
-      if (!fs.existsSync(lib)) fs.mkdirSync(lib, { recursive: true });
-      return lib;
-    } catch {
-      return null;
+    const isDir = (p: string) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+    const found: { id: string; name: string; root: string; libraryPath: string; libraryExists: boolean }[] = [];
+    const add = (id: string, name: string, root: string) => {
+      if (found.some((f) => f.id === id) || !isDir(root)) return;
+      const libraryPath = path.join(root, SYNC_LIBRARY_NAME);
+      found.push({ id, name, root, libraryPath, libraryExists: isDir(libraryPath) });
+    };
+    for (const c of syncFolderCandidates(process.platform)) add(c.id, c.name, path.join(home, ...c.rel));
+    if (process.platform === 'darwin') {
+      const cloudStorage = path.join(home, 'Library', 'CloudStorage');
+      let dirs: string[] = [];
+      try { dirs = fs.readdirSync(cloudStorage); } catch { dirs = []; }
+      for (const dir of dirs) {
+        if (dir.startsWith('.')) continue;
+        const { id, name } = labelCloudStorageDir(dir);
+        add(id, name, path.join(cloudStorage, dir));
+      }
     }
+    return found;
+  });
+
+  // 应用默认的笔记库目录（文稿/iML Notes）：从同步盘「改回原来的目录」时的兜底
+  ipcMain.handle('app:homeLibraryPath', () => {
+    const p = path.join(app.getPath('documents'), 'iML Notes');
+    let exists = false;
+    try { exists = fs.statSync(p).isDirectory(); } catch { exists = false; }
+    return { path: p, exists };
   });
 
   // 设置窗口请求清空会话 → 由主窗口执行（会话只存在于主窗口的 localStorage）
@@ -781,6 +866,8 @@ app.whenReady().then(() => {
   ipcMain.handle('app:saveSettings', (_event, settings) => {
     const result = saveAppSettings(settings);
     if (result.success) applySpellcheck(!!getAppSettings().spellcheck);
+    // 快速捕获的开关或快捷键变了：重新注册全局快捷键
+    if (result.success && settings && 'quickCapture' in settings) quickCapture?.apply();
     // AI 总开关：关掉就把嵌入服务停了；重新打开则补上期间落下的索引
     if (result.success && settings && 'aiEnabled' in settings) {
       if (settings.aiEnabled === false) void stopSemanticServer();
@@ -1196,6 +1283,9 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+// 全局快捷键是系统级的，退出时要还回去
+app.on('will-quit', () => quickCapture?.dispose());
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

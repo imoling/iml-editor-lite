@@ -45,6 +45,22 @@ export interface BacklinkResult {
   title: string;
   snippets: SearchSnippet[];
 }
+export interface NoteTasks {
+  path: string;
+  title: string;
+  mtime: number;
+  tasks: import('../../electron/shared/tasks').NoteTask[];
+}
+/** 未链接提及的一处：offset / length 指向那篇笔记原文里的那个词 */
+export interface MentionSnippet extends SearchSnippet {
+  offset: number;
+  length: number;
+}
+export interface MentionResult {
+  path: string;
+  title: string;
+  snippets: MentionSnippet[];
+}
 
 declare global {
   interface Window {
@@ -69,6 +85,13 @@ declare global {
       export: {
         pdf: (htmlContent: string, defaultPath: string, filePath: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
         html: (htmlContent: string, defaultPath: string, filePath: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
+        /** 渲染层生成好的文件（Word 文档）交给主进程问路径、写盘 */
+        saveFile: (defaultName: string, bytes: Uint8Array, filterName: string, extension: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
+        /** 长图；很长的笔记会分成几张，paths 是全部文件 */
+        image: (htmlContent: string, defaultPath: string, filePath: string) => Promise<{ success: boolean; path?: string; paths?: string[]; canceled?: boolean; error?: string }>;
+        /** 用系统默认应用打开 / 在访达里选中一个刚导出的文件；只认这次运行里导出过的路径 */
+        open: (filePath: string) => Promise<boolean>;
+        reveal: (filePath: string) => Promise<boolean>;
       };
       ai: {
         getConfig: () => Promise<any>;
@@ -152,10 +175,22 @@ declare global {
       search: {
         query: (query: string, limit?: number) => Promise<SearchResult[]>;
         status: () => Promise<{ root: string | null; count: number; building: boolean }>;
-        listNotes: () => Promise<{ path: string; title: string }[]>;
-        backlinks: (title: string) => Promise<BacklinkResult[]>;
+        listNotes: () => Promise<{ path: string; title: string; aliases?: string[] }[]>;
+        /** 传库里笔记的路径：按它的文件名 / 一级标题 / 别名找链接；传别的当成一个名字 */
+        backlinks: (nameOrPath: string) => Promise<BacklinkResult[]>;
+        unlinkedMentions: (filePath: string) => Promise<MentionResult[]>;
+        /** 全库待办：有待办的笔记连同它的待办，最近改过的在前；默认只要没勾的 */
+        tasks: (includeDone?: boolean) => Promise<NoteTasks[]>;
+        /** `![[截图.png]]`：按文件名在整个笔记库里找图片 / 音频，返回绝对路径 */
+        findAttachment: (name: string, fromDir?: string | null) => Promise<string | null>;
+        /** 用系统默认应用打开库里的一个附件（PDF 卡片上的「打开」）；不是库里的附件返回 false */
+        openAttachment: (filePath: string) => Promise<boolean>;
         tags: () => Promise<TagCount[]>;
         notesByTag: (tag: string) => Promise<TaggedNote[]>;
+      };
+      capture: {
+        status: () => Promise<{ enabled: boolean; shortcut: string; registered: boolean }>;
+        show: () => Promise<boolean>;
       };
       events: {
         on: (channel: string, callback: (...args: any[]) => void) => void;
@@ -173,7 +208,11 @@ declare global {
         openSettings: () => void;
         consumePendingOpenFiles: () => Promise<string[]>;
         clearSession: () => void;
-        getICloudLibraryPath: () => Promise<string | null>;
+        /** 本机装了哪些同步盘，以及把笔记库放进去的话会是哪个目录（只检测，不建目录） */
+        consumePendingUrls: () => Promise<import('../../electron/shared/appUrl').AppUrlAction[]>;
+        detectSyncFolders: () => Promise<{ id: string; name: string; root: string; libraryPath: string; libraryExists: boolean }[]>;
+        /** 应用默认的笔记库目录（文稿/iML Notes）及其是否存在 */
+        homeLibraryPath: () => Promise<{ path: string; exists: boolean }>;
         previewSettings: (settings: any) => void;
         revertSettings: () => void;
         getWhatsNewState: () => Promise<{ current: string; lastSeen: string | null }>;

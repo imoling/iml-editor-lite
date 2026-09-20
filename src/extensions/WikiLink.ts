@@ -36,7 +36,7 @@ export const WikiLink = Node.create({
   },
 
   renderHTML({ node, HTMLAttributes }) {
-    return ['span', mergeAttributes(HTMLAttributes, { class: 'wiki-link', title: `打开「${node.attrs.target}」` }), node.attrs.label || node.attrs.target];
+    return ['span', mergeAttributes(HTMLAttributes, { class: 'wiki-link' }), node.attrs.label || node.attrs.target];
   },
 
   /** 直接敲完 `[[xxx]]` 也能变成链接节点 */

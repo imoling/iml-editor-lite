@@ -7,6 +7,10 @@ export interface WikiLinkCandidate {
   path: string;
   /** 没有匹配笔记时的「新建」选项 */
   create?: boolean;
+  /** 靠 frontmatter 的别名命中：插入 [[title|alias]] */
+  alias?: string;
+  /** `[[笔记#` 之后的小节候选：title 是完整目标「笔记#小节」，这里是小节名和层级 */
+  heading?: { text: string; level: number };
 }
 
 export interface WikiLinkMenuHandlers {
@@ -41,7 +45,7 @@ export const WikiLinkSuggestion = Extension.create({
           editor
             .chain()
             .focus()
-            .insertContentAt(range, [{ type: 'wikiLink', attrs: { target: props.title, label: props.title } }, { type: 'text', text: ' ' }])
+            .insertContentAt(range, [{ type: 'wikiLink', attrs: { target: props.title, label: props.alias || props.title } }, { type: 'text', text: ' ' }])
             .run();
         },
         render: () => ({
@@ -55,11 +59,17 @@ export const WikiLinkSuggestion = Extension.create({
   },
 });
 
-/** 按查询过滤笔记名；没有精确匹配时追加「新建」项 */
-export function filterWikiCandidates(notes: { title: string; path: string }[], query: string): WikiLinkCandidate[] {
+/** 按查询过滤笔记名（名字没中再看别名）；没有精确匹配时追加「新建」项 */
+export function filterWikiCandidates(notes: { title: string; path: string; aliases?: string[] }[], query: string): WikiLinkCandidate[] {
   const q = query.trim().toLowerCase();
-  const matched: WikiLinkCandidate[] = (q ? notes.filter((n) => n.title.toLowerCase().includes(q)) : notes).slice(0, 8);
-  const exact = matched.some((n) => n.title.toLowerCase() === q);
+  const matched: WikiLinkCandidate[] = [];
+  for (const n of notes) {
+    if (matched.length >= 8) break;
+    if (!q || n.title.toLowerCase().includes(q)) { matched.push({ title: n.title, path: n.path }); continue; }
+    const alias = (n.aliases || []).find((a) => a.toLowerCase().includes(q));
+    if (alias) matched.push({ title: n.title, path: n.path, alias });
+  }
+  const exact = matched.some((n) => n.title.toLowerCase() === q || n.alias?.toLowerCase() === q);
   if (q && !exact) matched.push({ title: query.trim(), path: '', create: true });
   return matched;
 }

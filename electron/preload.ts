@@ -24,6 +24,10 @@ contextBridge.exposeInMainWorld('api', {
   export: {
     pdf: (htmlContent: string, defaultPath: string, filePath: string) => ipcRenderer.invoke('export:pdf', htmlContent, defaultPath, filePath),
     html: (htmlContent: string, defaultPath: string, filePath: string) => ipcRenderer.invoke('export:html', htmlContent, defaultPath, filePath),
+    image: (htmlContent: string, defaultPath: string, filePath: string) => ipcRenderer.invoke('export:image', htmlContent, defaultPath, filePath),
+    saveFile: (defaultName: string, bytes: Uint8Array, filterName: string, extension: string) => ipcRenderer.invoke('export:saveFile', defaultName, bytes, filterName, extension),
+    open: (filePath: string): Promise<boolean> => ipcRenderer.invoke('export:open', filePath),
+    reveal: (filePath: string): Promise<boolean> => ipcRenderer.invoke('export:reveal', filePath),
   },
   ai: {
     getConfig: () => ipcRenderer.invoke('ai:getConfig'),
@@ -144,9 +148,19 @@ contextBridge.exposeInMainWorld('api', {
     query: (query: string, limit?: number) => ipcRenderer.invoke('search:query', query, limit),
     status: () => ipcRenderer.invoke('search:status'),
     listNotes: () => ipcRenderer.invoke('search:listNotes'),
-    backlinks: (title: string) => ipcRenderer.invoke('search:backlinks', title),
+    backlinks: (nameOrPath: string) => ipcRenderer.invoke('search:backlinks', nameOrPath),
+    unlinkedMentions: (filePath: string) => ipcRenderer.invoke('search:unlinkedMentions', filePath),
+    tasks: (includeDone?: boolean) => ipcRenderer.invoke('search:tasks', includeDone),
+    findAttachment: (name: string, fromDir?: string | null): Promise<string | null> => ipcRenderer.invoke('search:findAttachment', name, fromDir),
+    openAttachment: (filePath: string): Promise<boolean> => ipcRenderer.invoke('search:openAttachment', filePath),
     tags: () => ipcRenderer.invoke('search:tags'),
     notesByTag: (tag: string) => ipcRenderer.invoke('search:notesByTag', tag),
+  },
+  capture: {
+    /** 快速捕获的开关、快捷键，以及快捷键有没有注册上 */
+    status: () => ipcRenderer.invoke('capture:status'),
+    /** 立刻弹出小输入窗（设置里的「试一下」） */
+    show: () => ipcRenderer.invoke('capture:show'),
   },
   events: {
     on: (channel: string, callback: (...args: any[]) => void) => {
@@ -168,7 +182,10 @@ contextBridge.exposeInMainWorld('api', {
     openSettings: () => ipcRenderer.send('open:settings'),
     consumePendingOpenFiles: (): Promise<string[]> => ipcRenderer.invoke('app:consumePendingOpenFiles'),
     clearSession: () => ipcRenderer.send('app:clearSession'),
-    getICloudLibraryPath: (): Promise<string | null> => ipcRenderer.invoke('app:getICloudLibraryPath'),
+    detectSyncFolders: () => ipcRenderer.invoke('app:detectSyncFolders'),
+    homeLibraryPath: (): Promise<{ path: string; exists: boolean }> => ipcRenderer.invoke('app:homeLibraryPath'),
+    /** 取走系统递进来、还没处理的 iml:// 链接（已经解析、校验过） */
+    consumePendingUrls: () => ipcRenderer.invoke('app:consumePendingUrls'),
     previewSettings: (settings: any) => ipcRenderer.send('settings:preview', settings),
     revertSettings: () => ipcRenderer.send('settings:revert'),
     getWhatsNewState: (): Promise<{ current: string; lastSeen: string | null }> => ipcRenderer.invoke('app:getWhatsNewState'),

@@ -8,6 +8,9 @@ import { Readable } from 'stream';
 export const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico|tiff?)$/i;
 /** 笔记里会出现的音频：实时转写留下的录音（.webm），以及用户自己放进来的 */
 export const AUDIO_EXT_RE = /\.(webm|m4a|mp3|wav|ogg|oga|opus|aac|flac)$/i;
+/** 笔记里嵌入的视频（`![[演示.mp4]]`）。.webm 归在音频里——转写留下的录音就是它；真是视频的 .webm 也能放，只是没有画面 */
+export const VIDEO_EXT_RE = /\.(mp4|m4v|mov|ogv)$/i;
+const VIDEO_MIME: Record<string, string> = { '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.ogv': 'video/ogg' };
 const AUDIO_MIME: Record<string, string> = { '.webm': 'audio/webm', '.m4a': 'audio/mp4', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/ogg', '.aac': 'audio/aac', '.flac': 'audio/flac' };
 const NOTE_RE = /\.(md|markdown|mdown|mkd|txt)$/i;
 /** 也可能引用图片的文本类文件（白板、导出的网页等）：扫描孤儿图片时一并当作「引用来源」 */
@@ -37,9 +40,10 @@ export function parseRange(header: string | null, size: number): { start: number
  * 音频要能拖动进度，播放器会发 Range 请求，必须老老实实回 206 + Content-Range；
  * 交给 net.fetch(file://) 的话状态码和分段都不可控，拖一下进度就回到开头
  */
-async function serveAudio(filePath: string, request: Request): Promise<Response> {
+async function serveMedia(filePath: string, request: Request): Promise<Response> {
   const { size } = await fs.promises.stat(filePath);
-  const type = AUDIO_MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+  const ext = path.extname(filePath).toLowerCase();
+  const type = AUDIO_MIME[ext] || VIDEO_MIME[ext] || 'application/octet-stream';
   const rangeHeader = request.headers.get('range');
   const base = { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-cache' };
   if (!rangeHeader) {
@@ -60,7 +64,7 @@ export function handleAssetProtocol() {
       const url = new URL(request.url);
       const filePath = path.normalize(decodeURIComponent(url.pathname.replace(/^\//, '')));
       if (!path.isAbsolute(filePath)) return new Response('forbidden', { status: 403 });
-      if (AUDIO_EXT_RE.test(filePath)) return await serveAudio(filePath, request);
+      if (AUDIO_EXT_RE.test(filePath) || VIDEO_EXT_RE.test(filePath)) return await serveMedia(filePath, request);
       if (!IMAGE_EXT_RE.test(filePath)) return new Response('forbidden', { status: 403 });
       return await net.fetch(pathToFileURL(filePath).toString());
     } catch {

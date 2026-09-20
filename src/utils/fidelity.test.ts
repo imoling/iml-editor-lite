@@ -3,6 +3,7 @@ import { Editor } from '@tiptap/core';
 import { editorExtensions } from '../components/Editor/editorExtensions';
 import { markdownToHtml } from './markdown';
 import { serializeDoc } from './incrementalMarkdown';
+import { registerSource } from './sourceMap';
 
 /**
  * 保真度：别的工具（Obsidian / Typora / GitHub）写的笔记，在富文本模式里打开、编辑、保存，
@@ -53,6 +54,9 @@ const IDENTICAL: [string, string][] = [
   ['多段引用', '> 第一段\n>\n> 第二段'],
   ['分割线', '前\n\n---\n\n后'],
   ['双链与嵌入', '![[图片.png]] 和 [[笔记#小节|别名]]'],
+  ['独占一段的嵌入：笔记、小节、块', '前\n\n![[周会]]\n\n![[周会#本周#待办]]\n\n![[周会#^blk1]]\n\n后'],
+  ['独占一段的嵌入：图片带尺寸、文件名带空格', '![[Pasted image 20240105.png|300]]\n\n![[图.png|300x200]]'],
+  ['引用和列表里的嵌入', '> ![[周会]]\n\n- ![[图.png]]'],
   ['应用协议链接', '[打开](obsidian://open?vault=x&file=y)'],
   ['普通项与任务项混排', '- 普通\n- [ ] 任务\n- 普通二'],
   ['列表项里的代码块（含空行）', '- 项目\n\n  ```js\n  const a = 1;\n\n  const b = 2;\n  ```'],
@@ -62,6 +66,59 @@ const IDENTICAL: [string, string][] = [
 describe('富文本往返：逐字不变', () => {
   it.each(IDENTICAL)('%s', (_name, md) => {
     expect(throughEditor(md)).toBe(md);
+  });
+});
+
+describe('嵌入 ![[…]]', () => {
+  const nodeTypes = (md: string) => {
+    editor?.destroy();
+    editor = new Editor({ extensions: editorExtensions, content: markdownToHtml(md) });
+    const out: string[] = [];
+    editor.state.doc.forEach((n) => out.push(n.type.name === 'wikiEmbed' ? `embed:${n.attrs.target}|${n.attrs.label}` : n.type.name));
+    return out;
+  };
+
+  it('独占一段的变成嵌入块；夹在句子里的还是「!」加链接', () => {
+    expect(nodeTypes('![[周会#本周]]')).toEqual(['embed:周会#本周|']);
+    expect(nodeTypes('![[图.png|300]]')).toEqual(['embed:图.png|300']);
+    expect(nodeTypes('看这张 ![[图.png]] 图')).toEqual(['paragraph']);
+    expect(nodeTypes('!! [[不是嵌入]]')).toEqual(['paragraph']);
+    expect(nodeTypes('[[只是链接]]')).toEqual(['paragraph']);
+    // 列表项里的保持行内：不会多出空段落
+    expect(nodeTypes('- ![[图.png]]\n\n- 二')).toEqual(['bulletList']);
+    expect(editor!.getHTML()).not.toContain('data-wiki-embed');
+  });
+
+  it('连着几行的嵌入拆成几块；没编辑过时按原文写回（不会被插进空行）', () => {
+    const md = '# 图\n\n![[a.png]]\n![[b.png]]\n\n结尾\n';
+    expect(nodeTypes(md)).toEqual(['heading', 'embed:a.png|', 'embed:b.png|', 'paragraph']);
+    registerSource(editor!, md);
+    expect(serializeDoc(editor!).markdown).toBe(md);
+  });
+
+  it('改了别处，嵌入那几行照样一个字不动', () => {
+    const md = '![[a.png]]\n![[b.png|200]]\n\n结尾';
+    nodeTypes(md);
+    registerSource(editor!, md);
+    editor!.commands.insertContentAt(editor!.state.doc.content.size, { type: 'paragraph', content: [{ type: 'text', text: '新加的一段' }] });
+    expect(serializeDoc(editor!).markdown).toBe('![[a.png]]\n![[b.png|200]]\n\n结尾\n\n新加的一段');
+  });
+
+  it('松散列表里的嵌入：文字完好、不多出空段落；没编辑过时逐字不变', () => {
+    // 项与项之间的空行在转换路径上本来就会被收紧（不含嵌入的松散列表也一样），那不是这里要管的
+    const md = '- ![[图.png]]\n\n- 第二项\n\n  ![[周会]]';
+    const converted = throughEditor(md);
+    expect(converted).toContain('- ![[图.png]]');
+    expect(converted).toContain('  ![[周会]]');
+    expect(converted).not.toMatch(/^-\s*$/m);
+    registerSource(editor!, md);
+    expect(serializeDoc(editor!).markdown).toBe(md);
+  });
+
+  it('预览里也是嵌入占位，等渲染后再填内容', () => {
+    const html = markdownToHtml('![[周会#本周]]\n\n句子里的 ![[图.png]] 不算', true);
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    expect(Array.from(doc.querySelectorAll('[data-wiki-embed]')).map((e) => e.getAttribute('data-wiki-embed'))).toEqual(['周会#本周']);
   });
 });
 
@@ -106,9 +163,30 @@ describe('预览 / 导出渲染', () => {
 
   it('脚注渲染成上标与脚注区，不再变成乱码链接', () => {
     const html = markdownToHtml('正文[^1]\n\n[^1]: 脚注 **内容**', true);
-    expect(html).toContain('<sup class="footnote-ref">1</sup>');
-    expect(html).toContain('<div class="footnote-def"><sup>1</sup> 脚注 <strong>内容</strong></div>');
-    expect(html).not.toContain('<a ');
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    expect(doc.querySelector('sup.footnote-ref')?.textContent).toBe('1');
+    expect(doc.querySelector('.footnote-def strong')?.textContent).toBe('内容');
+    // 当初的 bug 是 [^1] 被当成「链接引用」变成一条乱码链接：现在允许出现的链接只有脚注自己的两种锚点
+    const links = Array.from(doc.querySelectorAll('a'));
+    expect(links.every((a) => a.hasAttribute('data-footnote-ref') || a.hasAttribute('data-footnote-back'))).toBe(true);
+  });
+
+  it('脚注可以点：上标指向定义、↩ 指回正文，悬停上标能看到脚注内容', () => {
+    const html = markdownToHtml('甲[^1]，乙[^注.释]，又是甲[^1]，丙[^没定义]\n\n[^1]: 第一条 **脚注**\n[^注.释]: 第二条\n[^孤儿]: 没人引用', true);
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const refs = Array.from(doc.querySelectorAll('a[data-footnote-ref]'));
+    expect(refs.map((a) => [a.getAttribute('href'), a.id])).toEqual([['#fn-1', 'fnref-1'], ['#fn-注_释', 'fnref-注_释'], ['#fn-1', 'fnref-1-2']]);
+    expect(refs[0].getAttribute('title')).toBe('第一条 脚注');
+    // 每个上标指向的锚点真的存在；↩ 指回第一次引用的地方
+    expect(refs.every((a) => !!doc.getElementById(a.getAttribute('href')!.slice(1)))).toBe(true);
+    expect(doc.querySelector('#fn-1 .footnote-back')?.getAttribute('href')).toBe('#fnref-1');
+    expect(doc.getElementById('fnref-1')).not.toBeNull();
+    // 引用了不存在的脚注：上标还在，但不是链接；没人引用的脚注不放 ↩
+    expect(doc.body.textContent).toContain('没定义');
+    expect(doc.querySelectorAll('sup.footnote-ref')).toHaveLength(4);
+    expect(doc.querySelector('[data-footnote-def="孤儿"] .footnote-back')).toBeNull();
+    // 两次解析之间计数要清零：同一段文字渲染两次，结果必须一样
+    expect(markdownToHtml('甲[^1]\n\n[^1]: x', true)).toBe(markdownToHtml('甲[^1]\n\n[^1]: x', true));
   });
 
   it('任务列表在预览里带只读勾选框（嵌套的也有）', () => {
