@@ -211,6 +211,26 @@ describe('一场转写 = 一篇笔记', () => {
     expect(api.fs.writeFile).not.toHaveBeenCalled();
   });
 
+  it('正在转写时关它的笔记要先问：只对这一场的笔记、只在正在录的时候；停下之后不问', async () => {
+    const { useTranscribeStore, useAppStore, say } = await setup({ '/lib/议程.md': '# 议程', '/lib/别的.md': '# 别的' });
+    await useAppStore.getState().openFileByPath('/lib/别的.md');
+    await useAppStore.getState().openFileByPath('/lib/议程.md');
+    const guard = () => useAppStore.getState().closeGuard!;
+    const tab = (id: string) => useAppStore.getState().tabs.find((t) => t.id === id)!;
+    expect(guard()(tab('/lib/议程.md'))).toBeNull();                       // 还没开始
+    await useTranscribeStore.getState().start('current');
+    expect(guard()(tab('/lib/议程.md'))).toMatchObject({ title: '正在转写', confirmLabel: '结束转写并关闭' });
+    expect(guard()(tab('/lib/别的.md'))).toBeNull();
+    // 直接点关闭：不会关，也不会停
+    useAppStore.getState().requestCloseTab('/lib/议程.md');
+    expect(useAppStore.getState().tabs.some((t) => t.id === '/lib/议程.md')).toBe(true);
+    expect(useTranscribeStore.getState().status).toBe('recording');
+    useAppStore.getState().cancelCloseQueue();
+    say('散会。', 0);
+    await useTranscribeStore.getState().stop();
+    expect(guard()(tab('/lib/议程.md'))).toBeNull();
+  });
+
   it('笔记改名 / 另存不算关掉：跟到新路径上，转写继续', async () => {
     const { useTranscribeStore, useAppStore, say } = await setup({ '/lib/议程.md': '# 议程' });
     await useAppStore.getState().openFileByPath('/lib/议程.md');

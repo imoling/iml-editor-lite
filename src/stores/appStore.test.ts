@@ -146,6 +146,37 @@ describe('外部改动', () => {
   });
 });
 
+describe('关标签页之前的把关提醒', () => {
+  const guard = (tab: { id: string }) => (tab.id === '/lib/会议.md' ? { title: '正在转写', message: '关掉它，转写就结束了', confirmLabel: '结束转写并关闭' } : null);
+
+  it('没有未保存修改的标签页也不能不声不响地关：先排进确认队列；点「继续」才关，点「取消」什么都不发生', () => {
+    useAppStore.setState({ tabs: [{ id: '/lib/会议.md', title: '会议.md', content: 'x', isDirty: false, mode: 'word' }, { id: '/lib/b.md', title: 'b.md', content: 'y', isDirty: false, mode: 'word' }], activeTabId: '/lib/会议.md' });
+    useAppStore.getState().registerCloseGuard(guard);
+    useAppStore.getState().closeAllTabs();
+    expect(useAppStore.getState().tabs.map((t) => t.id)).toEqual(['/lib/会议.md']);      // 别的照常关掉，这篇等用户决定
+    expect(useAppStore.getState().tabToClose).toBe('/lib/会议.md');
+    useAppStore.getState().cancelCloseQueue();
+    expect(useAppStore.getState().tabs).toHaveLength(1);
+    expect(useAppStore.getState().tabToClose).toBeNull();
+
+    useAppStore.getState().requestCloseTab('/lib/会议.md');
+    useAppStore.getState().passCloseGuard('/lib/会议.md');
+    expect(useAppStore.getState().tabs).toEqual([]);
+    expect(useAppStore.getState().tabToClose).toBeNull();
+  });
+
+  it('既在转写、又有没保存的修改：点了「继续」之后留在队列里，接着问要不要保存', () => {
+    useAppStore.setState({ tabs: [{ id: '/lib/会议.md', title: '会议.md', content: 'x', isDirty: true, mode: 'word' }], activeTabId: '/lib/会议.md' });
+    useAppStore.getState().registerCloseGuard(guard);
+    useAppStore.getState().requestCloseTab('/lib/会议.md');
+    useAppStore.getState().passCloseGuard('/lib/会议.md');
+    expect(useAppStore.getState()).toMatchObject({ tabToClose: '/lib/会议.md', closeGuardPassed: '/lib/会议.md' });
+    expect(useAppStore.getState().tabs).toHaveLength(1);
+    useAppStore.getState().advanceCloseQueue();
+    expect(useAppStore.getState().closeGuardPassed).toBeNull();
+  });
+});
+
 describe('外部改动：不把自己打的字当成「磁盘被改了」', () => {
   it('应用新建文件 → 打开 → 用户马上打字，迟到的文件监听通知不该打「外部修改」的标记；磁盘真变了才打', async () => {
     const api = useApi({ '/lib/会议记录.md': '# 会议记录\n\n## 要点\n' });

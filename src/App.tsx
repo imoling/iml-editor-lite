@@ -89,6 +89,14 @@ const App: React.FC = () => {
     }
   }, [activeTab?.content, setOutline]);
 
+  // 关之前要不要先提醒：由相应的功能登记的把关函数说了算；用户点过「继续」的不再问
+  const closeGuard = useAppStore((st) => st.closeGuard);
+  const closeGuardPassed = useAppStore((st) => st.closeGuardPassed);
+  // 转写的状态变了（停了 / 开始了）提醒也要跟着变
+  const transcribeStatus = useTranscribeStore((st) => st.status);
+  const closingTab = tabToClose ? tabs.find((t) => t.id === tabToClose) : undefined;
+  const closeWarning = closingTab && closeGuardPassed !== tabToClose && transcribeStatus ? closeGuard?.(closingTab) ?? null : null;
+
   const handleConfirmSave = async () => {
     if (!tabToClose) return;
     const currentActiveId = activeTabId;
@@ -438,7 +446,17 @@ const App: React.FC = () => {
       
       {statusBarVisible && <StatusBar />}
 
-      {tabToClose && (
+      {/* 关之前的把关提醒（比如这篇正连着一场进行中的转写）先问；点了继续、又有未保存的修改，再问要不要保存 */}
+      {tabToClose && closeWarning && (
+        <ConfirmDialog
+          title={closeWarning.title}
+          message={closeWarning.message}
+          confirmLabel={closeWarning.confirmLabel}
+          onConfirm={() => useAppStore.getState().passCloseGuard(tabToClose)}
+          onCancel={() => useAppStore.getState().cancelCloseQueue()}
+        />
+      )}
+      {tabToClose && !closeWarning && (
         <ConfirmDialog
           title="保存更改？"
           // 批量关闭时逐个问，顺带说清楚后面还排着几个，免得用户以为点不完

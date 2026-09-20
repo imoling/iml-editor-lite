@@ -444,6 +444,20 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
 export const hasUnsavedTranscript = (s: Pick<TranscribeState, 'segments' | 'savedCount'> & Partial<Pick<TranscribeState, 'namesRev' | 'savedNamesRev'>>) =>
   s.segments.length > 0 && (s.segments.length !== s.savedCount || (s.namesRev ?? 0) !== (s.savedNamesRev ?? 0));
 
+// ── 正在转写时关它的笔记：先问一句 ───────────────────────────────────────────
+// 关掉就意味着这一场结束（见下面），不能不声不响地发生。只在「正在录」时问：已经停下并存好的，关了也没有损失
+if (typeof window !== 'undefined') {
+  useAppStore.getState().registerCloseGuard((tab) => {
+    const s = useTranscribeStore.getState();
+    if (tab.id !== s.savedTo || (s.status !== 'recording' && s.status !== 'starting')) return null;
+    return {
+      title: '正在转写',
+      message: `「${tab.title.replace(/\.md$/i, '')}」是这一场转写的笔记，关掉它，转写就结束了。已经转写出来的全文${s.recordingOn ? '和录音' : ''}会写进这篇笔记。`,
+      confirmLabel: '结束转写并关闭',
+    };
+  });
+}
+
 // ── 这一场的笔记关掉了，转写跟着结束 ─────────────────────────────────────────
 // 笔记是这一场的「家」：家没了还在录，全文和要点就对不上号了。改名 / 另存不算关 —— 同一个位置换了个路径，跟过去就行
 if (typeof window !== 'undefined') {

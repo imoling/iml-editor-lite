@@ -267,6 +267,15 @@ export interface AppState {
   closeAllTabs: () => void;
   /** 批量关闭时还在排队等用户决定的标签页 */
   pendingCloseIds: string[];
+  /**
+   * 关标签页之前的额外把关：返回一句提醒 = 关之前要先问用户（比如这篇正连着一场进行中的转写，关掉转写就结束了）。
+   * 由相应的功能自己登记，appStore 不需要认识它们
+   */
+  closeGuard: ((tab: Tab) => { title: string; message: string; confirmLabel: string } | null) | null;
+  registerCloseGuard: (guard: AppState['closeGuard']) => void;
+  /** 这个标签页的把关提醒用户已经点过「继续」了（接下来可能还要问要不要保存） */
+  closeGuardPassed: string | null;
+  passCloseGuard: (id: string) => void;
   advanceCloseQueue: () => void;
   cancelCloseQueue: () => void;
   /** 最近关掉的文件路径（栈顶是最后关的），供 ⌘⇧T 用 */
@@ -425,6 +434,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   navigationRequest: null,
   tabToClose: null,
   pendingCloseIds: [],
+  closeGuard: null,
+  closeGuardPassed: null,
   closedTabs: [],
   
   // File Management Default State
@@ -495,7 +506,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     for (const id of ids) {
       const tab = state.tabs.find((t) => t.id === id);
       if (!tab) continue;
-      if (needsSavePrompt(tab)) asking.push(id);
+      if (needsSavePrompt(tab) || state.closeGuard?.(tab)) asking.push(id);
       else get().closeTab(id);
     }
     if (asking.length > 0) set({ tabToClose: asking[0], pendingCloseIds: asking.slice(1) });
@@ -505,10 +516,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   advanceCloseQueue: () => set((state) => ({
     tabToClose: state.pendingCloseIds[0] ?? null,
     pendingCloseIds: state.pendingCloseIds.slice(1),
+    closeGuardPassed: null,
   })),
 
   /** 在确认框上点「取消」= 放弃整批，而不是只跳过这一个 */
-  cancelCloseQueue: () => set({ tabToClose: null, pendingCloseIds: [] }),
+  cancelCloseQueue: () => set({ tabToClose: null, pendingCloseIds: [], closeGuardPassed: null }),
+
+  registerCloseGuard: (guard) => set({ closeGuard: guard }),
+  /** 把关提醒点了「继续」：没有未保存的修改就直接关，有的话留在队列里接着问要不要保存 */
+  passCloseGuard: (id) => {
+    const tab = get().tabs.find((t) => t.id === id);
+    if (tab && needsSavePrompt(tab)) { set({ closeGuardPassed: id }); return; }
+    get().closeTab(id);
+    get().advanceCloseQueue();
+  },
 
   closeOtherTabs: (id: string) => get().closeTabs(get().tabs.filter((t) => t.id !== id).map((t) => t.id)),
 
