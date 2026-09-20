@@ -171,17 +171,70 @@ describe('一场转写 = 一篇笔记', () => {
     expect((api.fs.writeFile as any).mock.calls.filter((c: any[]) => /会议记录/.test(c[0]))).toHaveLength(2);
   });
 
-  it('「记在当前笔记里」：不新建，绑定到打开的这篇；笔记被关掉了，停下来时会重新打开再写', async () => {
+  it('「记在当前笔记里」：不新建，绑定到打开的这篇', async () => {
     const { useTranscribeStore, useAppStore, say } = await setup({ '/lib/议程.md': '# 议程\n\n- 排期' });
     await useAppStore.getState().openFileByPath('/lib/议程.md');
     await useTranscribeStore.getState().start('current');
     expect(useTranscribeStore.getState().savedTo).toBe('/lib/议程.md');
     say('先过排期。', 0);
-    useAppStore.setState({ tabs: [], activeTabId: null });            // 会开到一半，用户把这篇关了
     await useTranscribeStore.getState().stop();
-    const tab = useAppStore.getState().tabs.find((t) => t.id === '/lib/议程.md')!;
-    expect(tab.content).toContain('- 排期');
-    expect(tab.content).toContain('<p>[00:00] 先过排期。</p>');
+    expect(useAppStore.getState().tabs[0].content).toContain('<p>[00:00] 先过排期。</p>');
+  });
+
+  it('这一场的笔记被关掉：录音跟着停，全文直接写进磁盘上的文件（不把笔记重新打开），面板回到待录音', async () => {
+    const { useTranscribeStore, useAppStore, api, say } = await setup({ '/lib/议程.md': '# 议程\n\n- 排期' });
+    await useAppStore.getState().openFileByPath('/lib/议程.md');
+    await useTranscribeStore.getState().start('current');
+    say('先过排期。', 0); say('下周三给结论。', 4);
+    useAppStore.setState({ tabs: [], activeTabId: null });            // 会开到一半，用户把这篇关了
+    await flush(); await flush(); await flush();
+    expect(api.asr.stop).toHaveBeenCalled();
+    const s = useTranscribeStore.getState();
+    expect(s).toMatchObject({ status: 'idle', segments: [], savedTo: null, audio: null });
+    expect(useAppStore.getState().tabs).toEqual([]);                  // 没有被重新打开
+    const onDisk = api.files.get('/lib/议程.md')!;
+    expect(onDisk).toContain('- 排期');
+    expect(onDisk).toContain('<p>[00:04] 下周三给结论。</p>');
+    expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+
+  it('已经停下、也存好了的一场：关掉它的笔记，面板同样回到待录音，不重复写文件', async () => {
+    const { useTranscribeStore, useAppStore, api, say } = await setup({ '/lib/议程.md': '# 议程' });
+    await useAppStore.getState().openFileByPath('/lib/议程.md');
+    await useTranscribeStore.getState().start('current');
+    say('散会。', 0);
+    await useTranscribeStore.getState().stop();
+    (api.fs.writeFile as any).mockClear();
+    useAppStore.setState({ tabs: [], activeTabId: null });
+    await flush(); await flush();
+    expect(useTranscribeStore.getState().segments).toEqual([]);
+    expect(api.fs.writeFile).not.toHaveBeenCalled();
+  });
+
+  it('笔记改名 / 另存不算关掉：跟到新路径上，转写继续', async () => {
+    const { useTranscribeStore, useAppStore, say } = await setup({ '/lib/议程.md': '# 议程' });
+    await useAppStore.getState().openFileByPath('/lib/议程.md');
+    await useTranscribeStore.getState().start('current');
+    say('先过排期。', 0);
+    useAppStore.setState((st) => ({ tabs: st.tabs.map((t) => ({ ...t, id: '/lib/周会.md', title: '周会.md' })), activeTabId: '/lib/周会.md' }));
+    await flush();
+    expect(useTranscribeStore.getState()).toMatchObject({ status: 'recording', savedTo: '/lib/周会.md' });
+    expect(useTranscribeStore.getState().segments).toHaveLength(1);
+  });
+
+  it('关掉的是还没存过盘的未命名文档：没地方写，这一场留在面板里，让人另找地方放', async () => {
+    const { useTranscribeStore, useAppStore, hasUnsavedTranscript, say } = await setup();
+    useAppStore.getState().openTab({ id: 'new-1.md', title: '未命名', content: '', isDirty: false, mode: 'word' });
+    await useTranscribeStore.getState().start('current');
+    expect(useTranscribeStore.getState().savedTo).toBe('new-1.md');
+    say('随便说两句。', 0);
+    useAppStore.setState({ tabs: [], activeTabId: null });
+    await flush(); await flush(); await flush();
+    const s = useTranscribeStore.getState();
+    expect(s.status).toBe('idle');
+    expect(s.segments).toHaveLength(1);
+    expect(s.savedTo).toBeNull();
+    expect(hasUnsavedTranscript(s)).toBe(true);
   });
 
   it('打点：往这一场的笔记里插入现在的时间；正开着别的笔记时先切回去，不往别处乱插', async () => {

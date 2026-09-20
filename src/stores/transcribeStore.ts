@@ -79,6 +79,8 @@ interface TranscribeState {
   start: (into?: 'new' | 'current') => Promise<void>;
   /** 把转写全文（和录音）写进这一场绑定的笔记；笔记关掉了会重新打开。返回是否写成 */
   commit: (opts?: { quiet?: boolean }) => Promise<boolean>;
+  /** 这一场的笔记被关掉了：转写跟着结束 —— 停止录音、把全文和录音写进那篇笔记的文件，面板回到待录音的状态 */
+  endBecauseNoteClosed: () => Promise<void>;
   /** 上一场已经存好了：清掉面板，直接开始新的一场 */
   newSession: () => Promise<void>;
   /** 打点：在正文光标处插入当前的时间 [mm:ss]，之后点它，录音跳到这一刻 */
@@ -101,6 +103,27 @@ function readFlag(key: string, fallback: boolean): boolean { try { const v = loc
 const KEEP_KEY = 'iml.keepRecording';
 /** 默认留录音：想回听是常态；不想留的在「实时转写…」里关掉 */
 function readKeepRecording(): boolean { try { return localStorage.getItem(KEEP_KEY) !== '0'; } catch { return true; } }
+
+/** 正在处理「笔记被关掉」：期间标签页再怎么变都不重复触发 */
+let ending = false;
+
+const noteName = (path: string) => (path.split(/[\\/]/).pop() || path).replace(/\.md$/i, '');
+
+/** 放开麦克风、让识别进程把最后一句吐出来、收好录音；不管写进哪（停止按钮和「笔记被关掉」共用） */
+async function stopCapture() {
+  const { getState: get, setState: set } = useTranscribeStore;
+  set({ status: 'stopping' });
+  const recording = collectRecording();   // 先让录音机暂停，再放开麦克风
+  capture?.stop(); capture = null;
+  const ran = get().runStartedAt ? (Date.now() - get().runStartedAt!) / 1000 : 0;
+  try { await window.api.asr.stop(); } catch { /* 进程已经没了也算停了 */ }
+  await recording;
+  // 最后一句的定稿在 stop 返回之前已经送到；还挂着的临时文字说明那句没来得及定稿，保住它
+  set((s) => ({
+    status: 'idle', level: 0, silent: false, runStartedAt: null, offset: s.offset + ran,
+    segments: s.partial?.text ? [...s.segments, s.partial] : s.segments, partial: null,
+  }));
+}
 
 /**
  * 给新的一场转写找个「家」。默认新建一篇会议记录（属性 + 标题 + 留给用户记要点的地方）并打开，光标放进「要点」；
@@ -265,17 +288,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
 
   stop: async () => {
     if (get().status !== 'recording') return;
-    set({ status: 'stopping' });
-    const recording = collectRecording();   // 先让录音机暂停，再放开麦克风
-    capture?.stop(); capture = null;
-    const ran = get().runStartedAt ? (Date.now() - get().runStartedAt!) / 1000 : 0;
-    try { await window.api.asr.stop(); } catch { /* 进程已经没了也算停了 */ }
-    await recording;
-    // 最后一句的定稿在 stop 返回之前已经送到；还挂着的临时文字说明那句没来得及定稿，保住它
-    set((s) => ({
-      status: 'idle', level: 0, silent: false, runStartedAt: null, offset: s.offset + ran,
-      segments: s.partial?.text ? [...s.segments, s.partial] : s.segments, partial: null,
-    }));
+    await stopCapture();
     // 停下来就写进这一场的笔记：不用人再点「放进笔记」，也就不会忘
     await get().commit();
   },
@@ -299,24 +312,50 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
   commit: async ({ quiet = false } = {}) => {
     const { segments, startedAt, savedTo } = get();
     if (!savedTo || segments.length === 0) return false;
-    let app = useAppStore.getState();
-    // 这一场的笔记被关掉了：重新打开再写（还没落盘的未命名文档关掉就没了，写不回去）
-    if (!app.tabs.some((t) => t.id === savedTo)) {
-      if (savedTo.startsWith('new-')) return false;
-      await app.openFileByPath(savedTo).catch(() => {});
-      app = useAppStore.getState();
-    }
+    const app = useAppStore.getState();
     const tab = app.tabs.find((t) => t.id === savedTo);
-    if (!tab) return false;
+    // 还没落盘的未命名文档关掉就没了，写不回去
+    if (!tab && savedTo.startsWith('new-')) return false;
     const at = new Date(startedAt ?? Date.now());
     // 录音跟着笔记走：存到笔记旁边的 assets/，转写块里带一个播放器
-    const audioSrc = await saveRecording(noteDirOf(tab.id, app.getNewNoteDir() || ''), at);
+    const audioSrc = await saveRecording(noteDirOf(savedTo, app.getNewNoteDir() || ''), at);
     const block = buildTranscriptBlock(segments, at, get().elapsed(), audioSrc, speakerNames(get().speakers));
-    // 用户多半正在这篇里记要点：editTabContent 会先把他没写回的字刷进来，再追加，光标也留在原地
-    if (!app.editTabContent(tab.id, (current) => upsertBlock(current, block, at))) return false;
+    if (tab) {
+      // 用户多半正在这篇里记要点：editTabContent 会先把他没写回的字刷进来，再追加，光标也留在原地
+      if (!app.editTabContent(tab.id, (current) => upsertBlock(current, block, at))) return false;
+    } else {
+      // 笔记没开着（用户关掉了）：直接改磁盘上的文件，不把它重新打开
+      const file = await window.api.fs.readFile(savedTo);
+      if (!file.success) return false;
+      const res = await window.api.fs.writeFile(savedTo, upsertBlock(file.content || '', block, at));
+      if (!res.success) return false;
+    }
     set({ savedCount: segments.length, savedNamesRev: get().namesRev, restored: false });
-    if (!quiet) app.notify(`转写已写进「${tab.title.replace(/\.md$/i, '')}」`);
+    if (!quiet) app.notify(`转写已写进「${noteName(savedTo)}」`);
     return true;
+  },
+
+  endBecauseNoteClosed: async () => {
+    const path = get().savedTo;
+    if (!path || ending) return;
+    ending = true;
+    try {
+      if (get().status === 'recording') await stopCapture();
+      const app = useAppStore.getState();
+      if (get().segments.length === 0) { get().clear(); app.notify('笔记关了，转写也停了'); return; }
+      const saved = !hasUnsavedTranscript(get()) || (await get().commit({ quiet: true }));
+      if (saved) {
+        get().clear();
+        app.notify(`笔记关了，转写也停了：全文${get().keepRecording ? '和录音' : ''}已经写进「${noteName(path)}」`);
+      } else {
+        // 写不回去（没存过盘的未命名文档、文件被删了）：内容留在面板里，让人另找个地方放
+        set({ savedTo: null });
+        app.notify('笔记关了，转写也停了；这一场还没存上，在转写面板里选个地方放');
+        app.openTranscribe();
+      }
+    } finally {
+      ending = false;
+    }
   },
 
   newSession: async () => {
@@ -404,6 +443,21 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
 /** 有没有还没放进笔记的转写：放进去之后又录了新的，也算 */
 export const hasUnsavedTranscript = (s: Pick<TranscribeState, 'segments' | 'savedCount'> & Partial<Pick<TranscribeState, 'namesRev' | 'savedNamesRev'>>) =>
   s.segments.length > 0 && (s.segments.length !== s.savedCount || (s.namesRev ?? 0) !== (s.savedNamesRev ?? 0));
+
+// ── 这一场的笔记关掉了，转写跟着结束 ─────────────────────────────────────────
+// 笔记是这一场的「家」：家没了还在录，全文和要点就对不上号了。改名 / 另存不算关 —— 同一个位置换了个路径，跟过去就行
+if (typeof window !== 'undefined') {
+  useAppStore.subscribe((state, prev) => {
+    if (state.tabs === prev.tabs) return;
+    const bound = useTranscribeStore.getState().savedTo;
+    if (!bound || state.tabs.some((t) => t.id === bound)) return;
+    const index = prev.tabs.findIndex((t) => t.id === bound);
+    if (index < 0) return;                      // 本来就没开着（上次没存、这次找回来的那种）
+    const moved = state.tabs.length === prev.tabs.length ? state.tabs[index] : null;
+    if (moved && !prev.tabs.some((t) => t.id === moved.id)) { useTranscribeStore.setState({ savedTo: moved.id }); return; }
+    void useTranscribeStore.getState().endBecauseNoteClosed();
+  });
+}
 
 // ── 没放进笔记的转写先替用户留着 ─────────────────────────────────────────────
 // 文字存 localStorage（每定稿一句就存，崩溃也丢不了几个字），录音每次停下来时由主进程落盘。
