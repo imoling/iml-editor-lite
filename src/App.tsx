@@ -4,6 +4,7 @@ import { Sidebar, ActivityBar } from './components/Sidebar/Sidebar';
 import { EditorArea } from './components/Editor/EditorArea';
 import { StatusBar } from './components/StatusBar/StatusBar';
 import { useAppStore, THEME_PRESETS, clearSessionAndReload, type DialogId } from './stores/appStore';
+import { useTranscribeStore } from './stores/transcribeStore';
 import AboutModal from './components/About/AboutModal';
 import ShortcutsModal from './components/Help/ShortcutsModal';
 import ModelConfigModal from './components/AI/ModelConfigModal';
@@ -193,6 +194,13 @@ const App: React.FC = () => {
         if (modalOpen || !ts.activeTabId) return;
         if (e.altKey) ts.closeOtherTabs(ts.activeTabId);
         else ts.requestCloseTab(ts.activeTabId);
+        return;
+      }
+
+      // Cmd+Shift+L：转写时「打点」—— 在正文光标处插入现在的时间，之后点它，录音跳到这一刻
+      if (modKey && e.shiftKey && !e.altKey && e.code === 'KeyL') {
+        e.preventDefault();
+        if (!modalOpen) useTranscribeStore.getState().markMoment();
         return;
       }
 

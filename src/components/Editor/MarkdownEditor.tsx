@@ -39,6 +39,22 @@ export const MarkdownEditor: React.FC = () => {
 
   const content = activeTab?.content ?? '';
 
+  // 给侧边栏功能用的两个动作，和富文本编辑器那边是同一套（转写的「打点」、新建会议记录后把光标放好）
+  useEffect(() => {
+    if (!cmView) return;
+    const { registerEditorActions } = useAppStore.getState();
+    registerEditorActions({
+      insertText: (text) => { const { from, to } = cmView.state.selection.main; cmView.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length } }); cmView.focus(); return true; },
+      startList: () => {
+        const end = cmView.state.doc.length;
+        const insert = `${cmView.state.doc.sliceString(Math.max(0, end - 1), end) === '\n' ? '' : '\n'}\n- `;
+        cmView.dispatch({ changes: { from: end, insert }, selection: { anchor: end + insert.length } });
+        cmView.focus();
+      },
+    });
+    return () => registerEditorActions(null);
+  }, [cmView]);
+
   const handleUpdate = (val: string) => {
     if (activeTabId) {
       updateTabContent(activeTabId, val);

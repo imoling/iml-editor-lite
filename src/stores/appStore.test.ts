@@ -146,6 +146,21 @@ describe('外部改动', () => {
   });
 });
 
+describe('外部改动：不把自己打的字当成「磁盘被改了」', () => {
+  it('应用新建文件 → 打开 → 用户马上打字，迟到的文件监听通知不该打「外部修改」的标记；磁盘真变了才打', async () => {
+    const api = useApi({ '/lib/会议记录.md': '# 会议记录\n\n## 要点\n' });
+    await useAppStore.getState().openFileByPath('/lib/会议记录.md');
+    useAppStore.getState().updateTabContent('/lib/会议记录.md', '# 会议记录\n\n## 要点\n\n- 老王负责打包');
+    await useAppStore.getState().handleExternalChanges(['/lib/会议记录.md']);         // 迟到的「新建」通知：磁盘其实没动
+    expect(useAppStore.getState().tabs[0]).toMatchObject({ isDirty: true });
+    expect(useAppStore.getState().tabs[0].externallyModified).toBeFalsy();
+
+    api.files.set('/lib/会议记录.md', '# 会议记录\n\n别的编辑器写进来的');
+    await useAppStore.getState().handleExternalChanges(['/lib/会议记录.md']);         // 这回磁盘真的被别人改了
+    expect(useAppStore.getState().tabs[0].externallyModified).toBe(true);
+  });
+});
+
 describe('会话恢复', () => {
   it('恢复未保存的修改、丢弃已不存在的文件、保留未命名文档、合并启动时已打开的标签', async () => {
     useApi({ '/lib/a.md': 'disk-a', '/lib/b.md': 'disk-b' });

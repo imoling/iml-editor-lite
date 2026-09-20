@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMockApi } from '../test/setup';
 
+// 麦克风在测试环境里不存在：换成一个假的，开始 / 停止的流程就能测了
+vi.mock('../utils/micCapture', () => ({
+  MIC_SILENCE_LEVEL: 0.02,
+  startMicCapture: vi.fn(async () => ({ stop: vi.fn(), stream: {}, label: '测试麦克风', fellBack: false })),
+}));
+
 const DRAFT_KEY = 'iml.transcribe.draft';
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -110,6 +116,97 @@ describe('没放进笔记的转写：退出后还能找回来', () => {
     s = useTranscribeStore.getState();
     expect(s.speakers.map((p) => p.id)).toEqual(['s2']);
     expect(s.segments.map((x) => x.speaker)).toEqual(['s2', 's2', 's2', undefined]);
+  });
+});
+
+describe('一场转写 = 一篇笔记', () => {
+  beforeEach(() => localStorage.clear());
+
+  async function setup(files: Record<string, string> = {}) {
+    const api = createMockApi(files);
+    let emit: (e: any) => void = () => {};
+    (api.asr as any).onEvent = vi.fn((cb: (e: any) => void) => { emit = cb; return () => {}; });
+    (api.asr as any).start = vi.fn(async () => ({}));
+    (api.asr as any).stop = vi.fn(async () => ({}));
+    const mod = await loadStore(api);
+    const { useAppStore } = await import('./appStore');
+    useAppStore.setState({ workspacePath: '/lib', tabs: [], activeTabId: null, selectedNodePath: null });
+    return { ...mod, useAppStore, say: (text: string, start: number) => emit({ type: 'final', text, start, duration: 3, decodeMs: 1 }) };
+  }
+
+  it('点开始就新建一篇会议记录并打开；停下来，全文自动写进去；「新的转写」直接开下一场', async () => {
+    const { useTranscribeStore, useAppStore, hasUnsavedTranscript, api, say } = await setup();
+    await useTranscribeStore.getState().start('new');
+    const bound = useTranscribeStore.getState().savedTo!;
+    expect(bound).toMatch(/^\/lib\/会议记录 \d{4}-\d{2}-\d{2} \d{4}\.md$/);
+    expect(useAppStore.getState().activeTabId).toBe(bound);
+    const skeleton = useAppStore.getState().tabs[0].content;
+    expect(skeleton).toContain('type: meeting');
+    expect(skeleton).toContain('## 要点');
+    expect(skeleton).not.toContain('<details');          // 全文还没有，先给人一个记要点的地方
+
+    say('大家好。', 0); say('下周三给结论。', 4);
+    await useTranscribeStore.getState().stop();
+    const note = useAppStore.getState().tabs.find((t) => t.id === bound)!.content;
+    expect(note).toContain('<p>[00:04] 下周三给结论。</p>');
+    expect(note.indexOf('## 要点')).toBeLessThan(note.indexOf('<details'));
+    expect(hasUnsavedTranscript(useTranscribeStore.getState())).toBe(false);
+    expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
+
+    // 停了再继续：还是这一篇，转写块是更新而不是再来一块
+    await useTranscribeStore.getState().start();
+    expect(useTranscribeStore.getState().savedTo).toBe(bound);
+    say('散会。', 2);
+    await useTranscribeStore.getState().stop();
+    const again = useAppStore.getState().tabs.find((t) => t.id === bound)!.content;
+    expect(again.match(/<details data-iml-transcript>/g)).toHaveLength(1);
+    expect(again).toContain('散会。');
+
+    // 下一场：面板清空，另起一篇
+    await useTranscribeStore.getState().newSession();
+    const next = useTranscribeStore.getState();
+    expect(next.segments).toEqual([]);
+    expect(next.savedTo).not.toBe(bound);
+    expect(next.status).toBe('recording');
+    expect((api.fs.writeFile as any).mock.calls.filter((c: any[]) => /会议记录/.test(c[0]))).toHaveLength(2);
+  });
+
+  it('「记在当前笔记里」：不新建，绑定到打开的这篇；笔记被关掉了，停下来时会重新打开再写', async () => {
+    const { useTranscribeStore, useAppStore, say } = await setup({ '/lib/议程.md': '# 议程\n\n- 排期' });
+    await useAppStore.getState().openFileByPath('/lib/议程.md');
+    await useTranscribeStore.getState().start('current');
+    expect(useTranscribeStore.getState().savedTo).toBe('/lib/议程.md');
+    say('先过排期。', 0);
+    useAppStore.setState({ tabs: [], activeTabId: null });            // 会开到一半，用户把这篇关了
+    await useTranscribeStore.getState().stop();
+    const tab = useAppStore.getState().tabs.find((t) => t.id === '/lib/议程.md')!;
+    expect(tab.content).toContain('- 排期');
+    expect(tab.content).toContain('<p>[00:00] 先过排期。</p>');
+  });
+
+  it('打点：往这一场的笔记里插入现在的时间；正开着别的笔记时先切回去，不往别处乱插', async () => {
+    const { useTranscribeStore, useAppStore } = await setup({ '/lib/别的.md': '# 别的' });
+    const insertText = vi.fn(() => true);
+    useAppStore.getState().registerEditorActions({ insertText, startList: vi.fn() });
+    expect(useTranscribeStore.getState().markMoment()).toBe(false);          // 没在转写
+    await useTranscribeStore.getState().start('new');
+    expect(useTranscribeStore.getState().markMoment()).toBe(true);
+    expect(insertText).toHaveBeenCalledWith(expect.stringMatching(/^\[00:0\d\] $/));
+    await useAppStore.getState().openFileByPath('/lib/别的.md');
+    insertText.mockClear();
+    expect(useTranscribeStore.getState().markMoment()).toBe(false);
+    expect(insertText).not.toHaveBeenCalled();
+    expect(useAppStore.getState().activeTabId).toBe(useTranscribeStore.getState().savedTo);
+  });
+
+  it('没打开笔记库、也没有打开的笔记：转写照常，停下来之后算「没保存」，由用户选放哪', async () => {
+    const { useTranscribeStore, useAppStore, hasUnsavedTranscript, say } = await setup();
+    useAppStore.setState({ workspacePath: null, defaultLibraryPath: '' } as any);
+    await useTranscribeStore.getState().start('new');
+    expect(useTranscribeStore.getState().savedTo).toBeNull();
+    say('随便说两句。', 0);
+    await useTranscribeStore.getState().stop();
+    expect(hasUnsavedTranscript(useTranscribeStore.getState())).toBe(true);
   });
 });
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Square, FileDown, FilePlus, ListChecks, Copy, Check, Eraser, Download, SlidersHorizontal, ShieldCheck, PanelLeft, ChevronRight, Play, Pause, TriangleAlert, CircleCheck, Info } from 'lucide-react';
+import { Mic, MicOff, Square, FileDown, FilePlus, ListChecks, Copy, Check, Eraser, Download, SlidersHorizontal, ShieldCheck, ChevronRight, Play, Pause, TriangleAlert, CircleCheck, Flag, FileText, Plus } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useTranscribeStore, hasUnsavedTranscript } from '../../stores/transcribeStore';
 import { useAiReadiness } from '../../utils/aiReadiness';
@@ -13,8 +13,8 @@ const formatSize = (bytes: number) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 
 
 const privacyPoint = (keep: boolean) => (keep ? '识别在这台电脑上完成；录音只存在本机，不上传' : '识别在这台电脑上完成，音频不保存、不上传');
 const introPoints = (keep: boolean) => [
+  { icon: <FileText size={13} />, text: '点开始就新建一篇会议记录：你在里面记要点，停下来时全文和录音自动写进去' },
   { icon: <ShieldCheck size={13} />, text: privacyPoint(keep) },
-  { icon: <PanelLeft size={13} />, text: '转写时可以切到别的面板，不会中断' },
   { icon: <ListChecks size={13} />, text: '结束后结合你记的要点，一键整理成纪要' },
 ];
 
@@ -143,6 +143,9 @@ export const TranscribePanel: React.FC = () => {
   const unsaved = hasUnsavedTranscript(t);
   const what = t.recordingOn || t.audio ? '转写和录音' : '转写';
   const savedTitle = useAppStore((s) => s.tabs.find((tab) => tab.id === t.savedTo)?.title) ?? t.savedTo?.split(/[\\/]/).pop();
+  // 这一场绑定的笔记：转写全文、录音、纪要都写进它
+  const boundTitle = savedTitle?.replace(/\.md$/i, '');
+  const openBound = () => { if (t.savedTo) void useAppStore.getState().openFileByPath(t.savedTo); };
   const onClear = () => { if (unsaved && !confirmClear) { setConfirmClear(true); return; } setConfirmClear(false); t.clear(); };
   const busy = t.status === 'starting' || t.status === 'stopping';
   const live = recording || t.status === 'stopping';
@@ -225,7 +228,10 @@ export const TranscribePanel: React.FC = () => {
             <button className="rec-stop" onClick={() => void t.stop()} disabled={busy}><Square size={10} /> {t.status === 'stopping' ? '收尾中…' : '停止'}</button>
           </div>
           <LevelBars getLevel={getLevel} running={recording} bars={36} />
-          {device}
+          <div className="rec-card__row rec-card__row--foot">
+            {device}
+            <button className="rec-mark" onClick={() => t.markMoment()} disabled={!recording} title="在正文光标处插入现在的时间（⌘⇧L）；之后点它，录音跳到这一刻"><Flag size={11} /> 打点</button>
+          </div>
         </div>
       ) : hasText ? (
         // ── 停下来了：可以接着录 ──
@@ -250,13 +256,18 @@ export const TranscribePanel: React.FC = () => {
       ) : (
         // ── 还没开始：一个大按钮 ──
         <div className="rec-card rec-card--hero">
-          <button className="rec-start" onClick={() => void t.start()} disabled={busy} title="开始转写"><Mic size={22} /></button>
+          <button className="rec-start" onClick={() => void t.start('new')} disabled={busy} title="新建一篇会议记录并开始转写"><Mic size={22} /></button>
           <div className="rec-start__label">{t.status === 'starting' ? '正在准备…' : '开始转写'}</div>
           {device}
+          {activeTabId && !busy && <button className="btn-link rec-start__alt" onClick={() => void t.start('current')} title="不新建会议记录，要点就记在现在打开的这篇里">记在当前笔记里</button>}
         </div>
       )}
       {t.error && <div className="ask-status ask-status--error">{t.error}</div>}
-      {live && <div className="transcribe-note"><Info size={12} /><span>结束后记得放进笔记。没放进去的会先替你留着，下次打开还在。</span></div>}
+      {live && (
+        t.savedTo
+          ? <button className="transcribe-note transcribe-note--link" onClick={openBound} title="打开这篇笔记"><FileText size={12} /><span>要点记在「{boundTitle}」里；停下来时，全文{t.recordingOn ? '和录音' : ''}自动写进去。</span></button>
+          : <div className="transcribe-note"><FileText size={12} /><span>还没打开笔记库，这一场没有对应的笔记；停下来之后再选放到哪。</span></div>
+      )}
 
       <div className="ask-panel__list" ref={listRef}>
         {!hasText && !t.partial ? (
@@ -291,32 +302,40 @@ export const TranscribePanel: React.FC = () => {
         )}
       </div>
 
-      {/* 停下来之后，按做事的顺序排：先给全文找个去处，再整理纪要（纪要会写进放了转写的那篇笔记） */}
+      {/* 停下来之后：全文已经自动写进这一场的笔记了，剩下的就是整理纪要、或者开始下一场。
+          只有写不进去的时候（没有笔记库、笔记被删了、上次没存这次找回来的）才让人自己选放哪 */}
       {hasText && t.status === 'idle' && (
         <div className="transcribe-actions">
           {unsaved ? (
-            <div className="transcribe-note transcribe-note--warn">
-              <TriangleAlert size={12} />
-              <span>{t.restored ? '上次没放进笔记的转写，替你留着' : t.savedCount === t.segments.length ? '说话人的名字改过了，再点一次「放进笔记」更新过去' : t.savedCount > 0 ? '后来录的还没放进笔记' : '还没放进笔记'}{t.savedCount === t.segments.length && !t.restored ? '。' : '，点「清空」就没了。'}</span>
-            </div>
+            <>
+              <div className="transcribe-note transcribe-note--warn">
+                <TriangleAlert size={12} />
+                <span>{t.restored ? '上次没放进笔记的转写，替你留着' : '这一场还没写进笔记'}，点「清空」就没了。</span>
+              </div>
+              <div className="transcribe-actions__row transcribe-actions__row--two">
+                <button className="transcribe-tool" disabled={!activeTabId} title={activeTabId ? '折叠着放到当前笔记的末尾' : '先打开一篇笔记'} onClick={() => void t.insertIntoActiveNote()}><FileDown size={13} /> 放进当前笔记</button>
+                <button className="transcribe-tool" title="新建一篇会议记录，带上转写全文" onClick={() => void t.saveAsNewNote()}><FilePlus size={13} /> 存为新笔记</button>
+              </div>
+            </>
           ) : (
-            <div className="transcribe-note transcribe-note--ok"><CircleCheck size={12} /><span>已放进{savedTitle ? `「${savedTitle.replace(/\.md$/i, '')}」` : '笔记'}{t.audio ? '，录音也存好了' : ''}。</span></div>
-          )}
-          <div className="transcribe-actions__row">
-            <button className="transcribe-tool" disabled={!activeTabId} title={activeTabId ? '折叠着放到当前笔记的末尾（同一场再放一次是更新，不会重复）' : '先打开一篇笔记'} onClick={() => t.insertIntoActiveNote()}><FileDown size={13} /> 放进笔记</button>
-            <button className="transcribe-tool" title="新建一篇会议记录，带上转写全文" onClick={() => void t.saveAsNewNote()}><FilePlus size={13} /> 存为新笔记</button>
-            <button className="transcribe-tool" onClick={() => { void navigator.clipboard.writeText(transcriptText(t.segments)); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
-              {copied ? <><Check size={13} /> 已复制</> : <><Copy size={13} /> 复制</>}
+            <button className="transcribe-note transcribe-note--ok transcribe-note--link" onClick={openBound} title="打开这篇笔记">
+              <CircleCheck size={12} /><span>已写进「{boundTitle || '笔记'}」{t.audio ? '，录音也存好了' : ''}</span>
             </button>
-          </div>
+          )}
           <button
             className="btn btn-primary btn-xs transcribe-actions__main"
-            disabled={t.minutes.running || !readiness.ready}
-            title={readiness.ready ? '结合你在笔记里记的要点，整理出议题、结论和待办' : `${readiness.message}，整理纪要要靠一个对话模型`}
+            disabled={t.minutes.running || !readiness.ready || unsaved}
+            title={unsaved ? '先把转写放进一篇笔记，纪要要有地方放' : readiness.ready ? '结合你在笔记里记的要点，整理出议题、结论和待办' : `${readiness.message}，整理纪要要靠一个对话模型`}
             onClick={() => void t.generateMinutes()}
           >{t.minutes.running ? <><span className="ask-dots" /> {t.minutes.progress}</> : <><ListChecks size={13} /> 整理纪要</>}</button>
           {!readiness.ready && <button className="btn-link transcribe-actions__hint" onClick={() => openDialog('ai-setup')}>配置一个对话模型后可以整理纪要</button>}
           {t.minutes.error && <div className="ask-status ask-status--error">整理纪要失败：{t.minutes.error}</div>}
+          <div className="transcribe-actions__row transcribe-actions__row--two">
+            <button className="transcribe-tool" onClick={() => { void navigator.clipboard.writeText(transcriptText(t.segments, Object.fromEntries(t.speakers.map((p) => [p.id, p.name])))); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
+              {copied ? <><Check size={13} /> 已复制</> : <><Copy size={13} /> 复制全文</>}
+            </button>
+            <button className="transcribe-tool" disabled={unsaved} title={unsaved ? '这一场还没写进笔记' : '这一场已经存好了：新建一篇会议记录，开始下一场'} onClick={() => void t.newSession()}><Plus size={13} /> 新的转写</button>
+          </div>
         </div>
       )}
     </div>

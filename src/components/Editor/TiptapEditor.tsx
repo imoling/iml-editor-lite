@@ -132,6 +132,20 @@ export const TiptapEditor: React.FC = () => {
     return () => registerEditorFlush(null);
   }, [registerEditorFlush]);
 
+  // 给侧边栏功能用的两个动作（转写的「打点」往光标处插时间戳；新建的会议记录把光标放进「要点」）
+  useEffect(() => {
+    const { registerEditorActions } = useAppStore.getState();
+    registerEditorActions({
+      insertText: (text) => { const ed = editorRef.current as Editor | null; if (!ed || ed.isDestroyed) return false; return ed.chain().focus().insertContent(text).run(); },
+      startList: () => {
+        const ed = editorRef.current as Editor | null;
+        if (!ed || ed.isDestroyed) return;
+        ed.chain().insertContentAt(ed.state.doc.content.size, { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph' }] }] }).focus('end').run();
+      },
+    });
+    return () => registerEditorActions(null);
+  }, []);
+
   const editor = useEditor({
     extensions: editorExtensions,
     content: activeTab ? markdownToHtml(activeTab.content) : '',

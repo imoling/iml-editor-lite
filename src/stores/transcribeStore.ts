@@ -7,7 +7,7 @@ import { noteDirOf, toAssetUrl } from '../utils/assetUrl';
 import { assignSpeaker, renameSpeaker, speakerNames, initialSpeakers, saveMyVoiceprint, forgetMyVoiceprint, loadMyVoiceprint, ME_ID, type Speaker } from '../utils/speakers';
 import { useAppStore } from './appStore';
 import {
-  type TranscriptSegment, transcriptText, buildTranscriptBlock, upsertBlock, insertMinutes, newMeetingNote, meetingNoteTitle,
+  type TranscriptSegment, transcriptText, formatClock, buildTranscriptBlock, upsertBlock, insertMinutes, newMeetingNote, meetingNoteTitle,
   stripTranscriptBlocks, splitForSummary, recordingFileName, buildMinutesMessages, buildPartMessages, buildMergeMessages, cleanMinutes,
 } from '../utils/transcript';
 import { stripThinking } from '../utils/askNotes';
@@ -72,7 +72,17 @@ interface TranscribeState {
   forgetMe: () => void;
   install: () => void;
   cancelInstall: () => void;
-  start: () => Promise<void>;
+  /**
+   * 开始 / 继续。新的一场默认新建一篇会议记录并打开（'new'），也可以记在当前打开的笔记里（'current'）；
+   * 这篇笔记就是这一场的「家」：停下来时转写全文和录音自动写进去，纪要也放在那里
+   */
+  start: (into?: 'new' | 'current') => Promise<void>;
+  /** 把转写全文（和录音）写进这一场绑定的笔记；笔记关掉了会重新打开。返回是否写成 */
+  commit: (opts?: { quiet?: boolean }) => Promise<boolean>;
+  /** 上一场已经存好了：清掉面板，直接开始新的一场 */
+  newSession: () => Promise<void>;
+  /** 打点：在正文光标处插入当前的时间 [mm:ss]，之后点它，录音跳到这一刻 */
+  markMoment: () => boolean;
   stop: () => Promise<void>;
   clear: () => void;
   elapsed: () => number;
@@ -91,6 +101,35 @@ function readFlag(key: string, fallback: boolean): boolean { try { const v = loc
 const KEEP_KEY = 'iml.keepRecording';
 /** 默认留录音：想回听是常态；不想留的在「实时转写…」里关掉 */
 function readKeepRecording(): boolean { try { return localStorage.getItem(KEEP_KEY) !== '0'; } catch { return true; } }
+
+/**
+ * 给新的一场转写找个「家」。默认新建一篇会议记录（属性 + 标题 + 留给用户记要点的地方）并打开，光标放进「要点」；
+ * 没打开笔记库（不知道往哪建）就退回当前打开的笔记；两样都没有返回 null —— 转写照常进行，停下来之后由用户决定放哪
+ */
+async function bindNote(into: 'new' | 'current', at: Date): Promise<string | null> {
+  const app = useAppStore.getState();
+  const dir = app.getNewNoteDir();
+  if (into === 'current' || !dir) {
+    if (app.activeTabId) return app.activeTabId;
+    if (!dir) return null;
+  }
+  try {
+    const title = meetingNoteTitle(at);
+    const sep = dir.includes('\\') ? '\\' : '/';
+    let filePath = `${dir}${sep}${title}.md`;
+    for (let i = 2; await window.api.fs.exists(filePath); i++) filePath = `${dir}${sep}${title} ${i}.md`;
+    const res = await window.api.fs.writeFile(filePath, newMeetingNote(filePath.slice(dir.length + 1).replace(/\.md$/i, ''), at));
+    if (!res.success) throw new Error(res.error || '写不进去');
+    await app.refreshWorkspace();
+    await app.openFileByPath(filePath);
+    // 等编辑器把新笔记载进来，再在「要点」下面另起一个列表项、把光标放进去：点了开始就能直接打字
+    setTimeout(() => { if (useAppStore.getState().activeTabId === filePath) useAppStore.getState().editorActions?.startList(); }, 350);
+    return filePath;
+  } catch (err) {
+    useAppStore.getState().notify(`会议记录没建成（${cleanError(err)}），转写照常进行，结束后再选放到哪`);
+    return useAppStore.getState().activeTabId;
+  }
+}
 
 /** 一段录音停下来：从录音机那里拿到目前为止的整份录音，换掉面板播放器用的那一份 */
 async function collectRecording() {
@@ -162,13 +201,18 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
   refreshMics: async () => set({ mics: await listMics() }),
   setMic: (id) => { setPreferredMic(id); set({ micId: id }); },
   setSpeakersOn: (on) => { try { localStorage.setItem(SPEAKERS_KEY, on ? '1' : '0'); } catch { /* 只管这一次 */ } set({ speakersOn: on }); },
-  renameSpeaker: (id, name) => set((s) => {
+  renameSpeaker: (id, name) => {
+    const before = get().namesRev;
+    set((s) => {
     const r = renameSpeaker(s.speakers, id, name);
     if (r.speakers === s.speakers) return {};
     // 合并了的话，原来挂在他名下的句子改挂到合并后的那个人
     const segments = r.mergedInto ? s.segments.map((seg) => (seg.speaker === id ? { ...seg, speaker: r.mergedInto } : seg)) : s.segments;
     return { speakers: r.speakers, segments, namesRev: s.namesRev + 1 };
-  }),
+    });
+    // 名字改了：笔记里那份跟着更新，不用人再点一次
+    if (get().namesRev !== before && get().status === 'idle' && get().savedTo && get().savedCount > 0) void get().commit({ quiet: true });
+  },
   rememberAsMe: (id) => {
     const speaker = get().speakers.find((p) => p.id === id);
     if (!speaker) return;
@@ -184,8 +228,9 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
 
   elapsed: () => { const { offset, runStartedAt } = get(); return offset + (runStartedAt ? (Date.now() - runStartedAt) / 1000 : 0); },
 
-  start: async () => {
+  start: async (into = 'new') => {
     if (get().status !== 'idle') return;
+    const fresh = get().segments.length === 0;
     set({ status: 'starting', error: null });
     try {
       const wantSpeakers = get().speakersOn && !!get().asr?.speaker?.installed;
@@ -207,7 +252,10 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
       if (capture.fellBack) useAppStore.getState().notify(`选定的麦克风没连上，这次改用${capture.label ? `「${capture.label}」` : '系统默认的麦克风'}`);
       void get().refreshMics();   // 授权之后才读得到设备名字
       if (get().segments.length === 0) void window.api.asr.clearDraft?.().catch(() => {});   // 新的一场：上一场留下的录音草稿不要了
-      set((s) => ({ status: 'recording', deviceLabel: capture?.label ?? '', silent: false, runStartedAt: Date.now(), startedAt: s.startedAt ?? Date.now(), savedTo: s.segments.length ? s.savedTo : null }));
+      // 麦克风和识别都就绪了再建笔记：授权没过的话，不留下一篇空的会议记录
+      const startedAt = fresh ? Date.now() : get().startedAt ?? Date.now();
+      const boundTo = fresh ? await bindNote(into, new Date(startedAt)) : get().savedTo;
+      set({ status: 'recording', deviceLabel: capture?.label ?? '', silent: false, runStartedAt: Date.now(), startedAt, savedTo: boundTo, restored: false });
     } catch (err) {
       capture?.stop(); capture = null;
       await window.api.asr.stop().catch(() => {});
@@ -228,6 +276,8 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
       status: 'idle', level: 0, silent: false, runStartedAt: null, offset: s.offset + ran,
       segments: s.partial?.text ? [...s.segments, s.partial] : s.segments, partial: null,
     }));
+    // 停下来就写进这一场的笔记：不用人再点「放进笔记」，也就不会忘
+    await get().commit();
   },
 
   clear: () => {
@@ -240,19 +290,52 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
   },
 
   insertIntoActiveNote: async () => {
-    const { segments, startedAt } = get();
     const app = useAppStore.getState();
-    const tab = app.tabs.find((t) => t.id === app.activeTabId);
-    if (!tab || segments.length === 0) return false;
+    if (!app.activeTabId || get().segments.length === 0) return false;
+    set({ savedTo: app.activeTabId });
+    return get().commit();
+  },
+
+  commit: async ({ quiet = false } = {}) => {
+    const { segments, startedAt, savedTo } = get();
+    if (!savedTo || segments.length === 0) return false;
+    let app = useAppStore.getState();
+    // 这一场的笔记被关掉了：重新打开再写（还没落盘的未命名文档关掉就没了，写不回去）
+    if (!app.tabs.some((t) => t.id === savedTo)) {
+      if (savedTo.startsWith('new-')) return false;
+      await app.openFileByPath(savedTo).catch(() => {});
+      app = useAppStore.getState();
+    }
+    const tab = app.tabs.find((t) => t.id === savedTo);
+    if (!tab) return false;
     const at = new Date(startedAt ?? Date.now());
     // 录音跟着笔记走：存到笔记旁边的 assets/，转写块里带一个播放器
     const audioSrc = await saveRecording(noteDirOf(tab.id, app.getNewNoteDir() || ''), at);
     const block = buildTranscriptBlock(segments, at, get().elapsed(), audioSrc, speakerNames(get().speakers));
     // 用户多半正在这篇里记要点：editTabContent 会先把他没写回的字刷进来，再追加，光标也留在原地
     if (!app.editTabContent(tab.id, (current) => upsertBlock(current, block, at))) return false;
-    set({ savedTo: tab.id, savedCount: segments.length, savedNamesRev: get().namesRev, restored: false });
-    app.notify(`转写已写进「${tab.title}」的末尾`);
+    set({ savedCount: segments.length, savedNamesRev: get().namesRev, restored: false });
+    if (!quiet) app.notify(`转写已写进「${tab.title.replace(/\.md$/i, '')}」`);
     return true;
+  },
+
+  newSession: async () => {
+    if (get().status !== 'idle') return;
+    get().clear();
+    await get().start('new');
+  },
+
+  markMoment: () => {
+    if (get().status !== 'recording') return false;
+    const app = useAppStore.getState();
+    const bound = get().savedTo;
+    // 时间点要打在这一场的笔记里：点它的时候，靠同一篇里的录音来跳
+    if (bound && app.activeTabId !== bound && app.tabs.some((t) => t.id === bound)) {
+      void app.setActiveTab(bound);
+      app.notify('已切到这一场的笔记，把光标放到要记的地方再打点');
+      return false;
+    }
+    return app.editorActions?.insertText(`[${formatClock(get().elapsed())}] `) ?? false;
   },
 
   saveAsNewNote: async () => {

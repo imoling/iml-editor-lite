@@ -923,6 +923,9 @@ span > .source-node__input { display: inline-block; width: auto; min-width: 160p
 .raw-block__preview > :first-child { margin-top: 0; }
 .raw-block__preview > :last-child { margin-bottom: 0; }
 .raw-block__preview img { max-width: 100%; }
+/* 你在要点里打的时间点（⌘⇧L）：笔记里有带录音的转写块时可点，录音跳到那一刻 */
+.ts-link { padding: 0 3px; border-radius: 4px; font-variant-numeric: tabular-nums; color: var(--color-brand-indigo); background-color: color-mix(in srgb, var(--color-brand-indigo) 10%, transparent); cursor: pointer; }
+.ts-link:hover { background-color: color-mix(in srgb, var(--color-brand-indigo) 20%, transparent); }
 /* 实时转写留下的转写块：播放器占一整行；带录音时每句话可点（跳到录音里那句话的位置） */
 .raw-block__preview details[data-iml-transcript] > summary { cursor: pointer; font-weight: 600; }
 .raw-block__preview details[data-iml-transcript] audio { display: block; width: 100%; height: 36px; margin: 8px 0 6px; }

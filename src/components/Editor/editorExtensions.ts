@@ -23,6 +23,7 @@ import { Frontmatter } from '../../extensions/Frontmatter';
 import { Callout } from '../../extensions/Callout';
 import { Toc } from '../../extensions/Toc';
 import { RawBlock, RawInline } from '../../extensions/RawHtml';
+import { TimestampLinks } from '../../extensions/TimestampLinks';
 import { InlineMath } from '../../extensions/InlineMath';
 import { TagHighlight } from '../../extensions/TagHighlight';
 import { Kbd, Subscript, Superscript, Highlight, SoftAwareHardBreak, NoteLink } from '../../extensions/InlineMarks';
@@ -44,6 +45,7 @@ export const editorExtensions = [
   Toc,
   RawBlock,
   RawInline,
+  TimestampLinks,
   InlineMath,
   TagHighlight,
   FocusMode,

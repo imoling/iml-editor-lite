@@ -113,6 +113,9 @@ describe('把转写和纪要放进笔记', () => {
     expect(note.startsWith('---\ntype: meeting\ndate: 2026-09-20\n')).toBe(true);
     expect(note).toContain('# 会议记录 2026-09-20 1405');
     expect(note.indexOf('## 要点')).toBeLessThan(note.indexOf('<details'));
+    expect(note).not.toMatch(/^- *$/m);   // 不预放空的「- 」：空列表项在 Markdown 里不成立，会变成一个字面的减号
+    // 刚开始转写时的骨架：还没有转写块
+    expect(newMeetingNote('会议记录', AT)).toBe('---\ntype: meeting\ndate: 2026-09-20\ntags: [会议]\n---\n\n# 会议记录\n\n## 要点\n');
   });
 });
 

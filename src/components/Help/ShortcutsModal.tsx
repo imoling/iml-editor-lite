@@ -58,6 +58,7 @@ const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose }) => {
           { label: '查找并替换', keys: [altKey, modKey, 'F'] },
           { label: '搜索所有笔记', keys: [modKey, '⇧', 'F'] },
           { label: '问你的笔记', keys: [modKey, 'J'] },
+          { label: '实时转写时打点（在正文里插入现在的时间，之后点它回听）', keys: [modKey, '⇧', 'L'] },
           { label: '写作助手设置', keys: [modKey, '⇧', 'M'] },
           { label: '全局设置', keys: [modKey, ','] },
           { label: '快捷键说明', keys: [modKey, '/'] },

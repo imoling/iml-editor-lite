@@ -23,6 +23,15 @@ export interface Tab {
   mode: 'word' | 'markdown';
   /** 磁盘上的文件被外部改动（或删除）而本标签页有未保存修改，需要用户决定 */
   externallyModified?: boolean;
+  /** 上次从磁盘读到 / 写进磁盘的内容的指纹：用来分清「磁盘真的被别人改了」和「只是我这边打了字、磁盘没动」 */
+  diskSig?: string;
+}
+
+/** 内容指纹：长度 + FNV-1a。只用来判断「和上次是不是同一份」，不需要防碰撞的强度 */
+export function contentSig(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return `${text.length}:${(h >>> 0).toString(36)}`;
 }
 
 /**
@@ -189,6 +198,8 @@ export interface AppState {
   searchCommand: SearchCommand | null;
   /** 当前编辑器注册的「把未写回的内容立刻同步到 store」钩子（保存 / 导出 / 关窗前调用） */
   editorFlush: (() => void) | null;
+  /** 当前编辑器提供的两个动作：往光标处插一段文字（返回是否插成功）、在文末另起一个空的列表项并把光标放进去。侧边栏功能（转写）要用 */
+  editorActions: { insertText: (text: string) => boolean; startList: () => void } | null;
   /** 最近一次「不是编辑器自己打的字」的改写（转写、纪要这类侧边栏功能写进笔记）。富文本编辑器看到 rev 变了就重载这篇，哪怕光标正在里面 */
   externalWrite: { id: string; rev: number } | null;
   sidebarTab: SidebarTab;
@@ -306,6 +317,7 @@ export interface AppState {
   /** 编辑器处理完命令后清掉，避免切换编辑模式时新挂载的编辑器重放（例如再来一次「全部替换」） */
   consumeSearchCommand: () => void;
   registerEditorFlush: (fn: (() => void) | null) => void;
+  registerEditorActions: (actions: AppState['editorActions']) => void;
   setSidebarTab: (tab: SidebarTab) => void;
   /** 打开侧边栏的标签视图并选中某个标签（点击正文里的 #标签 时调用） */
   openTag: (tag: string | null) => void;
@@ -400,6 +412,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   search: { query: '', replacement: '', caseSensitive: false, total: 0, current: 0 },
   searchCommand: null,
   editorFlush: null,
+  editorActions: null,
   externalWrite: null,
   sidebarTab: 'library',
   selectedTag: null,
@@ -742,10 +755,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       const diskContent = result.content || '';
       if (diskContent === tab.content) continue;
+      // 磁盘上还是我们上次读到 / 写进去的那一份：不是别人改了文件，只是这边打了字还没存。
+      // 典型场景是应用自己新建文件（会议记录、双链新建的笔记）→ 打开 → 用户马上开始打字，文件监听的通知这时才到
+      if (tab.diskSig && tab.diskSig === contentSig(diskContent)) continue;
       if (tab.isDirty) {
-        mark({ externallyModified: true }); // 两边都改了，交给用户决定（保存即覆盖）
+        mark({ externallyModified: true, diskSig: contentSig(diskContent) }); // 两边都改了，交给用户决定（保存即覆盖）
       } else {
-        mark({ content: diskContent, isDirty: false, externallyModified: false }); // 未改动的标签页静默跟随磁盘
+        mark({ content: diskContent, isDirty: false, externallyModified: false, diskSig: contentSig(diskContent) }); // 未改动的标签页静默跟随磁盘
       }
     }
   },
@@ -847,6 +863,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sendSearchCommand: (type) => set({ searchCommand: { type } }),
   consumeSearchCommand: () => { if (get().searchCommand) set({ searchCommand: null }); },
   registerEditorFlush: (fn) => set({ editorFlush: fn }),
+  registerEditorActions: (actions) => set({ editorActions: actions }),
   openGlobalSearch: () => set((state) => ({ sidebarTab: 'search', sidebarVisible: true, globalSearchFocus: state.globalSearchFocus + 1 })),
   openTranscribe: () => set({ sidebarTab: 'transcribe', sidebarVisible: true, focusMode: false }),
   openAsk: () => { set({ sidebarTab: 'ask', sidebarVisible: true, focusMode: false }); useAskStore.getState().requestFocus(); },
@@ -900,6 +917,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         content: readResult.content || '',
         isDirty: false,
         mode: 'word',
+        diskSig: contentSig(readResult.content || ''),
       });
       get().addToRecent(filePath);
     }
@@ -981,7 +999,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       } else {
         set((state) => ({
-          tabs: state.tabs.map(t => t.id === filePath ? { ...t, isDirty: false, externallyModified: false } : t)
+          tabs: state.tabs.map(t => t.id === filePath ? { ...t, isDirty: false, externallyModified: false, diskSig: contentSig(activeTab.content) } : t)
         }));
       }
       return true;

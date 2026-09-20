@@ -112,9 +112,12 @@ export function insertMinutes(content: string, minutes: string): string {
   return `${before}${before ? '\n\n' : ''}${section}\n\n${content.slice(at)}`;
 }
 
-export function newMeetingNote(title: string, startedAt: Date, block: string): string {
+/** 会议记录的骨架。block 为空 = 转写刚开始，全文还没有：先给用户一个记要点的地方，停下来之后再把转写块追加进去 */
+export function newMeetingNote(title: string, startedAt: Date, block = ''): string {
   const d = `${startedAt.getFullYear()}-${pad(startedAt.getMonth() + 1)}-${pad(startedAt.getDate())}`;
-  return `---\ntype: meeting\ndate: ${d}\ntags: [会议]\n---\n\n# ${title}\n\n## 要点\n\n- \n\n${block}\n`;
+  // 「要点」下面不预放一个空的「- 」：空列表项在 Markdown 里不成立，会被当成一个字面的减号。
+  // 刚开始转写时由编辑器另起一个列表项（editorActions.startList），已经有转写块时留一个空行给用户自己写
+  return `---\ntype: meeting\ndate: ${d}\ntags: [会议]\n---\n\n# ${title}\n\n## 要点\n${block ? `\n\n${block}\n` : ''}`;
 }
 
 export const meetingNoteTitle = (startedAt: Date) =>
