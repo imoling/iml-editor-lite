@@ -88,18 +88,28 @@ export const TitleBar: React.FC = () => {
   /** 执行菜单动作并收起菜单 */
   const run = (fn: () => void) => () => { setActiveMenu(null); fn(); };
 
+  // 点菜单以外的任何地方、按 Esc、窗口失焦，菜单都收起来。
+  // 不能用「铺满窗口的透明背板」来接点击：标题栏有毛玻璃效果（backdrop-filter），它里面的 position: fixed
+  // 是相对标题栏而不是窗口定位的，背板实际只盖住了标题栏那 40px —— 点侧边栏、点正文，菜单都关不掉。
+  // 用捕获阶段的 mousedown：不拦截这次点击，点侧边栏的按钮既收起菜单、也照常切换面板
+  useEffect(() => {
+    if (!activeMenu) return;
+    const onDown = (e: MouseEvent) => { if (!(e.target as HTMLElement | null)?.closest?.('.menu-anchor')) setActiveMenu(null); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setActiveMenu(null); };
+    const onBlur = () => setActiveMenu(null);
+    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('blur', onBlur);
+    return () => { document.removeEventListener('mousedown', onDown, true); document.removeEventListener('keydown', onKey); window.removeEventListener('blur', onBlur); };
+  }, [activeMenu]);
+
   const Menu: React.FC<{ id: MenuId; label: string; width?: number; badge?: boolean; children: React.ReactNode }> = ({ id, label, width, badge, children }) => (
     <div className="menu-anchor">
       <button className="menu-trigger" onClick={() => setActiveMenu(activeMenu === id ? null : id)}>
         {label}
         {badge && <div className="notification-dot" />}
       </button>
-      {activeMenu === id && (
-        <>
-          <div className="menu-backdrop" onClick={() => setActiveMenu(null)} />
-          <div className="dropdown-menu" style={width ? { minWidth: width } : undefined}>{children}</div>
-        </>
-      )}
+      {activeMenu === id && <div className="dropdown-menu" style={width ? { minWidth: width } : undefined}>{children}</div>}
     </div>
   );
 

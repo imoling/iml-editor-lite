@@ -225,7 +225,6 @@
 
 /* ── 下拉菜单 / 右键菜单 ── */
 .menu-anchor { position: relative; }
-.menu-backdrop { position: fixed; inset: 0; z-index: 999; }
 .dropdown-menu {
   position: absolute; top: 36px; left: 0; z-index: 1000; min-width: 200px; padding: 6px;
   background-color: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 10px;
