@@ -3,7 +3,8 @@ import { formatVersion } from '../utils/version';
 /** 配图键：对应 src/assets/whats-new/<key>.png，在 WhatsNewModal 里映射 */
 export type WhatsNewImage =
   | 'hero' | 'slash' | 'wiki' | 'search' | 'daily' | 'local'
-  | 'v262-hero' | 'v262-source' | 'v262-compat' | 'v262-paste' | 'v262-history' | 'v262-semantic' | 'v262-focus';
+  | 'v262-hero' | 'v262-source' | 'v262-compat' | 'v262-paste' | 'v262-history' | 'v262-semantic' | 'v262-focus'
+  | 'v263-hero' | 'v263-ask' | 'v263-transcribe' | 'v263-playback' | 'v263-config' | 'v263-update';
 
 export interface WhatsNewPage {
   key: string;
@@ -29,6 +30,49 @@ export interface WhatsNewEntry {
 
 /** 每个大版本一条；新版本加在最前面 */
 export const WHATS_NEW: WhatsNewEntry[] = [
+  {
+    version: '26.3',
+    title: '听得见，问得到',
+    releaseUrl: 'https://github.com/imoling/iml-markdown-editor/releases/tag/v26.3.0',
+    pages: [
+      {
+        key: 'intro', kicker: '新特性', title: '听得见，问得到',
+        desc: '开会、听课时它替你记全文，你只管记要点；记下来的东西，之后用大白话一问就能找到。两件事都在这台电脑上完成，声音和笔记都不出门。',
+        bullets: ['实时转写：边听边出字，点哪句话就从哪句开始回听', '一键整理纪要：结合你自己记的要点，列出结论和待办', '问你的笔记：答案只来自你的笔记，每个结论都标着出处'],
+        image: 'v263-hero',
+      },
+      {
+        key: 'transcribe', kicker: '实时转写', title: '你记要点，全文它来记',
+        desc: '侧边栏「转写」页点一下开始：说话的同时文字就出来，停顿后定稿、自动加标点。中文、英语、粤语、日语、韩语都认得。转写时可以切去别的面板，状态栏的红点一直提醒你「正在听」。',
+        bullets: ['识别在本机完成：首次使用下载约 240 MB 的语音模型，之后离线可用', '停了可以接着录，时间戳接着往下排', '没放进笔记就退出了也不怕，下次打开还在'],
+        image: 'v263-transcribe',
+      },
+      {
+        key: 'playback', kicker: '回听与纪要', title: '点哪句，听哪句',
+        desc: '转写的同时留一份录音（一小时约 11 MB，可以关掉）。放进笔记后，全文折叠成一块、带着播放器跟笔记存在一起：点任意一句话，录音就跳到那句话开始的地方。',
+        bullets: ['整理纪要：以你记的要点为线索，生成「议题与结论」和「待办」，放在转写全文前面', '转写块是标准的 HTML，Obsidian、GitHub 里同样是折叠的', '转写的内容「问你的笔记」照样问得到'],
+        image: 'v263-playback',
+      },
+      {
+        key: 'ask', kicker: '问你的笔记', title: '答案只来自你的笔记', hint: '⌘J',
+        desc: '用大白话问就行，不用想关键词。它先在笔记库里找出最相关的几段原文，再只根据这几段回答，每个结论后面标着出处 —— 点一下，跳到原文那一段。',
+        bullets: ['笔记里没写的，它会直说没有，不拿常识糊弄你', '可以接着追问：「那第二条是谁负责？」', '需要先开启「相关笔记」，并配好一个对话模型（本机模型免费、离线）'],
+        image: 'v263-ask',
+      },
+      {
+        key: 'config', kicker: '心里有数', title: '能不能用，一眼看清',
+        desc: '智能 → 实时转写…：能不能用一眼看清；语音模型的下载与删除；录音留不留；用哪个麦克风，点「试一下」看它有没有在收音。',
+        bullets: ['转写时一点声音都没进来，面板会提醒你检查麦克风', '选定的麦克风拔掉了，自动退回系统默认，插回来再用回它', '正在转写时退出应用，会先问一句'],
+        image: 'v263-config',
+      },
+      {
+        key: 'more', kicker: '还有这些', title: '更轻，更快，更省心',
+        desc: '安装包小了一大截：Windows 从 250 MB 降到 79 MB，macOS 从 153 MB 降到 88 MB。启动要加载的代码少了三分之一。',
+        bullets: ['发现新版本只主动提醒一次，写明更新了什么，并直接给出你这台电脑该下的安装包', '纪要和问答针对本机小模型重新调过：更守规矩，也更快', '「智能」菜单按功能命名：问你的笔记、写作助手、相关笔记、实时转写、AI 配图'],
+        image: 'v263-update',
+      },
+    ],
+  },
   {
     version: '26.2',
     title: '放心把笔记搬进来',

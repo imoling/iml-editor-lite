@@ -14,11 +14,18 @@ import v262Paste from '../../assets/whats-new/v262-paste.webp';
 import v262History from '../../assets/whats-new/v262-history.webp';
 import v262Semantic from '../../assets/whats-new/v262-semantic.webp';
 import v262Focus from '../../assets/whats-new/v262-focus.webp';
+import v263Hero from '../../assets/whats-new/v263-hero.webp';
+import v263Ask from '../../assets/whats-new/v263-ask.webp';
+import v263Transcribe from '../../assets/whats-new/v263-transcribe.webp';
+import v263Playback from '../../assets/whats-new/v263-playback.webp';
+import v263Config from '../../assets/whats-new/v263-config.webp';
+import v263Update from '../../assets/whats-new/v263-update.webp';
 
 const IMAGES: Record<WhatsNewImage, string> = {
   hero: heroImg, slash: slashImg, wiki: wikiImg, search: searchImg, daily: dailyImg, local: localImg,
   'v262-hero': v262Hero, 'v262-source': v262Source, 'v262-compat': v262Compat, 'v262-paste': v262Paste,
   'v262-history': v262History, 'v262-semantic': v262Semantic, 'v262-focus': v262Focus,
+  'v263-hero': v263Hero, 'v263-ask': v263Ask, 'v263-transcribe': v263Transcribe, 'v263-playback': v263Playback, 'v263-config': v263Config, 'v263-update': v263Update,
 };
 
 interface Props {
