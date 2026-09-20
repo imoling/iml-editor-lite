@@ -137,10 +137,10 @@
 
 | 平台 | 安装包 |
 |---|---|
-| macOS Apple Silicon（M 系列） | `iML.Markdown.Editor-26.3.0-arm64.dmg` |
-| macOS Intel（x64） | `iML.Markdown.Editor-26.3.0-x64.dmg` |
-| Windows（绝大多数电脑选这个） | `iML.Markdown.Editor-Setup-26.3.0-x64.exe` |
-| Windows on ARM（骁龙本等） | `iML.Markdown.Editor-Setup-26.3.0-arm64.exe` |
+| macOS Apple Silicon（M 系列） | `iML.Markdown.Editor-26.3.1-arm64.dmg` |
+| macOS Intel（x64） | `iML.Markdown.Editor-26.3.1-x64.dmg` |
+| Windows（绝大多数电脑选这个） | `iML.Markdown.Editor-Setup-26.3.1-x64.exe` |
+| Windows on ARM（骁龙本等） | `iML.Markdown.Editor-Setup-26.3.1-arm64.exe` |
 
 前往 [Releases](https://github.com/imoling/iml-markdown-editor/releases) 下载最新版本（80 ~ 90 MB）。已经装了的，应用会在发现新版本时提醒一次，并直接给出对应的安装包。安装包由 GitHub Actions 在打 `v*` 标签时自动构建并发布。
 
@@ -158,7 +158,7 @@ npm run build:mac    # macOS 安装包（同时生成 arm64 和 x64）
 npm run build:win    # Windows 安装包
 ```
 
-测试覆盖 Markdown 往返保真（40 多种写法逐字比对）、原文保留、转义、增量序列化、查找匹配、会话恢复、全文与标签索引、版本历史、图片整理、语义分块与向量库、本机模型托管、快速打开的匹配排序、标签页的关闭队列与重开栈、AI 就绪判断、问答的检索重排与引用、转写的分句节奏 / 转写块往返 / 草稿找回 / WebM 时长补写、安装包体积守卫、更新提醒的安装包选择，目前 375 个用例。其中一组专门逐例比对主进程与渲染进程各自的「AI 请求发往哪里」判断——状态栏按一份显示、请求按另一份路由，两份必须给出同样的答案。
+测试覆盖 Markdown 往返保真（40 多种写法逐字比对）、原文保留、转义、增量序列化、查找匹配、会话恢复、全文与标签索引、版本历史、图片整理、语义分块与向量库、本机模型托管、快速打开的匹配排序、标签页的关闭队列与重开栈、AI 就绪判断、问答的检索重排与引用、转写的分句节奏 / 转写块往返 / 草稿找回 / WebM 时长补写、安装包体积守卫、更新提醒的安装包选择，目前 376 个用例。其中一组专门逐例比对主进程与渲染进程各自的「AI 请求发往哪里」判断——状态栏按一份显示、请求按另一份路由，两份必须给出同样的答案。
 
 开发模式下的冒烟钩子（只在 `NODE_ENV=development` 生效）：`IML_SMOKE_USERDATA` / `IML_SMOKE_LIBRARY` 指向临时目录，不碰真实数据；`IML_SMOKE_OFFSCREEN=1`（可配 `IML_SMOKE_SIZE=1024x720`）用离屏渲染，无人值守、显示器休眠时也能通过 CDP 截图。
 
@@ -206,6 +206,11 @@ Windows 上把 `⌘` 换成 `Ctrl`，`⌥` 换成 `Alt`。
 ---
 
 ## 版本历史
+
+**26.3.1（2026-09-20）— 修复 macOS 上实时转写拿不到麦克风权限**
+
+- macOS 安装包开着强化运行时，权限声明里却漏了 `com.apple.security.device.audio-input`：系统不弹授权框、直接拒绝，应用也不出现在麦克风的授权列表里。补上声明（主程序与各 Helper 共用一份），并加了打包配置的守卫测试
+- 教训记在测试里：开发模式没有这层限制，从终端启动的安装包又会借用终端的麦克风权限，两种测法都发现不了，必须用 `open`（等价于双击图标）启动来验
 
 **26.3.0（2026-09-20）— 听得见，问得到**
 

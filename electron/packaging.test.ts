@@ -48,4 +48,19 @@ describe('安装包体积', () => {
     expect(pkg.build.nsis.buildUniversalInstaller).toBe(false);
     expect(pkg.build.nsis.artifactName).toContain('${arch}');
   });
+
+  it('macOS：开着强化运行时，权限声明里必须有麦克风 —— 否则系统连授权框都不弹，实时转写在安装版里完全用不了', () => {
+    // 26.3.0 就是这么坏的：electron-builder 默认开强化运行时、默认的权限声明里没有麦克风。
+    // 开发模式下没有这层限制，从终端启动的包又会借用终端的麦克风权限，两种测法都发现不了；
+    // 必须用 open（等价于双击图标）启动安装包来验。对照实验：去掉这一项，请求 0.5 秒内被直接拒绝；加上就正常弹框
+    const mac = pkg.build.mac;
+    expect(mac.hardenedRuntime).toBe(true);
+    expect(mac.entitlements).toBe('build/entitlements.mac.plist');
+    expect(mac.entitlementsInherit).toBe(mac.entitlements);   // 真正开麦克风的是渲染进程那个 Helper，它用的是「继承」的这一份
+    const plist = fs.readFileSync(path.join(root, mac.entitlements), 'utf8');
+    for (const key of ['com.apple.security.device.audio-input', 'com.apple.security.cs.disable-library-validation', 'com.apple.security.cs.allow-jit']) {
+      expect(plist).toMatch(new RegExp(`<key>${key.replace(/\./g, '\\.')}</key>\\s*<true/>`));
+    }
+    expect(mac.extendInfo.NSMicrophoneUsageDescription).toBeTruthy();
+  });
 });

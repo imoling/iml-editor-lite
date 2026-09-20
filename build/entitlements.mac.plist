@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- electron-builder 默认给的三项：V8 的 JIT，以及加载运行时下载的原生模块（llama / sherpa-onnx 不是我们签的名） -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- 实时转写要用麦克风。开着强化运行时（electron-builder 默认开）却没有这一项的话，系统直接拒绝：
+       不弹授权框，「隐私与安全性 → 麦克风」里也不会出现这个应用 —— 26.3.0 就是这么坏的 -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+</dict>
+</plist>

@@ -1,6 +1,6 @@
 {
   "name": "iml-markdown-editor",
-  "version": "26.3.0",
+  "version": "26.3.1",
   "description": "极简而极致的 Markdown 编辑器，支持双模编辑、PDF 导出与智能目录同步。",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -162,7 +162,10 @@
           }
         ],
         "NSMicrophoneUsageDescription": "实时转写需要使用麦克风。声音只在这台电脑上识别成文字；录音（可以关掉）也只存在本机，不会上传。"
-      }
+      },
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "win": {
       "icon": "assets/logo.ico",
