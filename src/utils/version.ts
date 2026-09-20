@@ -9,6 +9,13 @@ export function formatVersion(v: string | undefined | null): string {
   return v;
 }
 
+/** 大版本：26.3.1 → 26.3。新特性介绍按大版本写，热修版本（第三段不是 0）也要能对上 */
+export function majorMinor(v: string | undefined | null): string {
+  if (!v) return '';
+  const parts = v.replace(/^v/, '').split('.');
+  return parts.length >= 2 ? `${parts[0]}.${parts[1]}` : v;
+}
+
 /** 逐段比较版本号，只有远端确实更新时才提示（避免 1.9.0 与 26.1.0 这类字符串不等就误报） */
 export function isNewerVersion(latest: string | undefined | null, current: string | undefined | null): boolean {
   if (!latest || !current) return false;

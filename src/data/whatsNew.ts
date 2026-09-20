@@ -1,10 +1,11 @@
-import { formatVersion } from '../utils/version';
+import { majorMinor } from '../utils/version';
 
 /** 配图键：对应 src/assets/whats-new/<key>.png，在 WhatsNewModal 里映射 */
 export type WhatsNewImage =
   | 'hero' | 'slash' | 'wiki' | 'search' | 'daily' | 'local'
   | 'v262-hero' | 'v262-source' | 'v262-compat' | 'v262-paste' | 'v262-history' | 'v262-semantic' | 'v262-focus'
-  | 'v263-hero' | 'v263-ask' | 'v263-transcribe' | 'v263-playback' | 'v263-config' | 'v263-update';
+  | 'v263-hero' | 'v263-ask' | 'v263-transcribe' | 'v263-playback' | 'v263-config' | 'v263-update'
+  | 'v264-hero' | 'v264-palette' | 'v264-tasks' | 'v264-daily' | 'v264-export' | 'v264-transcribe' | 'v264-asrconfig';
 
 export interface WhatsNewPage {
   key: string;
@@ -30,6 +31,55 @@ export interface WhatsNewEntry {
 
 /** 每个大版本一条；新版本加在最前面 */
 export const WHATS_NEW: WhatsNewEntry[] = [
+  {
+    version: '26.4',
+    title: '本机智能，笔记不出门',
+    releaseUrl: 'https://github.com/imoling/iml-markdown-editor/releases/tag/v26.4.0',
+    pages: [
+      {
+        key: 'intro', kicker: '新特性', title: '本机智能，笔记不出门',
+        desc: '开会时谁说的一眼看清，声纹在这台电脑上算、只存在这台电脑上；手机录的会议、课程音频选个文件就转成笔记，约 40 倍速，全程离线。和实时转写、整理纪要、问你的笔记一起：听、认、记、问，全都在本机完成。',
+        bullets: ['区分说话人、转写录音文件、一场转写 = 一篇笔记', '编辑器这边搬来就能用：[[笔记#小节]]、![[嵌入]]、别名、悬浮预览、未链接提及', '日记月历、全库待办、标签改名、快速捕获、属性面板、命令面板、导出 Word / 长图'],
+        image: 'v264-transcribe',
+      },
+      {
+        key: 'speakers', kicker: '本机智能', title: '谁说的，一眼看清',
+        desc: '每句话定稿时在本机算一个声纹，够像就归给已有的人，不像就是新来的「说话人 N」；面板上一人一个颜色。点名字改名，改成已有的名字就是合并；「这是我」记住你的声纹，以后每场自动标成「我」。',
+        bullets: ['声纹模型 27 MB，可选下载；声纹只在这台电脑上算、只存在这台电脑上', '转写一段录音：手机录的会议、课程音频选一个文件就转，点句子回听、整理纪要都能用', '一场转写 = 一篇笔记：点开始就新建一篇会议记录，停下来全文和录音自动写进去；⌘⇧L 在正文打一个可点的时间戳'],
+        image: 'v264-asrconfig',
+      },
+      {
+        key: 'links', kicker: '搬来就能用', title: '链接织完了', hint: '[[',
+        desc: '[[笔记#小节]]、[[#本篇小节]]、[[笔记#^块]] 都能跳到位，输入 [[笔记# 会列出小节供选；![[嵌入]] 把另一篇的一段就地渲染进来，笔记、小节、块、图片、音频、视频都行。',
+        bullets: ['属性里的 aliases 参与链接解析、补全和快速打开', '鼠标停在链接上就能看到那篇的开头，不用点过去', '反链面板列出「未链接提及」：正文里提到了这篇的名字但没加链接的地方，点一下就地改成链接'],
+        image: 'v264-hero',
+      },
+      {
+        key: 'palette', kicker: '效率', title: '命令面板', hint: '⌘⇧P',
+        desc: '所有菜单里的动作都能搜到：中文、拼音首字母（dc → 导出）、英文都行，还有「插入：表格 / 公式 / 提示块…」。⌘T 快速打开也认拼音首字母：敲 xmzh 就能找到「项目周会」。',
+        bullets: ['你原来的 ⌘P 导出 PDF 没动', '⌥↑ / ⌥↓ 整块上下移动；脚注 [^1] 点一下跳到定义', '源码模式 ⌘D 选中下一个相同的词；可选的 Vim 键位'],
+        image: 'v264-palette',
+      },
+      {
+        key: 'tasks', kicker: '待办', title: '全库待办，打勾写回原文',
+        desc: '侧边栏新页「待办」汇总所有笔记里的任务：认 📅 2026-09-30 和 [due:: 2026-09-30]，按 已过期 / 今天 / 明天 / 7 天 / 以后 分段，其余按笔记分组。打勾直接写回原笔记那一行。',
+        bullets: ['点任务跳到笔记里那一行', '模板文件夹里的不算', '行号对不上（笔记被别处改过）时全篇找唯一匹配，找不到就不动'],
+        image: 'v264-tasks',
+      },
+      {
+        key: 'daily', kicker: '日记', title: '月历、属性面板、标签改名', hint: '⌃⌥N',
+        desc: '笔记库页底部钉着一个月历，有日记的日子有标记，点没日记的日子按模板新建。属性卡片可以直接编辑：文本、日期、勾选、列表芯片，只动那个字段的几行，注释和引号风格都不变。',
+        bullets: ['快速捕获：全局快捷键 ⌃⌥N 随时弹一个小窗口，敲完回车追加到今天的日记，焦点回到原来的软件', '标签面板右键就地改名，改成已有的名字就是合并；没改到的行一个字节都不动', '文件树可按修改 / 创建时间排序；同步盘一键指过去，反悔了再点一下改回'],
+        image: 'v264-daily',
+      },
+      {
+        key: 'export', kicker: '导出', title: '导出 Word 与长图',
+        desc: '导出为 Word（.docx）：标题、列表、表格、代码、提示块、脚注、图片、嵌入都转成 Word 自己的结构，WPS / Pages 也能开。导出为长图：发群里、发朋友圈用，超长的自动分成几张，切在段落边界。',
+        bullets: ['每张长图末尾带一个「来自 iML Markdown Editor」的角标', '导出成功的提示带「打开」「在访达中显示」，不用再翻文件夹', '导出 PDF / HTML 时 ![[嵌入]] 也会展开'],
+        image: 'v264-export',
+      },
+    ],
+  },
   {
     version: '26.3',
     title: '听得见，问得到',
@@ -172,9 +222,9 @@ export const WHATS_NEW: WhatsNewEntry[] = [
   },
 ];
 
-/** 当前版本对应的新特性条目；没有为这一版写介绍时返回 null */
+/** 当前版本对应的新特性条目（按大版本找：26.3.1 的热修也用 26.3 那篇）；没有为这一版写介绍时返回 null */
 export function latestWhatsNew(currentVersion: string, entries: WhatsNewEntry[] = WHATS_NEW): WhatsNewEntry | null {
-  const v = formatVersion(currentVersion);
+  const v = majorMinor(currentVersion);
   return entries.find((e) => e.version === v) ?? null;
 }
 
@@ -185,5 +235,5 @@ export function shouldShowWhatsNew(currentVersion: string, lastSeenVersion: stri
   const entry = latestWhatsNew(currentVersion, entries);
   if (!entry) return false;
   if (!lastSeenVersion) return true;
-  return formatVersion(lastSeenVersion) !== entry.version;
+  return majorMinor(lastSeenVersion) !== entry.version;
 }

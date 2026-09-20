@@ -20,12 +20,20 @@ import v263Transcribe from '../../assets/whats-new/v263-transcribe.webp';
 import v263Playback from '../../assets/whats-new/v263-playback.webp';
 import v263Config from '../../assets/whats-new/v263-config.webp';
 import v263Update from '../../assets/whats-new/v263-update.webp';
+import v264Hero from '../../assets/whats-new/v264-hero.webp';
+import v264Palette from '../../assets/whats-new/v264-palette.webp';
+import v264Tasks from '../../assets/whats-new/v264-tasks.webp';
+import v264Daily from '../../assets/whats-new/v264-daily.webp';
+import v264Export from '../../assets/whats-new/v264-export.webp';
+import v264Transcribe from '../../assets/whats-new/v264-transcribe.webp';
+import v264AsrConfig from '../../assets/whats-new/v264-asrconfig.webp';
 
 const IMAGES: Record<WhatsNewImage, string> = {
   hero: heroImg, slash: slashImg, wiki: wikiImg, search: searchImg, daily: dailyImg, local: localImg,
   'v262-hero': v262Hero, 'v262-source': v262Source, 'v262-compat': v262Compat, 'v262-paste': v262Paste,
   'v262-history': v262History, 'v262-semantic': v262Semantic, 'v262-focus': v262Focus,
   'v263-hero': v263Hero, 'v263-ask': v263Ask, 'v263-transcribe': v263Transcribe, 'v263-playback': v263Playback, 'v263-config': v263Config, 'v263-update': v263Update,
+  'v264-hero': v264Hero, 'v264-palette': v264Palette, 'v264-tasks': v264Tasks, 'v264-daily': v264Daily, 'v264-export': v264Export, 'v264-transcribe': v264Transcribe, 'v264-asrconfig': v264AsrConfig,
 };
 
 interface Props {

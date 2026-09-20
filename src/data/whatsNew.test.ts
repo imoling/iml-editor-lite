@@ -24,6 +24,17 @@ describe('whatsNew', () => {
     expect(shouldShowWhatsNew('26.1.0', '26.1.0', entries)).toBe(false);
   });
 
+  it('热修版本（26.3.1）也能找到 26.3 那篇：帮助菜单里的介绍不能是空的', () => {
+    expect(latestWhatsNew('26.3.1')?.version).toBe('26.3');
+    expect(latestWhatsNew('26.3.1', entries)).toBeNull();
+    expect(latestWhatsNew('26.2.7', entries)?.version).toBe('26.2');
+    // 新装的 26.3.1 要弹；从 26.3.0 升到 26.3.1 不弹；从 26.2 升上来要弹
+    const withThree = [{ version: '26.3', title: '', pages: [], releaseUrl: '' }, ...entries];
+    expect(shouldShowWhatsNew('26.3.1', null, withThree)).toBe(true);
+    expect(shouldShowWhatsNew('26.3.1', '26.3.0', withThree)).toBe(false);
+    expect(shouldShowWhatsNew('26.3.1', '26.2.0', withThree)).toBe(true);
+  });
+
   it('当前版本没有写介绍时不展示', () => {
     expect(shouldShowWhatsNew('27.1.0', null, entries)).toBe(false);
     expect(latestWhatsNew('27.1.0', entries)).toBeNull();
