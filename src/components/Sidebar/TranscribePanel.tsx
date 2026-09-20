@@ -6,6 +6,7 @@ import { useAiReadiness } from '../../utils/aiReadiness';
 import { currentMicLabel, micPermission } from '../../utils/micDevices';
 import { formatClock, transcriptText } from '../../utils/transcript';
 import { LevelBars } from '../AI/MicLevel';
+import { ME_ID, type Speaker } from '../../utils/speakers';
 import { PanelIntro } from './PanelIntro';
 
 const formatSize = (bytes: number) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`);
@@ -57,6 +58,41 @@ function usePlayer(url: string | null) {
   return { playing, current, toggle, seek, pause };
 }
 
+/**
+ * 说话人的小标签：点一下改名。改成和别人一样的名字就是把两个人合并（自动区分宁可分多、不可分少，分多了在这里合回去）；
+ * 「这是我」会记住声纹，以后每场自动认出来
+ */
+const SpeakerChip: React.FC<{ speaker: Speaker; index: number; onRename: (name: string) => void; onMe: () => void }> = ({ speaker, index, onRename, onMe }) => {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(speaker.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (editing) { setValue(speaker.name); inputRef.current?.select(); } }, [editing, speaker.name]);
+  const commit = () => { setEditing(false); if (value.trim() && value.trim() !== speaker.name) onRename(value); };
+  const color = `var(--spk-${index % 6})`;
+
+  if (editing) {
+    return (
+      <span className="spk-edit" onClick={(e) => e.stopPropagation()}>
+        <input
+          ref={inputRef} className="spk-edit__input" value={value} maxLength={20} placeholder="名字"
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;   // 输入法组字时的回车是选词
+            if (e.key === 'Enter') commit(); else if (e.key === 'Escape') setEditing(false);
+          }}
+        />
+        {speaker.id !== ME_ID && <button className="btn-link spk-edit__me" onMouseDown={(e) => { e.preventDefault(); setEditing(false); onMe(); }} title="记住这个声音，以后的转写里自动标成「我」">这是我</button>}
+      </span>
+    );
+  }
+  return (
+    <button className="spk-chip" style={{ '--spk': color } as React.CSSProperties} title="点一下改名；改成已有的名字就是合并成同一个人" onClick={(e) => { e.stopPropagation(); setEditing(true); }}>
+      <span className="spk-chip__dot" />{speaker.name}
+    </button>
+  );
+};
+
 /** 录音期间每秒走一次的计时 */
 function useElapsed(running: boolean): number {
   const elapsed = useTranscribeStore((s) => s.elapsed);
@@ -95,7 +131,8 @@ export const TranscribePanel: React.FC = () => {
 
   useEffect(() => { void t.refresh(); void t.refreshMics(); }, []);
   // 新的一句出来就滚到底
-  useEffect(() => { const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }, [t.segments.length, t.partial?.text]);
+  // 停下来时底部多出一排按钮、列表变矮，也要再滚一次，不然最后一句被挡住
+  useEffect(() => { const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }, [t.segments.length, t.partial?.text, t.status]);
 
   // 「清空」会丢掉还没放进笔记的内容：第一下只是变成确认，几秒内再点一下才真的清
   const [confirmClear, setConfirmClear] = useState(false);
@@ -231,13 +268,22 @@ export const TranscribePanel: React.FC = () => {
             {t.segments.map((s, i) => {
               // 有录音、且这句话在录音范围内（录音中途断过的话，后面的句子没有对应的声音）才能点
               const playable = !!t.audio && t.status === 'idle' && s.start < t.audio.duration;
+              // 说话人只在换人的那一句上标出来，同一个人连着说就不重复
+              const spkIndex = s.speaker ? t.speakers.findIndex((p) => p.id === s.speaker) : -1;
+              const showSpeaker = spkIndex >= 0 && s.speaker !== t.segments[i - 1]?.speaker;
               return (
                 <div
                   key={i} ref={(el) => { lineRefs.current[i] = el; }}
                   className={`transcribe-line ${playable ? 'transcribe-line--playable' : ''} ${i === playingIndex ? 'transcribe-line--playing' : ''}`}
                   title={playable ? '从这句话开始听' : undefined}
                   onClick={playable ? () => player.seek(s.start, true) : undefined}
-                ><span className="transcribe-line__time">{formatClock(s.start)}</span><span>{s.text}</span></div>
+                >
+                  <span className="transcribe-line__time">{formatClock(s.start)}</span>
+                  <span className="transcribe-line__body">
+                    {showSpeaker && <SpeakerChip speaker={t.speakers[spkIndex]} index={spkIndex} onRename={(name) => t.renameSpeaker(s.speaker!, name)} onMe={() => t.rememberAsMe(s.speaker!)} />}
+                    <span>{s.text}</span>
+                  </span>
+                </div>
               );
             })}
             {t.partial && <div className="transcribe-line transcribe-line--partial"><span className="transcribe-line__time">{formatClock(t.partial.start)}</span><span>{t.partial.text}<span className="transcribe-caret" /></span></div>}
@@ -251,7 +297,7 @@ export const TranscribePanel: React.FC = () => {
           {unsaved ? (
             <div className="transcribe-note transcribe-note--warn">
               <TriangleAlert size={12} />
-              <span>{t.restored ? '上次没放进笔记的转写，替你留着' : t.savedCount > 0 ? '后来录的还没放进笔记' : '还没放进笔记'}，点「清空」就没了。</span>
+              <span>{t.restored ? '上次没放进笔记的转写，替你留着' : t.savedCount === t.segments.length ? '说话人的名字改过了，再点一次「放进笔记」更新过去' : t.savedCount > 0 ? '后来录的还没放进笔记' : '还没放进笔记'}{t.savedCount === t.segments.length && !t.restored ? '。' : '，点「清空」就没了。'}</span>
             </div>
           ) : (
             <div className="transcribe-note transcribe-note--ok"><CircleCheck size={12} /><span>已放进{savedTitle ? `「${savedTitle.replace(/\.md$/i, '')}」` : '笔记'}{t.audio ? '，录音也存好了' : ''}。</span></div>

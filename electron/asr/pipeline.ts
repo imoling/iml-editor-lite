@@ -25,12 +25,14 @@ export interface Vad {
 
 export type PipelineEvent =
   | { type: 'partial'; text: string; start: number; decodeMs: number }
-  | { type: 'final'; text: string; start: number; duration: number; decodeMs: number };
+  | { type: 'final'; text: string; start: number; duration: number; decodeMs: number; /** 这句话的声纹（开了「区分说话人」才有） */ embedding?: number[] };
 
 export interface PipelineOptions {
   /** 临时文字多久刷新一次（毫秒） */
   partialEveryMs?: number;
   now?: () => number;
+  /** 算一句话的声纹。只在定稿时算一次（临时文字不算）；算不出来返回 null，不能影响转写 */
+  embed?: (samples: Float32Array) => number[] | null;
 }
 
 export function createPipeline(recognizer: Recognizer, vad: Vad, onEvent: (e: PipelineEvent) => void, opts: PipelineOptions = {}) {
@@ -69,7 +71,11 @@ export function createPipeline(recognizer: Recognizer, vad: Vad, onEvent: (e: Pi
       const seg = vad.front();
       vad.pop();
       const r = timed(seg.samples);
-      if (r.text) onEvent({ type: 'final', text: r.text, start: seg.start / SAMPLE_RATE, duration: seg.samples.length / SAMPLE_RATE, decodeMs: r.ms });
+      if (r.text) {
+        let embedding: number[] | null = null;
+        try { embedding = opts.embed?.(seg.samples) ?? null; } catch { /* 声纹是锦上添花，出错就当没有 */ }
+        onEvent({ type: 'final', text: r.text, start: seg.start / SAMPLE_RATE, duration: seg.samples.length / SAMPLE_RATE, decodeMs: r.ms, ...(embedding ? { embedding } : {}) });
+      }
       speaking = vad.isDetected();
       speech = speaking ? [tail] : [];
       speechLen = speaking ? tail.length : 0;

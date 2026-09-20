@@ -4,6 +4,7 @@ import { startMicCapture, MIC_SILENCE_LEVEL, type MicCapture } from '../utils/mi
 import { getPreferredMic, setPreferredMic, listMics, type MicList } from '../utils/micDevices';
 import { SessionRecorder } from '../utils/sessionRecorder';
 import { noteDirOf, toAssetUrl } from '../utils/assetUrl';
+import { assignSpeaker, renameSpeaker, speakerNames, initialSpeakers, saveMyVoiceprint, forgetMyVoiceprint, loadMyVoiceprint, ME_ID, type Speaker } from '../utils/speakers';
 import { useAppStore } from './appStore';
 import {
   type TranscriptSegment, transcriptText, buildTranscriptBlock, upsertBlock, insertMinutes, newMeetingNote, meetingNoteTitle,
@@ -29,6 +30,12 @@ interface TranscribeState {
   /** 用户选的麦克风（空串 = 跟随系统）和当前能看到的设备 */
   micId: string;
   mics: MicList;
+  /** 区分说话人（存在本机的偏好；要另外下载一个 27 MB 的声纹模型） */
+  speakersOn: boolean;
+  /** 这一场出现过的说话人 */
+  speakers: Speaker[];
+  /** 记过自己的声纹没有 */
+  hasMyVoice: boolean;
   /** 留不留录音（用于回听）。存在本机的偏好；一场转写开始时定下来，中途改不影响这一场 */
   keepRecording: boolean;
   /** 这一场的录音：停下来之后才有。url 给面板里的播放器用；blob 为空 = 上次没保存、这次启动找回来的（文件在应用数据目录里） */
@@ -46,6 +53,9 @@ interface TranscribeState {
   savedTo: string | null;
   /** 上次放进笔记时有多少句：之后又多出来的就是「还没保存的」 */
   savedCount: number;
+  /** 说话人的名字每改一次加一；和 savedNamesRev 不一样，说明笔记里那份的名字过时了 */
+  namesRev: number;
+  savedNamesRev: number;
   /** 这一场有没有在留录音 */
   recordingOn: boolean;
   minutes: { running: boolean; progress: string; error: string | null };
@@ -54,6 +64,12 @@ interface TranscribeState {
   refreshMics: () => Promise<void>;
   setMic: (id: string) => void;
   setKeepRecording: (keep: boolean) => void;
+  setSpeakersOn: (on: boolean) => void;
+  /** 改名；改成和别人一样的名字 = 合并成一个人 */
+  renameSpeaker: (id: string, name: string) => void;
+  /** 「这是我」：记住这个人的声纹，以后每场自动标成「我」 */
+  rememberAsMe: (id: string) => void;
+  forgetMe: () => void;
   install: () => void;
   cancelInstall: () => void;
   start: () => Promise<void>;
@@ -70,6 +86,8 @@ const cleanError = (err: any) => String(err?.message || err).replace(/^Error inv
 let capture: MicCapture | null = null;
 let recorder: SessionRecorder | null = null;
 
+const SPEAKERS_KEY = 'iml.transcribe.speakers';
+function readFlag(key: string, fallback: boolean): boolean { try { const v = localStorage.getItem(key); return v === null ? fallback : v === '1'; } catch { return fallback; } }
 const KEEP_KEY = 'iml.keepRecording';
 /** 默认留录音：想回听是常态；不想留的在「实时转写…」里关掉 */
 function readKeepRecording(): boolean { try { return localStorage.getItem(KEEP_KEY) !== '0'; } catch { return true; } }
@@ -123,6 +141,9 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
   level: 0,
   micId: getPreferredMic(),
   mics: { systemDefault: '', mics: [], labelsAvailable: false },
+  speakersOn: readFlag(SPEAKERS_KEY, false),
+  speakers: [],
+  hasMyVoice: !!loadMyVoiceprint(),
   keepRecording: readKeepRecording(),
   audio: null,
   restored: false,
@@ -132,12 +153,31 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
   error: null,
   savedTo: null,
   savedCount: 0,
+  namesRev: 0,
+  savedNamesRev: 0,
   recordingOn: false,
   minutes: { running: false, progress: '', error: null },
 
   refresh: async () => { try { set({ asr: await window.api.asr.getState() }); } catch { /* 主进程还没准备好 */ } },
   refreshMics: async () => set({ mics: await listMics() }),
   setMic: (id) => { setPreferredMic(id); set({ micId: id }); },
+  setSpeakersOn: (on) => { try { localStorage.setItem(SPEAKERS_KEY, on ? '1' : '0'); } catch { /* 只管这一次 */ } set({ speakersOn: on }); },
+  renameSpeaker: (id, name) => set((s) => {
+    const r = renameSpeaker(s.speakers, id, name);
+    if (r.speakers === s.speakers) return {};
+    // 合并了的话，原来挂在他名下的句子改挂到合并后的那个人
+    const segments = r.mergedInto ? s.segments.map((seg) => (seg.speaker === id ? { ...seg, speaker: r.mergedInto } : seg)) : s.segments;
+    return { speakers: r.speakers, segments, namesRev: s.namesRev + 1 };
+  }),
+  rememberAsMe: (id) => {
+    const speaker = get().speakers.find((p) => p.id === id);
+    if (!speaker) return;
+    saveMyVoiceprint(speaker);
+    set({ hasMyVoice: true });
+    if (id !== ME_ID) get().renameSpeaker(id, '我');
+    useAppStore.getState().notify('记住了：以后的转写里，你说的话会自动标成「我」');
+  },
+  forgetMe: () => { forgetMyVoiceprint(); set({ hasMyVoice: false }); },
   setKeepRecording: (keep) => { try { localStorage.setItem(KEEP_KEY, keep ? '1' : '0'); } catch { /* 存不了就只管这一次 */ } set({ keepRecording: keep }); },
   install: () => { void window.api.asr.install(); },
   cancelInstall: () => { void window.api.asr.cancelInstall(); },
@@ -148,7 +188,9 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     if (get().status !== 'idle') return;
     set({ status: 'starting', error: null });
     try {
-      await window.api.asr.start();                       // 识别进程就绪（含 macOS 的麦克风授权）
+      const wantSpeakers = get().speakersOn && !!get().asr?.speaker?.installed;
+      if (get().segments.length === 0) set({ speakers: wantSpeakers ? initialSpeakers() : [] });
+      await window.api.asr.start({ speakers: wantSpeakers });   // 识别进程就绪（含 macOS 的麦克风授权）
       let lastSignalAt = Date.now();
       capture = await startMicCapture((samples, level) => {
         window.api.asr.sendPcm(samples);
@@ -194,7 +236,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     const old = get().audio;
     if (old?.blob) URL.revokeObjectURL(old.url);
     void window.api.asr.clearDraft?.().catch(() => {});
-    set({ audio: null, restored: false, savedCount: 0, recordingOn: false, segments: [], partial: null, startedAt: null, offset: 0, error: null, savedTo: null, minutes: { running: false, progress: '', error: null } });
+    set({ audio: null, restored: false, savedCount: 0, recordingOn: false, speakers: [], namesRev: 0, savedNamesRev: 0, segments: [], partial: null, startedAt: null, offset: 0, error: null, savedTo: null, minutes: { running: false, progress: '', error: null } });
   },
 
   insertIntoActiveNote: async () => {
@@ -205,10 +247,10 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     const at = new Date(startedAt ?? Date.now());
     // 录音跟着笔记走：存到笔记旁边的 assets/，转写块里带一个播放器
     const audioSrc = await saveRecording(noteDirOf(tab.id, app.getNewNoteDir() || ''), at);
-    const block = buildTranscriptBlock(segments, at, get().elapsed(), audioSrc);
+    const block = buildTranscriptBlock(segments, at, get().elapsed(), audioSrc, speakerNames(get().speakers));
     // 用户多半正在这篇里记要点：editTabContent 会先把他没写回的字刷进来，再追加，光标也留在原地
     if (!app.editTabContent(tab.id, (current) => upsertBlock(current, block, at))) return false;
-    set({ savedTo: tab.id, savedCount: segments.length, restored: false });
+    set({ savedTo: tab.id, savedCount: segments.length, savedNamesRev: get().namesRev, restored: false });
     app.notify(`转写已写进「${tab.title}」的末尾`);
     return true;
   },
@@ -225,11 +267,11 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     let filePath = `${dir}${sep}${title}.md`;
     for (let i = 2; await window.api.fs.exists(filePath); i++) filePath = `${dir}${sep}${title} ${i}.md`;
     const audioSrc = await saveRecording(dir, at);
-    const res = await window.api.fs.writeFile(filePath, newMeetingNote(title, at, buildTranscriptBlock(segments, at, get().elapsed(), audioSrc)));
+    const res = await window.api.fs.writeFile(filePath, newMeetingNote(title, at, buildTranscriptBlock(segments, at, get().elapsed(), audioSrc, speakerNames(get().speakers))));
     if (!res.success) { set({ error: res.error || '保存失败' }); return null; }
     await app.refreshWorkspace();
     await app.openFileByPath(filePath);
-    set({ savedTo: filePath, savedCount: segments.length, restored: false });
+    set({ savedTo: filePath, savedCount: segments.length, savedNamesRev: get().namesRev, restored: false });
     return filePath;
   },
 
@@ -247,7 +289,7 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
     set({ minutes: { running: true, progress: '正在整理纪要…', error: null } });
     try {
       const userNotes = stripTranscriptBlocks(target.content);
-      const parts = splitForSummary(transcriptText(segments));
+      const parts = splitForSummary(transcriptText(segments, speakerNames(get().speakers)));
       let result: string;
       if (parts.length <= 1) {
         result = await ask(buildMinutesMessages(userNotes, parts[0] ?? ''), 'all');
@@ -277,19 +319,20 @@ export const useTranscribeStore = create<TranscribeState>((set, get) => ({
 }));
 
 /** 有没有还没放进笔记的转写：放进去之后又录了新的，也算 */
-export const hasUnsavedTranscript = (s: Pick<TranscribeState, 'segments' | 'savedCount'>) => s.segments.length > 0 && s.segments.length !== s.savedCount;
+export const hasUnsavedTranscript = (s: Pick<TranscribeState, 'segments' | 'savedCount'> & Partial<Pick<TranscribeState, 'namesRev' | 'savedNamesRev'>>) =>
+  s.segments.length > 0 && (s.segments.length !== s.savedCount || (s.namesRev ?? 0) !== (s.savedNamesRev ?? 0));
 
 // ── 没放进笔记的转写先替用户留着 ─────────────────────────────────────────────
 // 文字存 localStorage（每定稿一句就存，崩溃也丢不了几个字），录音每次停下来时由主进程落盘。
 // 放进笔记之后草稿就删掉：下次启动不该再冒出一份已经保存过的转写
 const DRAFT_KEY = 'iml.transcribe.draft';
-interface Draft { segments: TranscriptSegment[]; startedAt: number | null; offset: number; savedTo: string | null; savedCount: number; audioDuration: number }
+interface Draft { segments: TranscriptSegment[]; startedAt: number | null; offset: number; savedTo: string | null; savedCount: number; audioDuration: number; speakers?: Speaker[]; namesRev?: number; savedNamesRev?: number }
 
 function persistDraft(s: TranscribeState) {
   try {
     if (!hasUnsavedTranscript(s)) { localStorage.removeItem(DRAFT_KEY); return; }
     // 正在录的这一段还没计入 offset：按已经过去的时间算上，找回来之后「继续」时间戳才接得上
-    const draft: Draft = { segments: s.segments, startedAt: s.startedAt, offset: s.elapsed(), savedTo: s.savedTo, savedCount: s.savedCount, audioDuration: s.audio?.duration ?? 0 };
+    const draft: Draft = { segments: s.segments, startedAt: s.startedAt, offset: s.elapsed(), savedTo: s.savedTo, savedCount: s.savedCount, audioDuration: s.audio?.duration ?? 0, speakers: s.speakers, namesRev: s.namesRev, savedNamesRev: s.savedNamesRev };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
   } catch { /* 存不下（极长的会议撑满了配额）就算了，界面上的提醒还在 */ }
 }
@@ -304,6 +347,7 @@ async function restoreDraft() {
   useTranscribeStore.setState({
     segments: draft.segments, startedAt: draft.startedAt, offset: Math.max(draft.offset || 0, draft.segments[draft.segments.length - 1].start + 1),
     savedTo: draft.savedTo ?? null, savedCount: draft.savedCount || 0, restored: true,
+    speakers: Array.isArray(draft.speakers) ? draft.speakers : [], namesRev: draft.namesRev || 0, savedNamesRev: draft.savedNamesRev || 0,
   });
   const file = await window.api.asr.getDraftAudio?.().catch(() => null);
   if (file && draft.audioDuration > 0 && useTranscribeStore.getState().restored) {
@@ -315,7 +359,7 @@ if (typeof window !== 'undefined' && window.api?.asr) {
   void restoreDraft().finally(() => {
     let last = '';
     useTranscribeStore.subscribe((s) => {
-      const key = `${s.segments.length}|${s.savedCount}|${s.savedTo}|${s.offset}|${s.audio?.duration ?? 0}`;
+      const key = `${s.segments.length}|${s.savedCount}|${s.savedTo}|${s.offset}|${s.audio?.duration ?? 0}|${s.namesRev}|${s.savedNamesRev}`;
       if (key !== last) { last = key; persistDraft(s); }
     });
   });
@@ -342,7 +386,12 @@ if (typeof window !== 'undefined' && window.api?.asr) {
   window.api.asr.onEvent((event: AsrEvent) => {
     const s = useTranscribeStore.getState();
     if (event.type === 'partial') useTranscribeStore.setState({ partial: { start: s.offset + event.start, text: event.text } });
-    else if (event.type === 'final') useTranscribeStore.setState({ segments: [...s.segments, { start: s.offset + event.start, text: event.text }], partial: null });
+    else if (event.type === 'final') {
+      // 带着声纹来的：看看是谁说的（新面孔就加进说话人列表）
+      const r = assignSpeaker(s.speakers, event.embedding, event.duration);
+      const segment: TranscriptSegment = { start: s.offset + event.start, text: event.text, ...(event.embedding ? { speaker: r.speakerId } : {}) };
+      useTranscribeStore.setState({ segments: [...s.segments, segment], speakers: r.speakers, partial: null });
+    }
     else if (event.type === 'error') {
       void collectRecording();
       capture?.stop(); capture = null;

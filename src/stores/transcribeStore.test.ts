@@ -77,4 +77,39 @@ describe('没放进笔记的转写：退出后还能找回来', () => {
     expect(useTranscribeStore.getState()).toMatchObject({ savedCount: 1, restored: false });
     expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
   });
+
+  it('区分说话人：带声纹的定稿会标上是谁说的；改名 / 合并之后句子跟着走，笔记里那份算过时；草稿里带着说话人', async () => {
+    const fixture = (await import('../utils/__fixtures__/speakerEmbeddings.json')).default as { who: string; dur: number; emb: number[] }[];
+    const api = createMockApi({ '/lib/a.md': '# 周会' });
+    let emit: (e: any) => void = () => {};
+    (api.asr as any).onEvent = vi.fn((cb: (e: any) => void) => { emit = cb; return () => {}; });
+    const { useTranscribeStore, hasUnsavedTranscript } = await loadStore(api);
+    const long = (who: string) => fixture.filter((u) => u.who === who && u.dur > 3);
+    const say = (u: { dur: number; emb: number[] }, text: string, start: number) => emit({ type: 'final', text, start, duration: u.dur, decodeMs: 1, embedding: u.emb });
+
+    say(long('A')[0], '开始吧。', 0); say(long('B')[0], '我这边提测了。', 6); say(long('A')[1], '好，下周三给结论。', 12);
+    emit({ type: 'final', text: '没开区分说话人时的句子', start: 20, duration: 3, decodeMs: 1 });
+    let s = useTranscribeStore.getState();
+    expect(s.segments.map((x) => x.speaker)).toEqual(['s1', 's2', 's1', undefined]);
+    expect(s.speakers.map((p) => p.name)).toEqual(['说话人 1', '说话人 2']);
+
+    const { useAppStore } = await import('./appStore');
+    useAppStore.setState({ tabs: [{ id: '/lib/a.md', title: 'a.md', content: '# 周会', isDirty: false, mode: 'word' }], activeTabId: '/lib/a.md' });
+    await s.insertIntoActiveNote();
+    expect(useAppStore.getState().tabs[0].content).toContain('<p>[00:06] 说话人 2：我这边提测了。</p>');
+    expect(hasUnsavedTranscript(useTranscribeStore.getState())).toBe(false);
+
+    useTranscribeStore.getState().renameSpeaker('s2', '老王');
+    expect(hasUnsavedTranscript(useTranscribeStore.getState())).toBe(true);        // 笔记里还写着「说话人 2」
+    expect(JSON.parse(localStorage.getItem(DRAFT_KEY)!).speakers.map((p: any) => p.name)).toEqual(['说话人 1', '老王']);
+    await useTranscribeStore.getState().insertIntoActiveNote();
+    expect(useAppStore.getState().tabs[0].content).toContain('<p>[00:06] 老王：我这边提测了。</p>');
+    expect(useAppStore.getState().tabs[0].content.match(/<details data-iml-transcript>/g)).toHaveLength(1);
+
+    useTranscribeStore.getState().renameSpeaker('s1', '老王');                     // 其实是同一个人：合并
+    s = useTranscribeStore.getState();
+    expect(s.speakers.map((p) => p.id)).toEqual(['s2']);
+    expect(s.segments.map((x) => x.speaker)).toEqual(['s2', 's2', 's2', undefined]);
+  });
 });
+

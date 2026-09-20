@@ -2,7 +2,7 @@ import { app, dialog, ipcMain, BrowserWindow, shell, systemPreferences, utilityP
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { ASR_RUNTIME_VERSION, GLUE_PACKAGE, MODEL_FILES, nativePackageFor, nativeDirName, npmTarballUrls, totalDownloadBytes, type AsrDownload } from './catalog';
+import { ASR_RUNTIME_VERSION, GLUE_PACKAGE, MODEL_FILES, SPEAKER_MODEL, nativePackageFor, nativeDirName, npmTarballUrls, totalDownloadBytes, type AsrDownload } from './catalog';
 import { downloadFile, DownloadError } from '../localModel/download';
 import { extractArchive } from '../localModel/runtime';
 import { resolveModelUrl } from '../localModel/catalog';
@@ -29,6 +29,8 @@ export interface AsrState {
   installedBytes: number;
   runtimeVersion: string;
   micAccess: MicAccess;
+  /** 区分说话人用的声纹模型：可选组件，单独下载 */
+  speaker: { installed: boolean; bytes: number; install: { active: boolean; received: number; total: number; error: string | null } | null };
   install: { active: boolean; received: number; total: number; step: string; error: string | null } | null;
   session: AsrSessionStatus;
   error: string | null;
@@ -42,6 +44,8 @@ let session: AsrSessionStatus = 'idle';
 let lastError: string | null = null;
 let install: AsrState['install'] = null;
 let installController: AbortController | null = null;
+let speakerInstall: AsrState['speaker']['install'] = null;
+let speakerController: AbortController | null = null;
 
 const rootDir = () => path.join(app.getPath('userData'), 'asr');
 const runtimeDir = () => path.join(rootDir(), 'runtime', ASR_RUNTIME_VERSION);
@@ -49,6 +53,10 @@ const modelsDir = () => path.join(rootDir(), 'models');
 const glueDir = () => path.join(runtimeDir(), 'sherpa-onnx-node');
 const nativeDir = () => path.join(runtimeDir(), nativeDirName(process.platform, process.arch));
 const modelPath = (file: string) => path.join(modelsDir(), file);
+
+function isSpeakerInstalled(): boolean {
+  try { return fs.statSync(modelPath(SPEAKER_MODEL.file)).size === SPEAKER_MODEL.size; } catch { return false; }
+}
 
 function isInstalled(): boolean {
   return fs.existsSync(path.join(glueDir(), 'sherpa-onnx.js'))
@@ -70,6 +78,7 @@ export function getAsrState(): AsrState {
     installedBytes: installed ? totalDownloadBytes(process.platform, process.arch) : 0,
     runtimeVersion: ASR_RUNTIME_VERSION,
     micAccess: micAccess(),
+    speaker: { installed: isSpeakerInstalled(), bytes: SPEAKER_MODEL.size, install: speakerInstall },
     install,
     session,
     error: lastError,
@@ -176,6 +185,27 @@ async function startInstall() {
   }
 }
 
+async function startSpeakerInstall() {
+  if (speakerInstall?.active || isSpeakerInstalled()) return;
+  const controller = new AbortController();
+  speakerController = controller;
+  speakerInstall = { active: true, received: 0, total: SPEAKER_MODEL.size, error: null };
+  broadcast();
+  try {
+    await fs.promises.mkdir(modelsDir(), { recursive: true });
+    const { source, customBase } = getDownloadSettings();
+    const url = resolveModelUrl({ repo: SPEAKER_MODEL.repo, file: SPEAKER_MODEL.path }, source, customBase);
+    await fetchWithFallback([url], modelPath(SPEAKER_MODEL.file), SPEAKER_MODEL, controller.signal, (received) => { speakerInstall = { active: true, received, total: SPEAKER_MODEL.size, error: null }; broadcast(); });
+    speakerInstall = null;
+  } catch (err: any) {
+    const aborted = err instanceof DownloadError && err.code === 'aborted';
+    speakerInstall = aborted ? null : { active: false, received: 0, total: SPEAKER_MODEL.size, error: err?.message || String(err) };
+  } finally {
+    speakerController = null;
+    broadcast();
+  }
+}
+
 // ── 识别进程 ─────────────────────────────────────────────────────────────────
 
 function killWorker() {
@@ -184,7 +214,7 @@ function killWorker() {
   worker = null;
 }
 
-async function startSession(): Promise<AsrState> {
+async function startSession(opts: { speakers?: boolean } = {}): Promise<AsrState> {
   if (session !== 'idle') return getAsrState();
   if (deps && !deps.isAiEnabled()) throw new Error('AI 功能已在设置里关闭');
   if (!isInstalled()) throw new Error('还没有下载转写组件');
@@ -220,6 +250,8 @@ async function startSession(): Promise<AsrState> {
       } else if (m?.type === 'error') {
         clearTimeout(timer);
         fail(`转写出错：${m.message}`);
+      } else if (m?.type === 'warning') {
+        console.warn('[asr]', m.message);
       } else if (m?.type === 'partial' || m?.type === 'final' || m?.type === 'done') {
         sendEvent(m);
       }
@@ -241,6 +273,7 @@ async function startSession(): Promise<AsrState> {
         vad: modelPath(MODEL_FILES[2].file),
         // 识别是突发的短计算，两个线程够了；给多了只会和编辑器、对话模型抢核
         threads: Math.max(1, Math.min(2, os.cpus().length - 2)),
+        ...(opts.speakers && isSpeakerInstalled() ? { speakerModel: modelPath(SPEAKER_MODEL.file) } : {}),
       });
     });
   });
@@ -302,6 +335,7 @@ export function forgetUnsavedTranscript() { unsavedTranscript = null; discardCon
 /** 应用退出时调用 */
 export function stopAsr() {
   installController?.abort();
+  speakerController?.abort();
   killWorker();
   session = 'idle';
 }
@@ -353,7 +387,10 @@ export function setupAsr(d: Deps) {
     }
   });
   ipcMain.on('asr:unsaved', (_e, state: { recording: boolean } | null) => { unsavedTranscript = state; if (!state) discardConfirmed = false; });
-  ipcMain.handle('asr:start', () => startSession());
+  ipcMain.handle('asr:installSpeaker', () => { void startSpeakerInstall(); return true; });
+  ipcMain.handle('asr:cancelSpeakerInstall', () => { speakerController?.abort(); return true; });
+  ipcMain.handle('asr:uninstallSpeaker', async () => { await fs.promises.rm(modelPath(SPEAKER_MODEL.file), { force: true }); speakerInstall = null; broadcast(); return getAsrState(); });
+  ipcMain.handle('asr:start', (_e, opts?: { speakers?: boolean }) => startSession(opts));
   ipcMain.handle('asr:stop', () => stopSession());
   // 音频块：每 100 ms 一块，用单向消息，不要回执
   ipcMain.on('asr:pcm', (_e, samples: Float32Array | ArrayBuffer) => {

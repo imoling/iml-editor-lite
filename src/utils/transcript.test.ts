@@ -46,6 +46,19 @@ describe('转写块', () => {
     expect(upsertBlock(note, withAudio, AT).match(/<audio /g)).toHaveLength(1);
   });
 
+  it('区分了说话人：每句前面带名字；判断不了的那句不带；名字里的尖括号一样转义', () => {
+    const segs = [{ start: 0, text: '开始吧。', speaker: 's1' }, { start: 3, text: '好的。', speaker: null }, { start: 5, text: '我这边提测了。', speaker: 's2' }];
+    const names = { s1: '老王', s2: '<小李>' };
+    expect(transcriptText(segs, names)).toBe('[00:00] 老王：开始吧。\n[00:03] 好的。\n[00:05] <小李>：我这边提测了。');
+    const withNames = buildTranscriptBlock(segs, AT, 10, null, names);
+    expect(withNames).toContain('<p>[00:00] 老王：开始吧。</p>');
+    expect(withNames).toContain('<p>[00:03] 好的。</p>');
+    expect(withNames).toContain('<p>[00:05] &lt;小李&gt;：我这边提测了。</p>');
+    expect(parseClock('[00:05] <小李>：我这边提测了。')).toBe(5);
+    // 没传名字（没开这个功能）就和原来一样
+    expect(transcriptText(segs)).toBe('[00:00] 开始吧。\n[00:03] 好的。\n[00:05] 我这边提测了。');
+  });
+
   it('从一行转写里读出时间戳', () => {
     expect(parseClock('[00:15] 然后是实时转写')).toBe(15);
     expect(parseClock(' [1:02:05] 散会。')).toBe(3725);

@@ -635,6 +635,15 @@
 
 .transcribe-line { display: flex; gap: 8px; padding: 4px 6px; border-radius: 8px; font-size: 13px; line-height: 1.65; color: var(--text-primary); word-break: break-word; }
 .transcribe-line:hover { background-color: var(--bg-hover-editor); }
+.transcribe-line__body { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+/* 说话人：一人一个颜色（六个一轮），点一下改名 */
+:root { --spk-0: #6366f1; --spk-1: #10b981; --spk-2: #f59e0b; --spk-3: #ec4899; --spk-4: #06b6d4; --spk-5: #8b5cf6; }
+.spk-chip { display: inline-flex; align-items: center; gap: 5px; margin: 1px 0 0 -6px; padding: 1px 7px 1px 6px; border: none; border-radius: 999px; background: none; cursor: pointer; font: inherit; font-size: 11.5px; font-weight: 600; line-height: 18px; color: var(--spk); transition: background-color 0.15s ease; }
+.spk-chip:hover { background-color: color-mix(in srgb, var(--spk) 12%, transparent); }
+.spk-chip__dot { width: 7px; height: 7px; border-radius: 50%; background-color: var(--spk); }
+.spk-edit { display: inline-flex; align-items: center; gap: 8px; margin: 1px 0 2px; }
+.spk-edit__input { width: 96px; padding: 2px 7px; border-radius: 6px; border: 1px solid var(--color-brand-indigo); outline: none; background-color: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 12px; }
+.spk-edit__me { font-size: 11px; white-space: nowrap; }
 .transcribe-line--playable { cursor: pointer; }
 .transcribe-line--playing, .transcribe-line--playing:hover { background-color: color-mix(in srgb, var(--color-brand-indigo) 10%, transparent); }
 .transcribe-line--playing .transcribe-line__time { color: #fff; background-color: var(--color-brand-indigo); }

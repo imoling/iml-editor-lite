@@ -120,7 +120,10 @@ declare global {
         uninstall: () => Promise<AsrState>;
         requestMicAccess: () => Promise<AsrState>;
         openMicSettings: () => Promise<boolean>;
-        start: () => Promise<AsrState>;
+        start: (opts?: { speakers?: boolean }) => Promise<AsrState>;
+        installSpeaker: () => Promise<boolean>;
+        cancelSpeakerInstall: () => Promise<boolean>;
+        uninstallSpeaker: () => Promise<AsrState>;
         stop: () => Promise<AsrState>;
         sendPcm: (samples: Float32Array) => void;
         setUnsaved: (state: { recording: boolean } | null) => void;

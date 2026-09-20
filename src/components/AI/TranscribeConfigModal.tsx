@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Activity, AudioLines, Mic, Check, CircleAlert, Play, Square, Headphones } from 'lucide-react';
+import { X, Activity, AudioLines, Mic, Check, CircleAlert, Play, Square, Headphones, Users } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useTranscribeStore } from '../../stores/transcribeStore';
 import { startMicCapture, MIC_SILENCE_LEVEL, type MicCapture } from '../../utils/micCapture';
@@ -162,6 +162,61 @@ export const TranscribeConfigModal: React.FC<Props> = ({ onClose }) => {
               </div>
             </section>
           )}
+
+          {/* ── 区分说话人：可选，要另外下载一个小模型 ── */}
+          {asr.supported && asr.speaker && (() => {
+            const sp = asr.speaker;
+            const spPct = sp.install?.active && sp.install.total ? Math.round((sp.install.received / sp.install.total) * 100) : 0;
+            const on = t.speakersOn;
+            const toggle = (next: boolean) => { t.setSpeakersOn(next); if (next && !sp.installed && !sp.install?.active) void window.api.asr.installSpeaker(); };
+            return (
+              <section className="lm-section">
+                <div className="lm-card">
+                  <div className="lm-card__head">
+                    <div className="lm-card__title"><Users size={14} /> 区分说话人</div>
+                    <span className={`lm-badge ${on && sp.installed ? 'lm-badge--ok' : on ? 'lm-badge--info' : 'lm-badge--muted'}`}>{!on ? '未开启' : sp.installed ? '已开启' : sp.install?.active ? `下载中 ${spPct}%` : '还差声纹模型'}</span>
+                  </div>
+                  <div className="lm-actions">
+                    <label className={`toggle ${on ? 'toggle--on' : ''}`}>
+                      <input type="checkbox" checked={on} onChange={(e) => toggle(e.target.checked)} />
+                      <span className="toggle__track"><span className="toggle__thumb" /></span>
+                    </label>
+                    <span className="lm-line">{on ? '转写里标出每句话是谁说的；点名字可以改，改成同一个名字就是合并' : '转写里只有时间和文字，不分谁说的'}</span>
+                  </div>
+                  {on && (
+                    <div className="lm-model lm-model--static">
+                      <div className="lm-model__body">
+                        <div className="lm-model__title">声纹模型 <span className="lm-model__quant">· CAM++</span>{sp.installed && <span className="lm-badge lm-badge--ok">已下载</span>}</div>
+                        <div className="lm-model__meta"><span>阿里 3D-Speaker</span><span>约 {formatSize(sp.bytes)}</span><span>中文、英语</span></div>
+                        {sp.install?.active && (
+                          <>
+                            <div className="lm-progress"><div className="lm-progress__bar" style={{ width: `${spPct}%` }} /></div>
+                            <div className="lm-line lm-line--muted">{spPct}% · {formatSize(sp.install.received)} / {formatSize(sp.install.total)}</div>
+                          </>
+                        )}
+                        {sp.install && !sp.install.active && sp.install.error && <div className="lm-line lm-line--error">下载失败：{sp.install.error}</div>}
+                      </div>
+                      <div className="lm-model__side">
+                        {sp.install?.active ? <button className="btn btn-secondary btn-xs" onClick={() => void window.api.asr.cancelSpeakerInstall()}>取消</button>
+                          : sp.installed ? <button className="btn btn-ghost btn-xs" disabled={recording} onClick={() => { void window.api.asr.uninstallSpeaker(); t.setSpeakersOn(false); }}>删除</button>
+                            : <button className="btn btn-primary btn-xs" onClick={() => void window.api.asr.installSpeaker()}>{sp.install?.error ? '重试' : '下载'}</button>}
+                      </div>
+                    </div>
+                  )}
+                  {on && (
+                    <div className="lm-actions">
+                      <span className="lm-line">我的声音：{t.hasMyVoice ? '已记住，你说的话会自动标成「我」' : '还没记 —— 转写之后点自己的名字，选「这是我」'}</span>
+                      {t.hasMyVoice && <button className="btn-link" style={{ marginLeft: 'auto' }} onClick={t.forgetMe}>忘掉</button>}
+                    </div>
+                  )}
+                  <div className="lm-line lm-line--muted">
+                    声纹只在这台电脑上算、只存在这台电脑上。「好的」「嗯」这种很短的话判断不了，不会标；几个人离麦克风远近差很多、或者抢着说话时，会标错。
+                    {recording && ' 这次转写已经开始，改动从下一场生效。'}
+                  </div>
+                </div>
+              </section>
+            );
+          })()}
 
           {/* ── 录音：留不留，留在哪 ── */}
           {asr.supported && (

@@ -10,7 +10,13 @@ export interface TranscriptSegment {
   /** 这句话开始的时刻（秒，从开始转写算起） */
   start: number;
   text: string;
+  /** 说话人的 id（开了「区分说话人」才有；null = 这一句太短，判断不了） */
+  speaker?: string | null;
 }
+
+/** 说话人 id → 名字 */
+export type SpeakerNames = Record<string, string>;
+const who = (s: TranscriptSegment, names?: SpeakerNames) => (s.speaker && names?.[s.speaker] ? `${names[s.speaker]}：` : '');
 
 export const TRANSCRIPT_ATTR = 'data-iml-transcript';
 
@@ -33,8 +39,8 @@ export function formatDuration(seconds: number): string {
 
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-export function transcriptText(segments: TranscriptSegment[]): string {
-  return segments.map((s) => `[${formatClock(s.start)}] ${s.text}`).join('\n');
+export function transcriptText(segments: TranscriptSegment[], names?: SpeakerNames): string {
+  return segments.map((s) => `[${formatClock(s.start)}] ${who(s, names)}${s.text}`).join('\n');
 }
 
 const dateStamp = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -54,8 +60,8 @@ export function parseClock(line: string): number | null {
  * 整块里不能有空行：一有空行，Markdown 就会把它拆成「HTML 块 + 普通段落 + HTML 块」，折叠就失效了。
  * audioSrc：录音相对笔记的地址（assets/录音-….webm）；有的话块里带一个播放器
  */
-export function buildTranscriptBlock(segments: TranscriptSegment[], startedAt: Date, durationSec: number, audioSrc?: string | null): string {
-  const lines = segments.filter((s) => s.text.trim()).map((s) => `<p>[${formatClock(s.start)}] ${escapeHtml(s.text.trim().replace(/\s*\n+\s*/g, ' '))}</p>`);
+export function buildTranscriptBlock(segments: TranscriptSegment[], startedAt: Date, durationSec: number, audioSrc?: string | null, names?: SpeakerNames): string {
+  const lines = segments.filter((s) => s.text.trim()).map((s) => `<p>[${formatClock(s.start)}] ${escapeHtml(`${who(s, names)}${s.text.trim().replace(/\s*\n+\s*/g, ' ')}`)}</p>`);
   return [
     `<details ${TRANSCRIPT_ATTR}>`,
     `<summary>转写全文 · ${formatDuration(durationSec)} · ${dateStamp(startedAt)}</summary>`,
@@ -141,7 +147,7 @@ export function splitForSummary(text: string, maxChars = SUMMARY_PART_CHARS): st
  */
 const MINUTES_RULES = [
   '规则：',
-  '1. 只写转写里说到的内容，不补充、不推断。转写是语音识别的结果，有错别字和同音字，按上下文理解。',
+  '1. 只写转写里说到的内容，不补充、不推断。转写是语音识别的结果，有错别字和同音字，按上下文理解。时间戳后面如果有「名字：」，那是说话人（自动区分的，偶尔会标错）。',
   '2. 时间照原话写（比如「下周三」），不要自己推算成具体日期。',
   '3. 待办只列会上明确要某人去做、或大家约定要做的事。说了负责人或时间的写在括号里；没说的只写事项本身，不要写「未明确」「待定」。',
   '4. 用中文，简洁。只输出纪要本身，末尾不要加说明、备注或总结。',

@@ -5,7 +5,7 @@
 import path from 'path';
 import { createPipeline, SAMPLE_RATE, type Recognizer, type Vad } from './pipeline';
 
-interface InitMessage { type: 'init'; glueDir: string; model: string; tokens: string; vad: string; threads: number }
+interface InitMessage { type: 'init'; glueDir: string; model: string; tokens: string; vad: string; threads: number; /** 声纹模型：要区分说话人时才传 */ speakerModel?: string }
 type Incoming = InitMessage | { type: 'pcm'; samples: Float32Array | ArrayBuffer } | { type: 'finish' };
 
 const port = (process as any).parentPort as { on: (ev: 'message', cb: (e: { data: Incoming }) => void) => void; postMessage: (m: unknown) => void };
@@ -45,7 +45,23 @@ function init(msg: InitMessage) {
     pop: () => nativeVad.pop(),
     flush: () => nativeVad.flush(),
   };
-  pipeline = createPipeline(recognizer, vad, (e) => port.postMessage(e));
+  // 区分说话人：每句话定稿时算一个声纹，送出去由界面那边聚类（那里管着整场的说话人、改名和草稿）
+  let embed: ((samples: Float32Array) => number[] | null) | undefined;
+  if (msg.speakerModel) {
+    try {
+      const extractor = new sherpa.SpeakerEmbeddingExtractor({ model: msg.speakerModel, numThreads: 1, debug: 0 });
+      embed = (samples) => {
+        const stream = extractor.createStream();
+        stream.acceptWaveform({ samples, sampleRate: SAMPLE_RATE });
+        stream.inputFinished();
+        if (!extractor.isReady(stream)) return null;          // 太短，凑不够一帧
+        return Array.from(extractor.compute(stream, false) as Float32Array, (x) => Math.round(x * 1e4) / 1e4);   // false：同 VAD，不能返回外部缓冲区
+      };
+    } catch (err: any) {
+      port.postMessage({ type: 'warning', message: `声纹模型加载失败，这次不区分说话人：${err?.message || err}` });
+    }
+  }
+  pipeline = createPipeline(recognizer, vad, (e) => port.postMessage(e), { embed });
   port.postMessage({ type: 'ready', loadMs: Date.now() - t0 });
 }
 

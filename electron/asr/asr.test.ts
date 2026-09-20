@@ -137,4 +137,28 @@ describe('模拟流式的识别循环', () => {
     for (let i = 0; i < 10; i++) pipe.feed(chunk(0));
     expect(events).toEqual([]);
   });
+
+  it('区分说话人：声纹只在定稿时算一次（临时文字不算）；算声纹出错不能连累转写', () => {
+    let clock = 0; let embeds = 0;
+    const events: PipelineEvent[] = [];
+    const make = (embed: (s: Float32Array) => number[] | null) => createPipeline({ decode: (s) => `${(s.length / SAMPLE_RATE).toFixed(1)}s` }, new FakeVad(), (e) => events.push(e), { now: () => clock, embed });
+    const drive = (pipe: ReturnType<typeof createPipeline>) => { for (let i = 0; i < 20; i++) { pipe.feed(chunk(0.5)); clock += 100; } for (let i = 0; i < 10; i++) { pipe.feed(chunk(0)); clock += 100; } };
+
+    drive(make((samples) => { embeds++; return [samples.length, 0.25]; }));
+    const finals = events.filter((e) => e.type === 'final');
+    expect(events.some((e) => e.type === 'partial')).toBe(true);
+    expect(finals).toHaveLength(1);
+    expect(embeds).toBe(1);
+    expect(finals[0]).toMatchObject({ embedding: [expect.any(Number), 0.25] });
+
+    events.length = 0;
+    drive(make(() => { throw new Error('声纹模型炸了'); }));
+    expect(events.filter((e) => e.type === 'final')).toHaveLength(1);
+    expect(events.find((e) => e.type === 'final')).not.toHaveProperty('embedding');
+
+    events.length = 0;
+    drive(make(() => null));   // 太短、算不出来
+    expect(events.find((e) => e.type === 'final')).not.toHaveProperty('embedding');
+  });
 });
+

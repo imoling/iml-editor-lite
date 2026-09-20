@@ -35,6 +35,15 @@ export const MODEL_FILES: HfFile[] = [
   { repo: 'csukuangfj/vad', path: 'silero_vad.onnx', file: 'silero_vad.onnx', size: 1807522, sha256: 'a35ebf52fd3ce5f1469b2a36158dba761bc47b973ea3382b3186ca15b1f5af28' },
 ];
 
+/**
+ * 区分说话人用的声纹模型（3D-Speaker CAM++，中英文，192 维）。可选：打开「区分说话人」时才下载。
+ * 选它的依据：27 MB、每句话算一次只要十几毫秒；实测两句都 ≥1.5 秒时同一个人相似度 ≥0.85、不同人 ≤0.5
+ */
+export const SPEAKER_MODEL: HfFile = {
+  repo: 'csukuangfj/speaker-embedding-models', path: '3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx',
+  file: 'speaker.campplus.onnx', size: 28281164, sha256: 'aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2',
+};
+
 export function nativePackageFor(platform: string, arch: string): NpmPackage | null {
   return NATIVE_PACKAGES[`${platform}-${arch}`] ?? null;
 }
