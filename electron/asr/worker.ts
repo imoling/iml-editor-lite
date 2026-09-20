@@ -5,11 +5,13 @@
 import path from 'path';
 import { createPipeline, SAMPLE_RATE, type Recognizer, type Vad } from './pipeline';
 
-interface InitMessage { type: 'init'; glueDir: string; model: string; tokens: string; vad: string; threads: number; /** 声纹模型：要区分说话人时才传 */ speakerModel?: string }
+interface InitMessage { type: 'init'; glueDir: string; model: string; tokens: string; vad: string; threads: number; /** 声纹模型：要区分说话人时才传 */ speakerModel?: string; /** 'file' = 转写一段已有的录音：不出临时文字，每处理完一块回一个 fed，发送方据此控制节奏 */ mode?: 'mic' | 'file' }
 type Incoming = InitMessage | { type: 'pcm'; samples: Float32Array | ArrayBuffer } | { type: 'finish' };
 
 const port = (process as any).parentPort as { on: (ev: 'message', cb: (e: { data: Incoming }) => void) => void; postMessage: (m: unknown) => void };
 let pipeline: ReturnType<typeof createPipeline> | null = null;
+let fileMode = false;
+let fedSamples = 0;
 
 function init(msg: InitMessage) {
   const t0 = Date.now();
@@ -61,14 +63,22 @@ function init(msg: InitMessage) {
       port.postMessage({ type: 'warning', message: `声纹模型加载失败，这次不区分说话人：${err?.message || err}` });
     }
   }
-  pipeline = createPipeline(recognizer, vad, (e) => port.postMessage(e), { embed });
+  fileMode = msg.mode === 'file';
+  // 录音文件是一口气灌进来的，远快于说话的速度：临时文字没有意义，只会白白多识别很多遍
+  pipeline = createPipeline(recognizer, vad, (e) => port.postMessage(e), { embed, ...(fileMode ? { partialEveryMs: Number.MAX_SAFE_INTEGER } : {}) });
   port.postMessage({ type: 'ready', loadMs: Date.now() - t0 });
 }
 
 port.on('message', ({ data }) => {
   try {
     if (data.type === 'init') init(data);
-    else if (data.type === 'pcm') pipeline?.feed(data.samples instanceof Float32Array ? data.samples : new Float32Array(data.samples));
+    else if (data.type === 'pcm') {
+      const samples = data.samples instanceof Float32Array ? data.samples : new Float32Array(data.samples);
+      pipeline?.feed(samples);
+      fedSamples += samples.length;
+      // 文件模式：这一块处理完了再要下一块，不然几百 MB 的音频会全堆在消息队列里
+      if (fileMode) port.postMessage({ type: 'fed', samples: fedSamples });
+    }
     else if (data.type === 'finish') { pipeline?.finish(); port.postMessage({ type: 'done' }); }
   } catch (err: any) {
     port.postMessage({ type: 'error', message: String(err?.message || err) });

@@ -83,6 +83,8 @@ export function setupFileSystemIPC(deps: FileSystemDeps = {}) {
   ipcMain.handle('dialog:open', async (event, options?: Electron.OpenDialogOptions) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window) return null;
+    // 冒烟测试：系统的文件选择框自动化点不了，IML_SMOKE_PICK=/path/to/file 让它直接「选中」这个文件（只在开发模式生效）
+    if (process.env.NODE_ENV === 'development' && process.env.IML_SMOKE_PICK) return [process.env.IML_SMOKE_PICK];
 
     const result = await dialog.showOpenDialog(window, {
       ...options,
@@ -172,6 +174,22 @@ export function setupFileSystemIPC(deps: FileSystemDeps = {}) {
       const data = Buffer.from(buffer);
       await fs.promises.writeFile(path.join(assetsDir, safeName), data);
       return { success: true, path: `assets/${safeName}`, bytes: data.length };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 转写一段已有的录音：把原文件拷到笔记旁边的 assets/，笔记里的播放器才有一个跟着笔记走的相对地址。
+  // 在主进程里直接拷，不让上百 MB 的音频从渲染进程的内存里过一遍
+  ipcMain.handle('fs:copyRecording', async (_, noteDir: string, srcPath: string, fileName: string) => {
+    try {
+      const safeName = path.basename(fileName).replace(/[\\/:*?"<>|#%()[\]\s]+/g, '-');
+      if (!path.isAbsolute(noteDir) || !path.isAbsolute(srcPath) || !AUDIO_EXT_RE.test(safeName) || !AUDIO_EXT_RE.test(srcPath)) return { success: false, error: '录音的保存位置不对' };
+      const assetsDir = path.join(path.normalize(noteDir), 'assets');
+      await fs.promises.mkdir(assetsDir, { recursive: true });
+      const dest = path.join(assetsDir, safeName);
+      if (path.resolve(dest) !== path.resolve(srcPath)) await fs.promises.copyFile(srcPath, dest);
+      return { success: true, path: `assets/${safeName}` };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

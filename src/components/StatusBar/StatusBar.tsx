@@ -35,6 +35,7 @@ const RecordingIndicator: React.FC = () => {
   const recording = useTranscribeStore((s) => s.status === 'recording');
   const elapsed = useTranscribeStore((s) => s.elapsed);
   const keepRecording = useTranscribeStore((s) => s.keepRecording);
+  const fileJob = useTranscribeStore((s) => s.fileJob);
   const [, tick] = React.useState(0);
   React.useEffect(() => {
     if (!recording) return;
@@ -44,7 +45,7 @@ const RecordingIndicator: React.FC = () => {
   if (!recording) return null;
   return (
     <button className="statusbar-recording" onClick={() => useAppStore.getState().openTranscribe()} title={`正在转写（本机识别，${keepRecording ? '录音只存在本机' : '音频不保存'}）。点击查看`}>
-      <span className="statusbar-recording__dot" /> 转写中 {formatClock(elapsed())}
+      <span className="statusbar-recording__dot" /> {fileJob ? `录音转写 ${Math.round(fileJob.progress * 100)}%` : `转写中 ${formatClock(elapsed())}`}
     </button>
   );
 };

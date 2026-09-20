@@ -7,6 +7,14 @@ vi.mock('../utils/micCapture', () => ({
   startMicCapture: vi.fn(async () => ({ stop: vi.fn(), stream: {}, label: '测试麦克风', fellBack: false })),
 }));
 
+// 解码音频要靠 Chromium：测试里换成假的（50 秒的录音 = 每 20 秒一块，共三块）
+const audioMock = vi.hoisted(() => ({ duration: 50 }));
+vi.mock('../utils/audioFile', async (original) => ({
+  ...(await original<typeof import('../utils/audioFile')>()),
+  probeDuration: vi.fn(async () => audioMock.duration),
+  decodeToMono16k: vi.fn(async () => new Float32Array(16000 * 50)),
+}));
+
 const DRAFT_KEY = 'iml.transcribe.draft';
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -280,6 +288,66 @@ describe('一场转写 = 一篇笔记', () => {
     say('随便说两句。', 0);
     await useTranscribeStore.getState().stop();
     expect(hasUnsavedTranscript(useTranscribeStore.getState())).toBe(true);
+  });
+});
+
+describe('转写一段已有的录音', () => {
+  beforeEach(() => { localStorage.clear(); audioMock.duration = 50; });
+
+  async function setup() {
+    const api = createMockApi();
+    let emit: (e: any) => void = () => {};
+    let chunks = 0;
+    (api.asr as any).onEvent = vi.fn((cb: (e: any) => void) => { emit = cb; return () => {}; });
+    (api.asr as any).start = vi.fn(async () => ({}));
+    (api.asr as any).stop = vi.fn(async () => ({}));
+    // 识别进程的样子：每收到一块，吐一句定稿，再回一个 fed 表示「这块处理完了，给下一块」
+    (api.asr as any).sendPcm = vi.fn((samples: Float32Array) => {
+      const at = chunks++ * 20;
+      queueMicrotask(() => { emit({ type: 'final', text: `第 ${chunks} 块里的一句话。`, start: at + 1, duration: 3, decodeMs: 1 }); emit({ type: 'fed', samples: chunks * samples.length }); });
+    });
+    const mod = await loadStore(api);
+    const { useAppStore } = await import('./appStore');
+    useAppStore.setState({ workspacePath: '/lib', tabs: [], activeTabId: null, selectedNodePath: null });
+    return { ...mod, useAppStore };
+  }
+
+  it('新建一篇以文件名命名的笔记；一块一块喂、等上一块处理完再喂下一块；转完全文和原录音写进笔记', async () => {
+    const { useTranscribeStore, useAppStore, api } = await setup();
+    await useTranscribeStore.getState().transcribeFile('/rec/2026-09-20 周会.m4a');
+    expect(api.asr.start).toHaveBeenCalledWith({ speakers: false, source: 'file' });        // 用不着麦克风
+    expect(api.asr.sendPcm).toHaveBeenCalledTimes(3);
+    const s = useTranscribeStore.getState();
+    expect(s).toMatchObject({ status: 'idle', source: 'file', fileJob: null, savedTo: '/lib/录音转写 2026-09-20 周会.md', offset: 50 });
+    expect(s.segments.map((x) => Math.round(x.start))).toEqual([1, 21, 41]);                // 时间戳就是录音里的位置
+    expect(s.audio).toMatchObject({ blob: null, duration: 50, filePath: '/rec/2026-09-20 周会.m4a' });
+    expect(api.fs.copyRecording).toHaveBeenCalledWith('/lib', '/rec/2026-09-20 周会.m4a', '2026-09-20 周会.m4a');
+    const note = useAppStore.getState().tabs[0].content;
+    expect(note).toContain('# 录音转写 2026-09-20 周会');
+    expect(note).toContain('<audio controls preload="metadata" src="assets/2026-09-20 周会.m4a"></audio>');
+    expect(note).toContain('<p>[00:21] 第 2 块里的一句话。</p>');
+  });
+
+  it('太长的录音在解码之前就挡掉：不建笔记、不启动识别进程；不是录音文件也一样', async () => {
+    const { useTranscribeStore, useAppStore, api } = await setup();
+    audioMock.duration = 3 * 3600;
+    await useTranscribeStore.getState().transcribeFile('/rec/三小时的课.mp3');
+    expect(useTranscribeStore.getState().error).toContain('最多转写 90 分钟');
+    expect(useTranscribeStore.getState().status).toBe('idle');
+    expect(api.asr.start).not.toHaveBeenCalled();
+    expect(useAppStore.getState().tabs).toEqual([]);
+    await useTranscribeStore.getState().transcribeFile('/rec/不是录音.pdf');
+    expect(useTranscribeStore.getState().error).toContain('不是能转写的录音文件');
+  });
+
+  it('转到一半点「取消」：不再往下转，已经转出来的照样写进笔记', async () => {
+    const { useTranscribeStore, useAppStore, api } = await setup();
+    const original = (api.asr as any).sendPcm;
+    (api.asr as any).sendPcm = vi.fn((samples: Float32Array) => { original(samples); if ((api.asr as any).sendPcm.mock.calls.length === 1) queueMicrotask(() => void useTranscribeStore.getState().stop()); });
+    await useTranscribeStore.getState().transcribeFile('/rec/周会.m4a');
+    expect((api.asr as any).sendPcm.mock.calls.length).toBeLessThan(3);
+    expect(useTranscribeStore.getState().status).toBe('idle');
+    expect(useAppStore.getState().tabs[0].content).toContain('第 1 块里的一句话。');
   });
 });
 

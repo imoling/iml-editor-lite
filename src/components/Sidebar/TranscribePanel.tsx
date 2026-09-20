@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Mic, MicOff, Square, FileDown, FilePlus, ListChecks, Copy, Check, Eraser, Download, SlidersHorizontal, ShieldCheck, ChevronRight, Play, Pause, TriangleAlert, CircleCheck, Flag, FileText, Plus } from 'lucide-react';
+import { Mic, MicOff, Square, FileDown, FilePlus, ListChecks, Copy, Check, Eraser, Download, SlidersHorizontal, ShieldCheck, ChevronRight, Play, Pause, TriangleAlert, CircleCheck, Flag, FileText, Plus, FileAudio } from 'lucide-react';
 import { useAppStore } from '../../stores/appStore';
 import { useTranscribeStore, hasUnsavedTranscript } from '../../stores/transcribeStore';
 import { useAiReadiness } from '../../utils/aiReadiness';
@@ -153,7 +153,7 @@ export const TranscribePanel: React.FC = () => {
 
   const head = (
     <div className="ask-panel__head">
-      <span className="sidebar-section-title">实时转写</span>
+      <span className="sidebar-section-title">{t.source === 'file' && (t.fileJob || t.segments.length > 0) ? '录音转写' : '实时转写'}</span>
       <span className="row gap-6">
         {hasText && t.status === 'idle' && (
           <button className={`btn-link ${confirmClear ? 'btn-link--danger' : ''}`} onClick={onClear} title={unsaved ? `还没放进笔记，清空后${what}就没了` : '清空这次的转写'}>
@@ -219,7 +219,18 @@ export const TranscribePanel: React.FC = () => {
     <div className="ask-panel">
       {head}
 
-      {live ? (
+      {(live || t.status === 'starting') && t.fileJob ? (
+        // ── 正在转写一段录音文件：进度，而不是计时和音量 ──
+        <div className="rec-card rec-card--file">
+          <div className="rec-card__row">
+            <span className="rec-file__title"><FileAudio size={13} /> {t.fileJob.phase === 'reading' ? '读取录音…' : '转写录音中'}</span>
+            <span className="rec-clock">{t.fileJob.phase === 'reading' ? '' : `${Math.round(t.fileJob.progress * 100)}%`}</span>
+            <button className="rec-stop" onClick={() => void t.stop()} disabled={t.status !== 'recording'} title="不再往下转；已经转出来的会写进笔记"><Square size={10} /> 取消</button>
+          </div>
+          <div className="lm-progress"><div className={`lm-progress__bar ${t.fileJob.phase === 'reading' ? 'lm-progress__bar--indeterminate' : ''}`} style={{ width: t.fileJob.phase === 'reading' ? '100%' : `${Math.round(t.fileJob.progress * 100)}%` }} /></div>
+          <div className="rec-file__name truncate" title={t.fileJob.name}>{t.fileJob.name}</div>
+        </div>
+      ) : live ? (
         // ── 正在转写：状态、计时、音量、在用哪个麦克风 ──
         <div className="rec-card rec-card--live">
           <div className="rec-card__row">
@@ -237,9 +248,10 @@ export const TranscribePanel: React.FC = () => {
         // ── 停下来了：可以接着录 ──
         <div className="rec-card rec-card--paused">
           <div className="rec-card__row">
-            <span className="rec-paused">已停止 · {t.segments.length} 句</span>
+            <span className="rec-paused">{t.source === 'file' ? '录音转写' : '已停止'} · {t.segments.length} 句</span>
             <span className="rec-clock rec-clock--muted">{formatClock(elapsed)}</span>
-            <button className="rec-resume" onClick={() => { player.pause(); void t.start(); }} disabled={busy}><Mic size={11} /> {t.status === 'starting' ? '准备中…' : '继续'}</button>
+            {/* 转写的是一段录音文件：没有「接着录」这回事 */}
+            {t.source !== 'file' && <button className="rec-resume" onClick={() => { player.pause(); void t.start(); }} disabled={busy}><Mic size={11} /> {t.status === 'starting' ? '准备中…' : '继续'}</button>}
           </div>
           {t.audio && (
             <div className="rec-player">
@@ -259,11 +271,18 @@ export const TranscribePanel: React.FC = () => {
           <button className="rec-start" onClick={() => void t.start('new')} disabled={busy} title="新建一篇会议记录并开始转写"><Mic size={22} /></button>
           <div className="rec-start__label">{t.status === 'starting' ? '正在准备…' : '开始转写'}</div>
           {device}
-          {activeTabId && !busy && <button className="btn-link rec-start__alt" onClick={() => void t.start('current')} title="不新建会议记录，要点就记在现在打开的这篇里">记在当前笔记里</button>}
+          {!busy && (
+            <div className="rec-start__alts">
+              {activeTabId && <button className="btn-link" onClick={() => void t.start('current')} title="不新建会议记录，要点就记在现在打开的这篇里">记在当前笔记里</button>}
+              <button className="btn-link" onClick={() => void t.transcribeFile()} title="手机录的会议、课程录音……选一个音频文件，转写成一篇笔记（m4a / mp3 / wav 等，单个最长 90 分钟）"><FileAudio size={12} /> 转写一段录音…</button>
+            </div>
+          )}
         </div>
       )}
       {t.error && <div className="ask-status ask-status--error">{t.error}</div>}
-      {live && (
+      {live && t.fileJob ? (
+        <div className="transcribe-note"><FileText size={12} /><span>转完之后，全文和这段录音会写进「{boundTitle || '新笔记'}」；现在就可以在里面记要点。</span></div>
+      ) : live && (
         t.savedTo
           ? <button className="transcribe-note transcribe-note--link" onClick={openBound} title="打开这篇笔记"><FileText size={12} /><span>要点记在「{boundTitle}」里；停下来时，全文{t.recordingOn ? '和录音' : ''}自动写进去。</span></button>
           : <div className="transcribe-note"><FileText size={12} /><span>还没打开笔记库，这一场没有对应的笔记；停下来之后再选放到哪。</span></div>

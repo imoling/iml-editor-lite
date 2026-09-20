@@ -214,13 +214,13 @@ function killWorker() {
   worker = null;
 }
 
-async function startSession(opts: { speakers?: boolean } = {}): Promise<AsrState> {
+async function startSession(opts: { speakers?: boolean; source?: 'mic' | 'file' } = {}): Promise<AsrState> {
   if (session !== 'idle') return getAsrState();
   if (deps && !deps.isAiEnabled()) throw new Error('AI 功能已在设置里关闭');
   if (!isInstalled()) throw new Error('还没有下载转写组件');
 
   // macOS：麦克风要过系统这一关。用户之前点过「不允许」的话这里直接返回 false，只能去系统设置里改
-  if (process.platform === 'darwin') {
+  if (process.platform === 'darwin' && opts.source !== 'file') {   // 转写录音文件用不着麦克风
     const granted = await systemPreferences.askForMediaAccess('microphone');
     if (!granted) throw new Error('没有麦克风权限：请到「系统设置 → 隐私与安全性 → 麦克风」里允许 iML Markdown Editor');
   }
@@ -252,7 +252,7 @@ async function startSession(opts: { speakers?: boolean } = {}): Promise<AsrState
         fail(`转写出错：${m.message}`);
       } else if (m?.type === 'warning') {
         console.warn('[asr]', m.message);
-      } else if (m?.type === 'partial' || m?.type === 'final' || m?.type === 'done') {
+      } else if (m?.type === 'partial' || m?.type === 'final' || m?.type === 'done' || m?.type === 'fed') {
         sendEvent(m);
       }
     });
@@ -274,6 +274,7 @@ async function startSession(opts: { speakers?: boolean } = {}): Promise<AsrState
         // 识别是突发的短计算，两个线程够了；给多了只会和编辑器、对话模型抢核
         threads: Math.max(1, Math.min(2, os.cpus().length - 2)),
         ...(opts.speakers && isSpeakerInstalled() ? { speakerModel: modelPath(SPEAKER_MODEL.file) } : {}),
+        mode: opts.source === 'file' ? 'file' : 'mic',
       });
     });
   });
@@ -390,7 +391,7 @@ export function setupAsr(d: Deps) {
   ipcMain.handle('asr:installSpeaker', () => { void startSpeakerInstall(); return true; });
   ipcMain.handle('asr:cancelSpeakerInstall', () => { speakerController?.abort(); return true; });
   ipcMain.handle('asr:uninstallSpeaker', async () => { await fs.promises.rm(modelPath(SPEAKER_MODEL.file), { force: true }); speakerInstall = null; broadcast(); return getAsrState(); });
-  ipcMain.handle('asr:start', (_e, opts?: { speakers?: boolean }) => startSession(opts));
+  ipcMain.handle('asr:start', (_e, opts?: { speakers?: boolean; source?: 'mic' | 'file' }) => startSession(opts));
   ipcMain.handle('asr:stop', () => stopSession());
   // 音频块：每 100 ms 一块，用单向消息，不要回执
   ipcMain.on('asr:pcm', (_e, samples: Float32Array | ArrayBuffer) => {

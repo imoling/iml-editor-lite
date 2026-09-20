@@ -14,7 +14,7 @@ export type { AsrState } from '../../electron/asr/index';
 import type { UpdateInfo } from '../../electron/update';
 export type { UpdateInfo } from '../../electron/update';
 /** 识别进程发回来的事件：临时文字、定稿、出错、收尾完成 */
-export type AsrEvent = PipelineEvent | { type: 'error'; message: string } | { type: 'done' };
+export type AsrEvent = PipelineEvent | { type: 'error'; message: string } | { type: 'done' } | { type: 'fed'; samples: number };
 export type { OrphanImage } from '../../electron/assets';
 
 export interface TagCount { tag: string; count: number }
@@ -59,6 +59,7 @@ declare global {
         readDir: (dirPath: string) => Promise<{ success: boolean; files?: any[]; error?: string; path?: string }>;
         saveImage: (activeFilePath: string, fileName: string, buffer: ArrayBuffer) => Promise<{ success: boolean; path?: string; bytes?: number; error?: string }>;
         saveRecording: (noteDir: string, fileName: string, buffer: ArrayBuffer) => Promise<{ success: boolean; path?: string; bytes?: number; error?: string }>;
+        copyRecording: (noteDir: string, srcPath: string, fileName: string) => Promise<{ success: boolean; path?: string; error?: string }>;
         rename: (oldPath: string, newPath: string) => Promise<{ success: boolean; oldPath?: string; newPath?: string; error?: string }>;
         copy: (sourcePath: string, targetPath: string) => Promise<{ success: boolean; sourcePath?: string; targetPath?: string; error?: string }>;
         delete: (path: string) => Promise<{ success: boolean; path?: string; permanently?: boolean; error?: string }>;
@@ -120,7 +121,7 @@ declare global {
         uninstall: () => Promise<AsrState>;
         requestMicAccess: () => Promise<AsrState>;
         openMicSettings: () => Promise<boolean>;
-        start: (opts?: { speakers?: boolean }) => Promise<AsrState>;
+        start: (opts?: { speakers?: boolean; source?: 'mic' | 'file' }) => Promise<AsrState>;
         installSpeaker: () => Promise<boolean>;
         cancelSpeakerInstall: () => Promise<boolean>;
         uninstallSpeaker: () => Promise<AsrState>;

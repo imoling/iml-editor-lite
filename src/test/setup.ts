@@ -50,6 +50,7 @@ export function createMockApi(initialFiles: Record<string, string> = {}) {
       delete: vi.fn(async (p: string) => { files.delete(p); dirs.delete(p); return { success: true, path: p }; }),
       saveImage: vi.fn(),
       saveRecording: vi.fn(async () => ({ success: true, path: 'assets/rec.webm' })),
+      copyRecording: vi.fn(async (_dir: string, _src: string, name: string) => ({ success: true, path: `assets/${name}` })),
     },
     dialog: { open: vi.fn(async () => null), save: vi.fn(async () => null) },
     export: { pdf: vi.fn(), html: vi.fn() },
