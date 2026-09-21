@@ -97,6 +97,15 @@ describe('Tauri 壳的适配层', () => {
     expect(changed).toHaveBeenCalledWith({ autoSave: true });
   });
 
+  it('直接存成 PDF 只在 macOS 上有；别的平台没有这个接口，界面就会退回打印面板', () => {
+    const ua = vi.spyOn(navigator, 'userAgent', 'get');
+    ua.mockReturnValue('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15');
+    expect(typeof createTauriApi().export.pdfTo).toBe('function');
+    ua.mockReturnValue('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/124.0');
+    expect(createTauriApi().export.pdfTo).toBeUndefined();
+    ua.mockRestore();
+  });
+
   it('本地图片地址的前缀按平台给：Windows 的 WebView2 不认自定义协议的写法', () => {
     const ua = vi.spyOn(navigator, 'userAgent', 'get');
     ua.mockReturnValue('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15');

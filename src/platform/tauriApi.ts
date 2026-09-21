@@ -89,6 +89,46 @@ export function createTauriApi(): WindowApi {
       }`;
     document.head.appendChild(style);
   };
+  /** 把要导出的文档摆进打印容器，等图片到位。返回一个收拾现场的函数 */
+  const stagePrintDocument = async (htmlContent: string, filePath: string): Promise<() => void> => {
+    ensurePrintStyles();
+    document.getElementById(PRINT_ROOT_ID)?.remove();
+    const host = document.createElement('div');
+    host.id = PRINT_ROOT_ID;
+    const shadow = host.attachShadow({ mode: 'open' });
+    const style = document.createElement('style');
+    // 页边距由纸张设置管，正文容器自己不再留白；提示块、代码块的底色要照样印出来；提示块、图片尽量不跨页
+    style.textContent = `${exportCss('.export-body')}
+      .export-body { padding: 0; max-width: none; }
+      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      pre, table, img, .callout, .math-block, .mermaid-static-rendered { break-inside: avoid; }
+      h1, h2, h3, h4 { break-after: avoid; }`;
+    const body = resolveImages(htmlContent, filePath.startsWith('new-') ? null : dirOf(filePath));
+    body.className = 'export-body';
+    // 有公式：Shadow DOM 把界面的样式挡在外面了，KaTeX 的规则得自己带进来。
+    // 字体不能指望打印时再去取——这个容器平时是隐藏的，公式字体从没被用到、也就从没加载过，而 WebKit 在打印过程中
+    // 是挂起资源加载的：字体等不来，整份 PDF 要么是空白页、要么干脆 0 字节（实测两种都出现过）。
+    // 所以 @font-face 不带进来（Shadow DOM 里的本来也不生效），改用界面全局登记的那一份，并在打印之前把它们真正加载好
+    const hasMath = !!body.querySelector('.katex');
+    if (hasMath && !(window as any).__imlPdfNoKatex) {
+      const katex = (await (await import('../utils/exportImage')).katexStyles(false)).replace(/@font-face\s*\{[^}]*\}/g, '');
+      style.textContent = `${katex}\n${style.textContent}`;
+      await Promise.race([
+        Promise.all(Array.from(document.fonts).filter((face) => /KaTeX_/.test(face.family)).map((face) => face.load().catch(() => null))),
+        new Promise((r) => setTimeout(r, 6000)),
+      ]);
+    }
+    shadow.append(style, body);
+    // 上面有好几处等待：摆进去之前再清一遍，页面里任何时候都只能有一份要打印的文档
+    document.querySelectorAll(`#${PRINT_ROOT_ID}`).forEach((el) => el.remove());
+    document.body.appendChild(host);
+    // 图片到位了再打印，不然 PDF 里是一个个空框；坏掉的图最多等 4 秒
+    await Promise.race([
+      Promise.all(Array.from(body.querySelectorAll('img')).map((img) => (img.complete ? null : new Promise((r) => { img.onload = img.onerror = r; })))),
+      new Promise((r) => setTimeout(r, 4000)),
+    ]);
+    return () => host.remove();
+  };
   const resolveImages = (html: string, noteDir: string | null) => {
     const box = document.createElement('div');
     box.innerHTML = html;
@@ -152,28 +192,25 @@ export function createTauriApi(): WindowApi {
     },
 
     export: {
+      // 弹系统的打印面板（Windows：WebView2 的面板自带预览和「另存为 PDF」）。macOS 上界面会改走下面的 pdfTo
       pdf: async (htmlContent, _defaultPath, filePath) => {
         try {
-          ensurePrintStyles();
-          document.getElementById(PRINT_ROOT_ID)?.remove();
-          const host = document.createElement('div');
-          host.id = PRINT_ROOT_ID;
-          const shadow = host.attachShadow({ mode: 'open' });
-          const style = document.createElement('style');
-          style.textContent = `${exportCss('.export-body')}\n.export-body { padding: 0; max-width: none; }`;
-          const body = resolveImages(htmlContent, filePath.startsWith('new-') ? null : dirOf(filePath));
-          body.className = 'export-body';
-          shadow.append(style, body);
-          document.body.appendChild(host);
-          // 图片到位了再打印，不然 PDF 里是一个个空框；坏掉的图最多等 4 秒
-          await Promise.race([
-            Promise.all(Array.from(body.querySelectorAll('img')).map((img) => (img.complete ? null : new Promise((r) => { img.onload = img.onerror = r; })))),
-            new Promise((r) => setTimeout(r, 4000)),
-          ]);
+          await stagePrintDocument(htmlContent, filePath); // 面板什么时候关掉无从得知，容器留到下一次导出时再换
           await invoke('print_window');
           return { success: true, printed: true } as any;
         } catch (e) { return { success: false, error: message(e) }; }
       },
+      // macOS：直接存成分页的 A4 PDF，不弹打印面板
+      ...(platform === 'darwin' ? {
+        pdfTo: async (htmlContent: string, target: string, filePath: string) => {
+          let cleanup: (() => void) | null = null;
+          try {
+            cleanup = await stagePrintDocument(htmlContent, filePath);
+            await invoke('export_pdf', { path: target });
+            return { success: true, path: target };
+          } catch (e) { return { success: false, error: message(e) }; } finally { cleanup?.(); }
+        },
+      } : {}),
       html: async (htmlContent, defaultPath, filePath) => {
         try {
           const target = await askSavePath(`${defaultPath.replace(DOC_EXT_RE, '')}.html`, [{ name: 'HTML', extensions: ['html'] }]);
@@ -189,7 +226,9 @@ export function createTauriApi(): WindowApi {
               img.setAttribute('src', await new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = () => reject(r.error); r.readAsDataURL(blob); }));
             } catch { /* 找不到的图片保持原地址 */ }
           }
-          await invoke('export_write_text', { path: target, content: exportDocument(box.innerHTML, baseOf(target).replace(/\.html?$/i, '')) });
+          // 有公式：把 KaTeX 的样式连同字体一起内联进去，这个文件拷到哪里公式都是好的
+          const katex = box.querySelector('.katex') ? await (await import('../utils/exportImage')).katexStyles(true) : '';
+          await invoke('export_write_text', { path: target, content: exportDocument(`${katex ? `<style>${katex}</style>` : ''}${box.innerHTML}`, baseOf(target).replace(/\.html?$/i, '')) });
           return { success: true, path: target };
         } catch (e) { return { success: false, error: message(e) }; }
       },

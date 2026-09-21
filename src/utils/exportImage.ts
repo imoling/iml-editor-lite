@@ -15,13 +15,14 @@ import { exportCss } from '../../electron/shared/exportDoc';
 import { planRanges, planTiles, maxImageHeight, type Range } from '../../electron/shared/imageTiles';
 import { BRAND_CSS, brandFooterHtml, brandBand } from '../../electron/shared/imageBrand';
 import { resolveAssetUrl } from './assetUrl';
-// 角标的小图标、KaTeX 的字体都在构建时内联成 data: 地址，不在运行时去取：
-// Electron 的正式包页面来自 file://，那里 fetch 不到自己包里的文件；内联之后两个壳、开发与正式包走的是同一条路
+// 角标的小图标只有几 KB，构建时内联成 data: 地址
 import logoData from '../assets/logo-64.png?inline';
 
-const katexFonts = import.meta.glob('/node_modules/katex/dist/fonts/*.woff2', { query: '?inline', import: 'default' }) as Record<string, () => Promise<string>>;
+// KaTeX 的字体不内联进 JS：界面渲染公式本来就要带一份 woff2，再内联一份 base64 等于安装包白背二百多 KB。
+// 这里只记下包里那一份的地址，导出时才去读（见 readBundledFile）
+const katexFonts = import.meta.glob('/node_modules/katex/dist/fonts/*.woff2', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
 
-/** KaTeX 样式表里的字体地址（开发时是原文件名，打包后带哈希）→ 内联好的那一份 */
+/** KaTeX 样式表里的字体地址（开发时是原文件名，打包后带哈希）→ 包里那一份字体的键 */
 export function katexFontKey(url: string, keys: string[]): string | null {
   const name = /KaTeX_[A-Za-z0-9]+-[A-Za-z]+/.exec(url)?.[0];
   return (name && keys.find((k) => k.endsWith(`/${name}.woff2`))) || null;
@@ -35,6 +36,47 @@ const TILE_HEIGHT = 4000;
 const TOP_PAD = 40;
 const MAX_REMOTE_IMAGE = 12 * 1024 * 1024;
 const BLANK_GIF = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+
+/**
+ * 把应用包里的一个文件读成 data: 地址。先用 fetch；Electron 正式包的页面来自 file://，那里 fetch 不认这个协议，
+ * 退回 XMLHttpRequest（file:// 下状态码是 0）。都读不到就返回 null，由调用的地方决定怎么凑合
+ */
+export async function readBundledFile(url: string, type: string): Promise<string | null> {
+  if (url.startsWith('data:')) return url;
+  let bytes: ArrayBuffer | null = null;
+  try {
+    const res = await fetch(url);
+    if (res.ok) bytes = await res.arrayBuffer();
+  } catch { /* 换下面那条路 */ }
+  if (!bytes) {
+    bytes = await new Promise<ArrayBuffer | null>((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', url);
+      xhr.responseType = 'arraybuffer';
+      xhr.onload = () => resolve((xhr.status === 200 || xhr.status === 0) && xhr.response ? (xhr.response as ArrayBuffer) : null);
+      xhr.onerror = () => resolve(null);
+      xhr.send();
+    });
+  }
+  return bytes && bytes.byteLength ? toDataUrl(new Blob([bytes], { type })) : null;
+}
+
+/**
+ * 导出的内容里有公式时要带上的 KaTeX 样式。导出用的 HTML 经过净化后只剩 KaTeX 的 HTML 结构（MathML 被去掉了），
+ * 没有这份样式，分数、上下标全都摊成一行字。
+ * withFonts：离开应用也要能看的（长图里的 SVG、单文件 HTML）把字体也内联进去；还在应用页面里的（打印 / 存 PDF）
+ * 用界面已经加载的同名字体就行，不必再背三百 KB。拿不到就返回空串——公式难看一点，总比导出失败强
+ */
+export async function katexStyles(withFonts: boolean): Promise<string> {
+  try {
+    const raw = (await import('katex/dist/katex.min.css?inline')).default as string;
+    if (!withFonts) return raw;
+    return await inlineFontFaces(raw, async (url) => { const key = katexFontKey(url, Object.keys(katexFonts)); return key ? readBundledFile(katexFonts[key], 'font/woff2') : null; });
+  } catch (err) {
+    console.warn('[export] KaTeX styles unavailable:', err);
+    return '';
+  }
+}
 
 /** 一张图在文档里的位置（CSS 像素，相对正文顶端）和圆角：由这边直接画到画布上 */
 interface ImageBox { image: HTMLImageElement; left: number; top: number; width: number; height: number; radius: number }
@@ -53,9 +95,12 @@ export function longImageCss(extra = ''): string {
 export async function inlineFontFaces(css: string, load: (url: string) => Promise<string | null>): Promise<string> {
   const faces = css.match(/@font-face\s*\{[^}]*\}/g) || [];
   const replaced = await Promise.all(faces.map(async (face) => {
+    // 很小的字体（不到 4 KB）打包时已经被内联成 data: 地址了，直接用那一份；
+    // 下面换 src 的时候 url(...) 要整个认：data: 地址里自己带分号（;base64），不能在那儿断开
+    const inlined = /url\(\s*["']?(data:font\/woff2[^"')]+)["']?\s*\)/i.exec(face)?.[1];
     const url = /url\(\s*["']?([^"')]+\.woff2[^"')]*)["']?\s*\)/i.exec(face)?.[1];
-    const data = url ? await load(url) : null;
-    return data ? face.replace(/src\s*:[^;}]*/i, `src:url(${data}) format("woff2")`) : '';
+    const data = inlined || (url ? await load(url) : null);
+    return data ? face.replace(/src\s*:(?:url\([^)]*\)|[^;}])*/i, `src:url(${data}) format("woff2")`) : '';
   }));
   return faces.reduce((out, face, i) => out.replace(face, replaced[i]), css);
 }
@@ -191,15 +236,7 @@ export async function renderLongImage(staticHtml: string, noteDir: string | null
   }));
 
   // 有公式才去拿 KaTeX 的样式和字体（三四百 KB）。界面本身已经全局加载过同名的字体，下面量尺寸时用的就是它们
-  let katexCss = '';
-  if (bodyEl.querySelector('.katex')) {
-    try {
-      const raw = (await import('katex/dist/katex.min.css?inline')).default as string;
-      katexCss = await inlineFontFaces(raw, async (url) => { const key = katexFontKey(url, Object.keys(katexFonts)); return key ? katexFonts[key]() : null; });
-    } catch (err) {
-      console.warn('[long image] KaTeX styles unavailable:', err);
-    }
-  }
+  const katexCss = bodyEl.querySelector('.katex') ? await katexStyles(true) : '';
 
   // ── 3. 先在页面里排一遍版量尺寸：每个块在哪、图片在哪、能在哪切。Shadow DOM + all: initial 挡住界面的样式 ──
   const host = document.createElement('div');

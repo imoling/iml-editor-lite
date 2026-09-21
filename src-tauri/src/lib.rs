@@ -257,10 +257,122 @@ fn export_reveal(app: AppHandle, state: State<'_, AppState>, path: String) -> bo
     exported_path(&state, &path).map(|p| app.opener().reveal_item_in_dir(p).is_ok()).unwrap_or(false)
 }
 
-/// 打印当前窗口。前端先把要导出的文档摆好（打印样式里只露出它），再叫这个；「存储为 PDF」在系统的打印面板里
+/// 打印当前窗口（弹系统的打印面板）。前端先把要导出的文档摆好（打印样式里只露出它），再叫这个。
+/// macOS 上导出 PDF 不走这里（见 export_pdf）；Windows 的 WebView2 打印面板自带预览和「另存为 PDF」，仍然用它
 #[tauri::command]
 fn print_window(window: tauri::WebviewWindow) -> Result<(), String> {
     window.print().map_err(err)
+}
+
+/// macOS：不弹打印面板，直接用系统的打印引擎把当前页面（打印样式下只露出要导出的文档）存成分页的 A4 PDF。
+/// 系统 WebView 没有 Electron 那样的 printToPDF；`createPDF` 出来的是不分页的一整张长页，不适合文档。
+#[cfg(target_os = "macos")]
+mod mac_pdf {
+    use std::cell::RefCell;
+    use std::ffi::c_void;
+
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyObject, Sel};
+    use objc2::{class, msg_send};
+    use objc2_foundation::{NSPoint, NSRect, NSSize, NSString, NSURL};
+
+    #[link(name = "AppKit", kind = "framework")]
+    extern "C" {
+        static NSPrintJobDisposition: &'static NSString;
+        static NSPrintSaveJob: &'static NSString;
+        static NSPrintJobSavingURL: &'static NSString;
+    }
+
+    /// A4，单位是点（1/72 英寸）；四周留 2 厘米
+    const PAPER: (f64, f64) = (595.2, 841.8);
+    const MARGIN: f64 = 56.7;
+
+    thread_local! {
+        /// 打印是异步进行的：这次的打印任务得有人拿着，直到下一次导出时才放掉（只在主线程上碰它）
+        static RUNNING: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
+    }
+
+    /// 必须在主线程上调用。webview 是 WKWebView，window 是它所在的 NSWindow；任务开始后立刻返回，文件稍后才写好
+    pub unsafe fn start(webview: *mut c_void, window: *mut c_void, path: &str) -> Result<(), String> {
+        let webview = webview as *mut AnyObject;
+        let window = window as *mut AnyObject;
+        if webview.is_null() || window.is_null() {
+            return Err("找不到要打印的页面".into());
+        }
+        let shared: *mut AnyObject = msg_send![class!(NSPrintInfo), sharedPrintInfo];
+        let info: Retained<AnyObject> = msg_send![shared, copy];
+        let _: () = msg_send![&*info, setPaperSize: NSSize::new(PAPER.0, PAPER.1)];
+        let _: () = msg_send![&*info, setTopMargin: MARGIN];
+        let _: () = msg_send![&*info, setBottomMargin: MARGIN];
+        let _: () = msg_send![&*info, setLeftMargin: MARGIN];
+        let _: () = msg_send![&*info, setRightMargin: MARGIN];
+        let _: () = msg_send![&*info, setHorizontalPagination: 1usize]; // NSPrintingPaginationModeFit：太宽的表格缩进页面里，不切掉
+        let _: () = msg_send![&*info, setHorizontallyCentered: false];
+        let _: () = msg_send![&*info, setVerticallyCentered: false];
+
+        // 「存成文件」而不是发给打印机
+        let url = NSURL::fileURLWithPath(&NSString::from_str(path));
+        let dict: *mut AnyObject = msg_send![&*info, dictionary];
+        let _: () = msg_send![dict, setObject: NSPrintSaveJob, forKey: NSPrintJobDisposition];
+        let _: () = msg_send![dict, setObject: &*url, forKey: NSPrintJobSavingURL];
+
+        let op: Option<Retained<AnyObject>> = msg_send![webview, printOperationWithPrintInfo: &*info];
+        let op = op.ok_or("系统没有给出打印任务")?;
+        let _: () = msg_send![&*op, setShowsPrintPanel: false];
+        let _: () = msg_send![&*op, setShowsProgressPanel: false];
+        // WKWebView 的打印视图一开始大小是 0：不给它一个大小，出来的就是空白页
+        let view: *mut AnyObject = msg_send![&*op, view];
+        if !view.is_null() {
+            let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(PAPER.0 - MARGIN * 2.0, PAPER.1 - MARGIN * 2.0));
+            let _: () = msg_send![view, setFrame: frame];
+        }
+        // 同步的 runOperation 对 WKWebView 不管用（页面内容在另一个进程里，得让主循环转着等它）
+        let _: () = msg_send![&*op, runOperationModalForWindow: window, delegate: std::ptr::null::<AnyObject>(), didRunSelector: Option::<Sel>::None, contextInfo: std::ptr::null_mut::<c_void>()];
+        RUNNING.with(|slot| *slot.borrow_mut() = Some(op));
+        Ok(())
+    }
+}
+
+/// 文件出现、而且大小不再变了，才算写完（打印任务没有给我们留回调的地方）
+#[cfg(target_os = "macos")]
+fn wait_until_written(path: &Path, timeout: Duration) -> Result<(), String> {
+    let started = std::time::Instant::now();
+    let mut last = 0u64;
+    while started.elapsed() < timeout {
+        std::thread::sleep(Duration::from_millis(250));
+        let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        if size > 0 && size == last {
+            return Ok(());
+        }
+        last = size;
+    }
+    Err("生成 PDF 超时了".into())
+}
+
+/// macOS：把当前页面直接存成 PDF（path 已经由前端的保存对话框问过了）。别的平台没有这个能力，前端不会来叫
+#[tauri::command]
+async fn export_pdf(window: tauri::WebviewWindow, state: State<'_, AppState>, path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let target = PathBuf::from(&path);
+        let _ = fs::remove_file(&target); // 覆盖：保存对话框里已经确认过了；留着旧文件的话分不清新的写完没有
+        let (tx, rx) = mpsc::channel::<Result<(), String>>();
+        let for_main = path.clone();
+        window
+            .with_webview(move |webview| {
+                let _ = tx.send(unsafe { mac_pdf::start(webview.inner(), webview.ns_window(), &for_main) });
+            })
+            .map_err(err)?;
+        rx.recv_timeout(Duration::from_secs(10)).map_err(|_| "打印任务没有启动".to_string())??;
+        tauri::async_runtime::spawn_blocking(move || wait_until_written(&target, Duration::from_secs(90))).await.map_err(err)??;
+        remember_exported(&state, &path);
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (window, state, path);
+        Err("这个平台上导出 PDF 走打印面板".into())
+    }
 }
 
 // ── 系统 ─────────────────────────────────────────────────────────────────────
@@ -630,7 +742,7 @@ fn setup_menu(app: &tauri::App) -> tauri::Result<()> {
         .separator()
         .item(&item("menu:save", "保存", Some("Cmd+S"))?)
         .separator()
-        .item(&item("export:pdf", "打印 / 导出为 PDF…", Some("Cmd+P"))?)
+        .item(&item("export:pdf", "导出为 PDF…", Some("Cmd+P"))?)
         .item(&item("export:html", "导出为 HTML…", Some("Cmd+Shift+E"))?)
         .item(&item("export:docx", "导出为 Word…", None)?)
         .item(&item("export:image", "导出为长图…", None)?)
@@ -725,6 +837,7 @@ pub fn run() {
             export_open,
             export_reveal,
             print_window,
+            export_pdf,
             reveal_in_folder,
             open_external,
             consume_pending_open_files,

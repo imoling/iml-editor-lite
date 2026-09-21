@@ -24,6 +24,8 @@ declare global {
       export: {
         /** Tauri 壳走系统的打印面板：成功时是 printed，没有 path */
         pdf: (htmlContent: string, defaultPath: string, filePath: string) => Promise<{ success: boolean; path?: string; printed?: boolean; canceled?: boolean; error?: string }>;
+        /** 只有 Tauri 壳在 macOS 上有：不弹打印面板，把文档直接存成分页的 PDF（存哪先用 askPath 问好） */
+        pdfTo?: (htmlContent: string, target: string, filePath: string) => Promise<{ success: boolean; path?: string; error?: string }>;
         html: (htmlContent: string, defaultPath: string, filePath: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
         /** 渲染层生成好的文件（Word 文档）交给主进程问路径、写盘 */
         saveFile: (defaultName: string, bytes: Uint8Array, filterName: string, extension: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;

@@ -16,24 +16,46 @@ function notifyExported(text: string, paths: string[]) {
   useAppStore.getState().notify(text, undefined, actions);
 }
 
+/**
+ * 同一时间只跑一个导出。连按两次 ⌘P、菜单和快捷键同时触发（开发模式下 menu:export 还会因为 effect 跑两遍而来两次）
+ * 都不该并发地生成两份：PDF 那条路是往页面里摆一个打印容器，两个并发的导出会各摆一份，印出来就是两遍
+ */
+let exporting = false;
+const exclusive = (run: () => Promise<void>) => async (): Promise<void> => {
+  if (exporting) return;
+  exporting = true;
+  try { await run(); } finally { exporting = false; }
+};
+
 /** 把当前活动文档导出为 PDF（菜单与 ⌘P 共用） */
-export async function exportActiveTabToPdf(): Promise<void> {
+export const exportActiveTabToPdf = exclusive(async () => {
   // 编辑器写回是防抖的，导出前先刷新到 store
   useAppStore.getState().editorFlush?.();
   const { tabs, activeTabId } = useAppStore.getState();
   const tab = tabs.find((t) => t.id === activeTabId);
   if (!tab) return;
+  const { notify } = useAppStore.getState();
+  // Tauri 壳在 macOS 上：先问存哪，再直接存成 PDF（和 Electron 壳一样的体验，不弹打印面板）
+  if (window.api.export.pdfTo) {
+    const target = await window.api.export.askPath(tab.title, 'PDF 文档', 'pdf');
+    if (!target) return;
+    notify('正在生成 PDF…', 90000);
+    const done = await window.api.export.pdfTo(await markdownToStaticHtml(tab.content), target, tab.id);
+    if (done?.success && done.path) notifyExported('已导出 PDF', [done.path]);
+    else notify(`导出失败：${done?.error || '未知错误'}`);
+    return;
+  }
   const staticHtml = await markdownToStaticHtml(tab.content);
-  // Tauri 壳没有「直接存成 PDF」的接口，走系统的打印面板：先告诉用户 PDF 在面板的哪儿
-  if (window.api.assetBase) useAppStore.getState().notify(window.api.app.platform === 'darwin' ? '在打印面板左下角点「PDF」→「存储为 PDF」' : '在打印面板的「打印机」里选「另存为 PDF」', 12000);
+  // Tauri 壳在 Windows 上走 WebView2 的打印面板（带预览）：先告诉用户 PDF 在面板的哪儿
+  if (window.api.assetBase) notify('在打印面板的「打印机」里选「另存为 PDF」', 12000);
   const result = await window.api.export.pdf(staticHtml, tab.title, tab.id);
   if (result?.printed) return;
   if (result?.success && result.path) notifyExported('已导出 PDF', [result.path]);
   else if (result && !result.canceled) useAppStore.getState().notify(`导出失败：${result.error || '未知错误'}`);
-}
+});
 
 /** 导出为长图（PNG）：发群里、发朋友圈用。很长的文档会自动分成几张，切在段落的边界上 */
-export async function exportActiveTabToImage(): Promise<void> {
+export const exportActiveTabToImage = exclusive(async () => {
   useAppStore.getState().editorFlush?.();
   const { tabs, activeTabId, notify, getNewNoteDir } = useAppStore.getState();
   const tab = tabs.find((t) => t.id === activeTabId);
@@ -52,7 +74,7 @@ export async function exportActiveTabToImage(): Promise<void> {
   } catch (err: any) {
     notify(`导出失败：${err?.message || err}`);
   }
-}
+});
 
 const MAX_DOCX_IMAGE_PIXELS = 1600;
 
@@ -92,7 +114,7 @@ async function loadImageAsPng(src: string, noteDir: string | null): Promise<{ da
 }
 
 /** 导出为 Word（.docx）：标题、列表、表格、代码、图片都转成 Word 自己的结构，WPS / Pages 也能开 */
-export async function exportActiveTabToDocx(): Promise<void> {
+export const exportActiveTabToDocx = exclusive(async () => {
   useAppStore.getState().editorFlush?.();
   const { tabs, activeTabId, notify, getNewNoteDir } = useAppStore.getState();
   const tab = tabs.find((t) => t.id === activeTabId);
@@ -110,10 +132,10 @@ export async function exportActiveTabToDocx(): Promise<void> {
   } catch (err: any) {
     notify(`导出失败：${err?.message || err}`);
   }
-}
+});
 
 /** 导出为单文件 HTML（本地图片内联，拷到哪里都能看）；frontmatter 作为属性卡片保留 */
-export async function exportActiveTabToHtml(): Promise<void> {
+export const exportActiveTabToHtml = exclusive(async () => {
   useAppStore.getState().editorFlush?.();
   const { tabs, activeTabId, notify } = useAppStore.getState();
   const tab = tabs.find((t) => t.id === activeTabId);
@@ -122,4 +144,4 @@ export async function exportActiveTabToHtml(): Promise<void> {
   const result = await window.api.export.html(staticHtml, tab.title, tab.id);
   if (result?.success && result.path) notifyExported('已导出 HTML', [result.path]);
   else if (result && !result.canceled) notify(`导出失败：${result.error || '未知错误'}`);
-}
+});
