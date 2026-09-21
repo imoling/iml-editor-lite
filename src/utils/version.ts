@@ -65,7 +65,8 @@ export function summarizeReleaseNotes(notes: string | undefined | null, max = 6)
       }
       continue;
     }
-    if (!seenSection && !lead && line && !/^[|>\-*]/.test(line)) lead = plain(line);
+    // 表格、引用、列表项不算导语；以 **加粗** 开头的是正文，不是列表项（列表项的 - / * 后面跟着空格）
+    if (!seenSection && !lead && line && !/^([|>]|[-*+]\s|-{3,}$)/.test(line)) lead = plain(line);
   }
   return { slogan, lead, highlights };
 }

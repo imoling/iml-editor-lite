@@ -44,4 +44,10 @@ describe('更新提醒里的发布说明摘要', () => {
     expect(summarizeReleaseNotes(undefined)).toEqual({ slogan: '', lead: '', highlights: [] });
     expect(summarizeReleaseNotes('Bug fixes and improvements.')).toEqual({ slogan: '', lead: 'Bug fixes and improvements.', highlights: [] });
   });
+
+  it('导语以 **加粗** 开头也认得；列表项、表格、引用、分割线仍然不算', async () => {
+    const { summarizeReleaseNotes } = await import('./version');
+    const s = summarizeReleaseNotes('## 26.4.0 — 打开，写，保存\n\n- 不是导语\n| 也 | 不是 |\n> 引用\n---\n**iML 编辑器**是轻量版。\n\n### 亮点一');
+    expect(s).toMatchObject({ slogan: '打开，写，保存', lead: 'iML 编辑器是轻量版。', highlights: ['亮点一'] });
+  });
 });
