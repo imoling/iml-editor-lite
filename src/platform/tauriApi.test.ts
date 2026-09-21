@@ -69,7 +69,7 @@ describe('Tauri 壳的适配层', () => {
     const api = createTauriApi();
     invoke.mockResolvedValueOnce(JSON.stringify([
       { tag_name: 'v26.5.0', assets: [] },
-      { tag_name: 'lite-v26.4.1', html_url: 'https://example.com/r', assets: [{ name: 'iML-Editor-26.4.1-arm64.dmg', browser_download_url: 'https://example.com/a.dmg', size: 9 }] },
+      { tag_name: 'lite-v26.4.1', html_url: 'https://example.com/r', assets: [{ name: 'iML-Editor-Lite-26.4.1-arm64.dmg', browser_download_url: 'https://example.com/a.dmg', size: 9 }] },
     ]));
     expect(await api.app.checkUpdates()).toMatchObject({ success: true, latestVersion: '26.4.1', releaseUrl: 'https://example.com/r' });
     invoke.mockResolvedValueOnce(JSON.stringify([{ tag_name: 'v26.5.0', assets: [] }]));

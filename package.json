@@ -127,7 +127,7 @@
           ]
         }
       ],
-      "artifactName": "iML-Editor-${version}-${arch}.${ext}",
+      "artifactName": "iML-Editor-Lite-${version}-${arch}.${ext}",
       "extendInfo": {
         "CFBundleDocumentTypes": [
           {
@@ -199,7 +199,7 @@
       "allowElevation": true,
       "runAfterFinish": true,
       "buildUniversalInstaller": false,
-      "artifactName": "iML-Editor-Setup-${version}-${arch}.${ext}"
+      "artifactName": "iML-Editor-Lite-Setup-${version}-${arch}.${ext}"
     },
     "electronLanguages": [
       "en",

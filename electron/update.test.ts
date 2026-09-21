@@ -45,14 +45,14 @@ describe('检查更新：挑出这台电脑该下的安装包', () => {
       { tag_name: 'v26.5.0', assets: [] },
       { tag_name: 'lite-v26.5.0', prerelease: true, assets: [] },
       { tag_name: 'lite-v26.4.1', draft: true, assets: [] },
-      { tag_name: 'lite-v26.4.0', html_url: 'https://example.com/lite', assets: [asset('iML-Editor-26.4.0-arm64.dmg')] },
+      { tag_name: 'lite-v26.4.0', html_url: 'https://example.com/lite', assets: [asset('iML-Editor-Lite-26.4.0-arm64.dmg')] },
       { tag_name: 'lite-v26.3.0', assets: [] },
     ];
     const hit = pickLatestRelease(list, 'lite-v');
     expect(hit?.tag_name).toBe('lite-v26.4.0');
     const info = describeRelease(hit, 'darwin', 'arm64', 'lite-v');
     expect(info.latestVersion).toBe('26.4.0');
-    expect(info.download?.name).toBe('iML-Editor-26.4.0-arm64.dmg');
+    expect(info.download?.name).toBe('iML-Editor-Lite-26.4.0-arm64.dmg');
     expect(pickLatestRelease([{ tag_name: 'v26.5.0' }], 'lite-v')).toBeNull();
     expect(pickLatestRelease({ message: 'rate limited' }, 'lite-v')).toBeNull();
   });

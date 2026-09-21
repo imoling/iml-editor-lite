@@ -41,10 +41,10 @@
 
 | 平台 | 安装包 |
 |---|---|
-| macOS Apple Silicon（M 系列） | `iML-Editor-26.4.0-arm64.dmg` |
-| macOS Intel | `iML-Editor-26.4.0-x64.dmg` |
-| Windows（绝大多数电脑选这个） | `iML-Editor-Setup-26.4.0-x64.exe` |
-| Windows on ARM（骁龙本等） | `iML-Editor-Setup-26.4.0-arm64.exe` |
+| macOS Apple Silicon（M 系列） | `iML-Editor-Lite-26.4.0-arm64.dmg` |
+| macOS Intel | `iML-Editor-Lite-26.4.0-x64.dmg` |
+| Windows（绝大多数电脑选这个） | `iML-Editor-Lite-Setup-26.4.0-x64.exe` |
+| Windows on ARM（骁龙本等） | `iML-Editor-Lite-Setup-26.4.0-arm64.exe` |
 
 到 [Releases](https://github.com/imoling/iml-markdown-editor/releases) 里找标题以「iML 编辑器」开头的版本（标签是 `lite-v…`；`v…` 开头的是主版本「iML 笔记」）。已经装了的，应用会在发现新版本时提醒一次，并直接给出这台电脑该下的安装包。
 

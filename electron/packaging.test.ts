@@ -61,10 +61,16 @@ describe('安装包体积', () => {
     expect(Object.keys(mac.extendInfo).filter((k) => /UsageDescription$/.test(k))).toEqual([]);
     expect(pkg.build.protocols).toBeUndefined();
     // GitHub Release 的附件名里放不了中文，检查更新又靠文件名里的架构挑安装包
+    // 名字里带 Lite：放在下载目录里，和主版本的安装包（iML.Markdown.Editor-…）一眼分得开
     for (const name of [mac.artifactName, pkg.build.nsis.artifactName]) {
       expect(name).toMatch(/^[\x20-\x7e]+$/);
       expect(name).toContain('${arch}');
+      expect(name).toMatch(/^iML-Editor-Lite-/);
     }
+    // 真正发出去的安装包是流水线里起的名字（Tauri 壳），和上面是同一套
+    const workflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
+    expect(workflow).toContain('release/iML-Editor-Lite-${VERSION}-${{ matrix.arch }}.dmg');
+    expect(workflow).toContain('release/iML-Editor-Lite-Setup-${VERSION}-${{ matrix.arch }}.exe');
   });
 
   it('和「iML 笔记」装在同一台电脑上互不干扰：应用标识不同，数据目录钉死成自己的', () => {

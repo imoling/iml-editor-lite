@@ -6,10 +6,10 @@
 
 | 平台 | 安装包 |
 |---|---|
-| macOS Apple Silicon（M 系列） | `iML-Editor-26.4.0-arm64.dmg` |
-| macOS Intel | `iML-Editor-26.4.0-x64.dmg` |
-| Windows（绝大多数电脑选这个） | `iML-Editor-Setup-26.4.0-x64.exe` |
-| Windows on ARM（骁龙本等） | `iML-Editor-Setup-26.4.0-arm64.exe` |
+| macOS Apple Silicon（M 系列） | `iML-Editor-Lite-26.4.0-arm64.dmg` |
+| macOS Intel | `iML-Editor-Lite-26.4.0-x64.dmg` |
+| Windows（绝大多数电脑选这个） | `iML-Editor-Lite-Setup-26.4.0-x64.exe` |
+| Windows on ARM（骁龙本等） | `iML-Editor-Lite-Setup-26.4.0-arm64.exe` |
 
 没有做 Apple 公证。macOS 首次打开若被拦下：系统设置 → 隐私与安全性 → 拉到底点「仍要打开」。Windows 需要 WebView2（Windows 11 自带；Windows 10 没有的话安装程序会帮你装）。
 

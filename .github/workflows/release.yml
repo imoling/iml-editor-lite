@@ -64,7 +64,7 @@ jobs:
           rm -rf "$STAGE" && mkdir -p "$STAGE" release
           ditto "$APP" "$STAGE/$(basename "$APP")"
           ln -s /Applications "$STAGE/Applications"
-          OUT="release/iML-Editor-${VERSION}-${{ matrix.arch }}.dmg"
+          OUT="release/iML-Editor-Lite-${VERSION}-${{ matrix.arch }}.dmg"
           for attempt in 1 2 3 4 5; do
             if hdiutil create -volname "iML 编辑器" -srcfolder "$STAGE" -ov -format ULMO -fs HFS+ "$OUT"; then break; fi
             if [ "$attempt" = 5 ]; then echo "hdiutil 连续 5 次失败"; exit 1; fi
@@ -79,7 +79,7 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           mkdir -p release
-          find src-tauri/target/${{ matrix.target }}/release/bundle -name '*-setup.exe' -exec cp {} "release/iML-Editor-Setup-${VERSION}-${{ matrix.arch }}.exe" \;
+          find src-tauri/target/${{ matrix.target }}/release/bundle -name '*-setup.exe' -exec cp {} "release/iML-Editor-Lite-Setup-${VERSION}-${{ matrix.arch }}.exe" \;
           ls -la release
       - uses: actions/upload-artifact@v4
         with:
