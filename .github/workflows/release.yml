@@ -25,8 +25,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: macOS-arm64,   os: macos-14,       target: aarch64-apple-darwin,     arch: arm64, bundles: dmg }
-          - { name: macOS-x64,     os: macos-14,       target: x86_64-apple-darwin,      arch: x64,   bundles: dmg }
+          - { name: macOS-arm64,   os: macos-14,       target: aarch64-apple-darwin,     arch: arm64, bundles: app }
+          - { name: macOS-x64,     os: macos-14,       target: x86_64-apple-darwin,      arch: x64,   bundles: app }
           - { name: Windows-x64,   os: windows-latest, target: x86_64-pc-windows-msvc,   arch: x64,   bundles: nsis }
           - { name: Windows-arm64, os: windows-latest, target: aarch64-pc-windows-msvc,  arch: arm64, bundles: nsis }
     steps:
@@ -50,14 +50,35 @@ jobs:
       - run: npm run check
       # 壳是 Tauri（src-tauri/）：安装包几 MB。Electron 的构建脚本（build:mac / build:win）还留着当退路，这里不用
       - run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
-      # 产物的文件名里带中文的应用名，GitHub Release 的附件名放不了中文；
-      # 应用里的检查更新又靠文件名里的架构（arm64 / x64）挑安装包——统一改成英文名
-      - name: Rename artifacts
+      # macOS：Tauri 只出 .app，dmg 在这里自己打。
+      # 它自带的 bundle_dmg.sh 在 GitHub 的 macOS 机器上时好时坏（hdiutil 报 Resource busy，几秒就退出，第一次发版就栽在这儿）；
+      # 自己打可以重试，文件名直接是英文，还能用 LZMA（ULMO，macOS 10.15 起都能开）——比默认的 zlib 小一成多
+      - name: Make dmg
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          APP=$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' | head -1)
+          codesign --verify --deep --strict "$APP"
+          STAGE="$RUNNER_TEMP/dmg-stage"
+          rm -rf "$STAGE" && mkdir -p "$STAGE" release
+          ditto "$APP" "$STAGE/$(basename "$APP")"
+          ln -s /Applications "$STAGE/Applications"
+          OUT="release/iML-Editor-${VERSION}-${{ matrix.arch }}.dmg"
+          for attempt in 1 2 3 4 5; do
+            if hdiutil create -volname "iML 编辑器" -srcfolder "$STAGE" -ov -format ULMO -fs HFS+ "$OUT"; then break; fi
+            if [ "$attempt" = 5 ]; then echo "hdiutil 连续 5 次失败"; exit 1; fi
+            echo "hdiutil 第 $attempt 次失败，稍等重试"; sleep $((attempt * 10))
+          done
+          ls -la release
+      # Windows：安装包的文件名里带中文的应用名，GitHub Release 的附件名放不了中文；
+      # 应用里的检查更新又靠文件名里的架构（arm64 / x64）挑安装包——改成英文名
+      - name: Rename installer
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
           mkdir -p release
-          find src-tauri/target/${{ matrix.target }}/release/bundle -name '*.dmg' -exec cp {} "release/iML-Editor-${VERSION}-${{ matrix.arch }}.dmg" \;
           find src-tauri/target/${{ matrix.target }}/release/bundle -name '*-setup.exe' -exec cp {} "release/iML-Editor-Setup-${VERSION}-${{ matrix.arch }}.exe" \;
           ls -la release
       - uses: actions/upload-artifact@v4
