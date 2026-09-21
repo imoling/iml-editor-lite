@@ -3,8 +3,7 @@ import CodeMirror, { ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { EditorView, keymap } from '@codemirror/view';
-import { Prec, Extension } from '@codemirror/state';
-import { autocompletion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
+import { Prec } from '@codemirror/state';
 import {
   search,
   SearchQuery,
@@ -22,9 +21,6 @@ import { resolveImagesInHtml, noteDirOf } from '../../utils/assetUrl';
 import { storeImageFile } from '../../utils/pasteImage';
 import { isSingleUrl, escapeLinkText, htmlWorthConverting } from '../../utils/pasteText';
 import { extractHeadings } from '../../utils/outline';
-import { wikiHeadingCandidates, toNameCandidates } from '../../utils/wikiComplete';
-import { readNoteForLink } from '../../utils/noteReader';
-import { fillEmbeds } from '../../utils/noteEmbed';
 import { loadMermaid } from '../../utils/mermaidLoader';
 import '../styles/editor.css';
 
@@ -44,21 +40,10 @@ export const MarkdownEditor: React.FC = () => {
 
   const content = activeTab?.content ?? '';
 
-  // 给侧边栏功能用的两个动作，和富文本编辑器那边是同一套（转写的「打点」、新建会议记录后把光标放好）
+  // 空白的未命名文档：光标直接放进去（同富文本模式）
   useEffect(() => {
-    if (!cmView) return;
-    const { registerEditorActions } = useAppStore.getState();
-    registerEditorActions({
-      insertText: (text) => { const { from, to } = cmView.state.selection.main; cmView.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length } }); cmView.focus(); return true; },
-      startList: () => {
-        const end = cmView.state.doc.length;
-        const insert = `${cmView.state.doc.sliceString(Math.max(0, end - 1), end) === '\n' ? '' : '\n'}\n- `;
-        cmView.dispatch({ changes: { from: end, insert }, selection: { anchor: end + insert.length } });
-        cmView.focus();
-      },
-    });
-    return () => registerEditorActions(null);
-  }, [cmView]);
+    if (cmView && activeTabId?.startsWith('new-') && !useAppStore.getState().tabs.find((t) => t.id === activeTabId)?.content && !useAppStore.getState().dialog) cmView.focus();
+  }, [cmView, activeTabId]);
 
   const handleUpdate = (val: string) => {
     if (activeTabId) {
@@ -73,10 +58,8 @@ export const MarkdownEditor: React.FC = () => {
       const { heading, blockId, line: targetLine } = navigationRequest;
       let lineIndex = -1;
       const match = heading?.id.match(/^heading-(\d+)$/);
-      // 待办面板给的就是行号
       if (typeof targetLine === 'number') lineIndex = targetLine;
       else if (match) lineIndex = parseInt(match[1]);
-      // [[笔记#^块]]：块 ID 写在那一行的末尾
       else if (blockId) lineIndex = view.state.doc.toString().split('\n').findIndex((l) => l.trimEnd().endsWith(`^${blockId}`));
       if (lineIndex >= 0) {
         const safeLineIndex = Math.min(lineIndex + 1, view.state.doc.lines);
@@ -174,59 +157,12 @@ export const MarkdownEditor: React.FC = () => {
     useAppStore.getState().consumeSearchCommand();
   }, [searchCommand]);
 
-  // 源码模式里输入 [[ 时补全笔记名
-  const wikiCompletion = async (context: CompletionContext): Promise<CompletionResult | null> => {
-    const word = context.matchBefore(/\[\[[^\]\n]*/);
-    if (!word) return null;
-    let notes: { title: string; path: string; aliases?: string[] }[] = [];
-    try { notes = await window.api.search.listNotes(); } catch { notes = []; }
-    // [[笔记# → 列那篇笔记的小节
-    const { tabs, activeTabId: currentId } = useAppStore.getState();
-    const headings = await wikiHeadingCandidates(notes, word.text.slice(2), {
-      currentPath: currentId && !currentId.startsWith('new-') ? currentId : null,
-      currentContent: tabs.find((t) => t.id === currentId)?.content ?? '',
-      readNote: readNoteForLink,
-    }, 50);
-    if (headings) {
-      return {
-        from: word.from + 2,
-        options: headings.map((h) => ({ label: h.target, displayLabel: `${'　'.repeat(h.level - 1)}# ${h.heading}`, apply: `${h.target}]]`, type: 'text' })),
-        validFor: /^[^\]\n]*$/,
-      };
-    }
-    const options: { label: string; detail?: string; apply: string; type: string }[] = [];
-    const seen = new Set<string>();
-    for (const n of toNameCandidates(notes)) {
-      if (!seen.has(n.title)) { seen.add(n.title); options.push({ label: n.title, apply: `${n.title}]]`, type: 'text' }); }
-      // 别名：敲别名也能找到，落笔写成 [[文件名|别名]]（Obsidian 只认文件名）
-      for (const alias of n.aliases || []) options.push({ label: alias, detail: `→ ${n.title}`, apply: `${n.title}|${alias}]]`, type: 'text' });
-    }
-    return { from: word.from + 2, options, validFor: /^[^\]\n]*$/ };
-  };
-
-  // Vim 键位：要用的人才加载这个库（单独一个包，不进主包）。`:w` 接到应用自己的保存上
-  const vimMode = useAppStore((st) => st.vimMode);
-  const [vimExt, setVimExt] = useState<Extension | null>(null);
-  useEffect(() => {
-    if (!vimMode) { setVimExt(null); return; }
-    let alive = true;
-    import('@replit/codemirror-vim').then(({ vim, Vim }) => {
-      if (!alive) return;
-      Vim.defineEx('write', 'w', () => { void useAppStore.getState().saveActiveFile(); });
-      setVimExt(vim());
-    }).catch((err) => console.error('Failed to load vim keymap:', err));
-    return () => { alive = false; };
-  }, [vimMode]);
-
   const extensions = useMemo(
     () => [
-      // Vim 必须排在最前面：它要先于别的键位拿到按键
-      ...(vimExt ? [vimExt] : []),
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       search(),
       // ⌘D：选中下一处相同的文字（多光标一起改）。自带的搜索快捷键整体关掉了（查找由应用的面板接管），这一个单独接回来
       Prec.high(keymap.of([{ key: 'Mod-d', run: selectNextOccurrence, preventDefault: true }])),
-      autocompletion({ override: [wikiCompletion], activateOnTyping: true }),
       EditorView.updateListener.of((update) => {
         // 状态栏的「选中 N 字」
         if (update.selectionSet || update.docChanged) {
@@ -303,7 +239,7 @@ export const MarkdownEditor: React.FC = () => {
         },
       }),
     ],
-    [activeTabId, vimExt],
+    [activeTabId],
   );
 
   // 预览 HTML 只在内容变化时重算；文件里的原生 HTML / SVG 先净化再注入
@@ -312,16 +248,8 @@ export const MarkdownEditor: React.FC = () => {
     [content, activeTabId],
   );
   // React 19 对 dangerouslySetInnerHTML 比的是对象身份、不是里面的字符串：每次渲染都给一个新的 { __html }，
-  // 它就每次都重设 innerHTML，渲染后填进去的东西（Mermaid 图、嵌入的内容）会被任何一次无关的重渲染冲掉
+  // 它就每次都重设 innerHTML，渲染后填进去的东西（Mermaid 图）会被任何一次无关的重渲染冲掉
   const previewMarkup = useMemo(() => ({ __html: previewHtml }), [previewHtml]);
-
-  // 预览里的嵌入 ![[…]]：内容要读别的文件，渲染完再异步填进去；被嵌入的那篇存盘了（libraryVersion）就重填
-  const libraryVersion = useAppStore((s) => s.libraryVersion);
-  useEffect(() => {
-    const root = previewRef.current;
-    if (!root || !previewHtml.includes('data-wiki-embed')) return;
-    void fillEmbeds(root, activeTabId && !activeTabId.startsWith('new-') ? activeTabId : null);
-  }, [previewHtml, libraryVersion, activeTabId]);
 
   // ── 左右滚动同步：以标题为锚点分段插值（段内按比例），比整篇按比例准得多 ──
   useEffect(() => {
@@ -407,7 +335,6 @@ export const MarkdownEditor: React.FC = () => {
               highlightActiveLine: true,
               // 查找由应用统一的面板接管（⌘F），关闭 CodeMirror 自带的搜索快捷键
               searchKeymap: false,
-              // 补全只保留 [[ 笔记名（上面单独配置）
               autocompletion: false,
             }}
           />
@@ -422,10 +349,6 @@ export const MarkdownEditor: React.FC = () => {
             dangerouslySetInnerHTML={previewMarkup}
             onClick={(e) => {
               const target = e.target as HTMLElement;
-              const link = target.closest('[data-wiki-link]');
-              if (link) { useAppStore.getState().openWikiLink(link.getAttribute('data-wiki-link') || ''); return; }
-              const tag = target.closest('.tag-chip[data-tag]');
-              if (tag) { useAppStore.getState().openTag(tag.getAttribute('data-tag')); return; }
               // 目录项：在预览里滚到对应标题
               const tocItem = target.closest('[data-toc-index]');
               if (tocItem) {

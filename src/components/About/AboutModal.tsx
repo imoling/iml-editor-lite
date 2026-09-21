@@ -2,6 +2,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 import logo from '../../assets/logo.png';
 import { formatVersion } from '../../utils/version';
+import { APP_NAME, APP_TAGLINE, REPO_URL } from '../../utils/appInfo';
 
 interface AboutModalProps {
   isOpen: boolean;
@@ -20,20 +21,20 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
       {isStandalone && <div className="standalone-drag" />}
       <div className={isStandalone ? 'about-card about-card--standalone' : 'modal-card about-card'} onClick={(e) => e.stopPropagation()}>
         <div className="about-logo"><img src={logo} alt="iML Logo" /></div>
-        <h1 className="about-name">iML Markdown Editor</h1>
+        <h1 className="about-name">{APP_NAME}</h1>
         <p className="about-version">Version {formatVersion(window.api.appVersion)}</p>
-        <p className="about-slogan">极简其表 &middot; 极致内核</p>
+        <p className="about-slogan">{APP_TAGLINE}</p>
 
         <div className="about-info">
           <div className="about-info__row"><span>Logic &amp; Design</span><span className="about-link" onClick={() => open('mailto:imoling.cn@gmail.com')}>imoling.cn@gmail.com</span></div>
           <div className="about-info__row"><span>Architected by</span><span className="about-info__value">Antigravity AI</span></div>
           <div className="about-info__row"><span>发布日期</span><span className="about-info__value">2026年9月</span></div>
-          <div className="about-info__row"><span>GitHub</span><span className="about-link" onClick={() => open('https://github.com/imoling/iml-markdown-editor')}>View Repository</span></div>
+          <div className="about-info__row"><span>GitHub</span><span className="about-link" onClick={() => open(REPO_URL)}>View Repository</span></div>
         </div>
 
         <p className="about-footer">
           &copy; 2026 iML Studio. 保留所有权利。<br />
-          AI 时代的敏捷知识编辑中枢
+          打开、写、保存。需要笔记库与本机智能，请用「iML 笔记」
         </p>
 
         {(!isStandalone || !isMac) && (

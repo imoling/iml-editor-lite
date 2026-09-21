@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore, needsSavePrompt } from '../../stores/appStore';
 import {
-  FileCode, X, FileDown, Plus, Save, FileUp, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Image, CalendarDays, Sparkles, History, Focus, ImageOff, Network, Wand2, Search, MessageCircleQuestion, Mic, ChevronRight,
+  FileCode, X, FileDown, Plus, Save, FileUp, FolderOpen, Sidebar as SidebarIcon, Layout, RotateCw, Minus, Square, Settings, Focus, Clock,
 } from 'lucide-react';
 import { exportActiveTabToPdf, exportActiveTabToHtml, exportActiveTabToDocx, exportActiveTabToImage } from '../../utils/exportPdf';
 import { isNewerVersion } from '../../utils/version';
 
-type MenuId = 'file' | 'edit' | 'view' | 'intel' | 'help';
+type MenuId = 'file' | 'edit' | 'view' | 'help';
 
 const MenuItem: React.FC<{
   icon?: React.ReactNode;
@@ -67,8 +67,8 @@ export const TitleBar: React.FC = () => {
     tabs, activeTabId, setActiveTab, requestCloseTab, closeOtherTabs, reopenClosedTab, closedTabs,
     toggleSidebar, toggleToolbar, toggleStatusBar, createNewFile,
     sidebarVisible, toolbarVisible, statusBarVisible,
-    openFile, saveActiveFile, refreshWorkspace, updateStatus, checkUpdates, openDailyNote, openDialog,
-    focusMode, toggleFocusMode, aiEnabled,
+    openFile, openDirectory, openFileByPath, recentFiles, workspacePath, saveActiveFile, refreshWorkspace, updateStatus, checkUpdates, openDialog,
+    focusMode, toggleFocusMode,
   } = useAppStore();
 
   const hasUpdate = isNewerVersion(updateStatus.latestVersion, window.api.appVersion);
@@ -114,20 +114,26 @@ export const TitleBar: React.FC = () => {
   );
 
   return (
-    <header className="titlebar">
-      {isMac && <div className="titlebar-traffic-lights" />}
+    <header className="titlebar" data-tauri-drag-region>
+      {isMac && <div className="titlebar-traffic-lights" data-tauri-drag-region />}
 
       <div className={`titlebar-menus ${isMac ? '' : 'titlebar-menus--win'}`}>
         <Menu id="file" label="文件" width={220}>
           <MenuItem icon={<Plus size={14} />} label="新建文档" hint="⌘N" onClick={run(createNewFile)} />
-          <MenuItem icon={<FileUp size={14} />} label="打开..." hint="⌘O" onClick={run(openFile)} />
-          <MenuItem icon={<Search size={14} />} label="快速打开笔记…" hint="⌘T" onClick={run(() => openDialog('quick-open'))} />
-          <MenuItem icon={<CalendarDays size={14} />} label="今日日记" hint="⇧⌘D" onClick={run(openDailyNote)} />
+          <MenuItem icon={<FileUp size={14} />} label="打开文件…" hint="⌘O" onClick={run(openFile)} />
+          <MenuItem icon={<FolderOpen size={14} />} label="打开文件夹…" hint="⇧⌘O" onClick={run(openDirectory)} />
+          {recentFiles.length > 0 && (
+            <>
+              <MenuDivider />
+              <div className="menu-label">最近打开</div>
+              {recentFiles.slice(0, 6).map((path) => (
+                <MenuItem key={path} icon={<Clock size={14} />} label={<span className="truncate" title={path}>{path.split(/[/\\]/).pop()}</span>} onClick={run(() => void openFileByPath(path))} />
+              ))}
+            </>
+          )}
           <MenuDivider />
           <MenuItem icon={<Save size={14} />} label="保存" hint="⌘S" disabled={!activeTab} onClick={run(() => saveActiveFile())} />
           <MenuItem icon={<Save size={14} />} label="另存为..." hint="⇧⌘S" disabled={!activeTab} onClick={run(() => saveActiveFile(true))} />
-          <MenuDivider />
-          <MenuItem icon={<History size={14} />} label="版本历史…" hint="⇧⌘H" disabled={!activeTab} onClick={run(() => openDialog('history'))} />
           <MenuDivider />
           <MenuItem icon={<FileDown size={14} />} label="导出为 PDF" hint="⌘P" disabled={!activeTab} onClick={run(exportActiveTabToPdf)} />
           <MenuItem icon={<FileDown size={14} />} label="导出为 HTML" hint="⇧⌘E" disabled={!activeTab} onClick={run(exportActiveTabToHtml)} />
@@ -151,43 +157,30 @@ export const TitleBar: React.FC = () => {
         </Menu>
 
         <Menu id="view" label="视图" width={200}>
-          <MenuItem icon={<ChevronRight size={14} />} label="命令面板…" hint="⇧⌘P" onClick={run(() => openDialog('command-palette'))} />
-          <MenuDivider />
           <MenuItem icon={<SidebarIcon size={14} />} label={sidebarVisible ? '隐藏侧边栏' : '显示侧边栏'} hint="⌘\" onClick={run(toggleSidebar)} />
           <MenuItem icon={<Focus size={14} />} label={focusMode ? '退出专注模式' : '专注模式'} hint="⇧⌘." onClick={run(toggleFocusMode)} />
           <MenuDivider />
           <MenuItem icon={<Layout size={14} />} label={toolbarVisible ? '隐藏工具栏' : '显示工具栏'} dim={!toolbarVisible} onClick={run(toggleToolbar)} />
           <MenuItem icon={<Layout size={14} />} label={statusBarVisible ? '隐藏状态栏' : '显示状态栏'} dim={!statusBarVisible} onClick={run(toggleStatusBar)} />
-          <MenuDivider />
-          <MenuItem icon={<RotateCw size={14} />} label="刷新笔记库" onClick={run(refreshWorkspace)} />
-          <MenuItem icon={<ImageOff size={14} />} label="清理未引用的图片…" onClick={run(() => openDialog('image-cleanup'))} />
-        </Menu>
-
-        {/* 按功能命名：每一项打开对应功能的设置（用哪个模型 / 服务） */}
-        <Menu id="intel" label="智能">
-          <MenuItem icon={<MessageCircleQuestion size={14} />} label="问你的笔记" hint="⌘J" disabled={!aiEnabled} onClick={run(() => useAppStore.getState().openAsk())} />
-          <MenuDivider />
-          <MenuItem icon={<Wand2 size={14} />} label="写作助手…" hint="⇧⌘M" onClick={run(() => openDialog('ai-config'))} />
-          <MenuItem icon={<Network size={14} />} label="相关笔记…" disabled={!aiEnabled} onClick={run(() => openDialog('semantic-config'))} />
-          {/* 一个功能只占一项：转写面板在侧边栏就有入口，菜单里这一项管它的模型和麦克风（弹窗里也能一键打开面板） */}
-          <MenuItem icon={<Mic size={14} />} label="实时转写…" disabled={!aiEnabled} onClick={run(() => openDialog('transcribe-config'))} />
-          <MenuDivider />
-          <MenuItem icon={<Image size={14} />} label="AI 配图…" onClick={run(() => openDialog('image-config'))} />
+          {workspacePath && (
+            <>
+              <MenuDivider />
+              <MenuItem icon={<RotateCw size={14} />} label="刷新文件夹" onClick={run(refreshWorkspace)} />
+            </>
+          )}
         </Menu>
 
         <Menu id="help" label="帮助" width={180} badge={hasUpdate}>
-          <MenuItem icon={<Wand2 size={14} />} label="快速开始 AI…" onClick={run(() => openDialog('ai-setup'))} />
           <MenuItem icon={<Layout size={14} />} label="快捷键" hint="⌘/" onClick={run(() => openDialog('shortcuts'))} />
           <MenuItem icon={<RotateCw size={14} />} label={<>检查更新{hasUpdate && <div className="notification-dot" />}</>} onClick={run(checkUpdates)} />
-          <MenuItem icon={<Settings size={14} />} label="设置" onClick={run(() => openDialog('settings'))} />
-          <MenuItem icon={<Sparkles size={14} />} label="新特性介绍" onClick={run(() => openDialog('whats-new'))} />
+          <MenuItem icon={<Settings size={14} />} label="设置" hint="⌘," onClick={run(() => openDialog('settings'))} />
           <MenuDivider />
           <MenuItem icon={<Layout size={14} />} label="关于" onClick={run(() => openDialog('about'))} />
         </Menu>
       </div>
 
       {/* 标签页区域 */}
-      <div ref={tabsRef} className="titlebar-tabs">
+      <div ref={tabsRef} className="titlebar-tabs" data-tauri-drag-region>
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           // 和「关之前要不要问」用同一条规则：空白的未命名文档不算未保存

@@ -1,6 +1,5 @@
 import { useAppStore } from '../stores/appStore';
 import { markdownToStaticHtml } from './markdown';
-import { expandEmbedsForExport } from './exportEmbeds';
 import { resolveAssetUrl, noteDirOf } from './assetUrl';
 import type { NoticeAction } from '../stores/appStore';
 
@@ -8,7 +7,6 @@ const REVEAL_LABEL = window.api.app.platform === 'darwin' ? '在访达中显示'
 
 /**
  * 「已导出」的提示带两个按钮：打开文件、在访达里选中它——导出到哪去了，不用再翻文件夹找。
- * 分成好几张的长图只给「显示」：打开只能开一张，不如在文件夹里一起看。
  */
 function notifyExported(text: string, paths: string[]) {
   const [first] = paths;
@@ -25,24 +23,35 @@ export async function exportActiveTabToPdf(): Promise<void> {
   const { tabs, activeTabId } = useAppStore.getState();
   const tab = tabs.find((t) => t.id === activeTabId);
   if (!tab) return;
-  const staticHtml = await expandEmbedsForExport(await markdownToStaticHtml(tab.content), tab.id);
+  const staticHtml = await markdownToStaticHtml(tab.content);
+  // Tauri 壳没有「直接存成 PDF」的接口，走系统的打印面板：先告诉用户 PDF 在面板的哪儿
+  if (window.api.assetBase) useAppStore.getState().notify(window.api.app.platform === 'darwin' ? '在打印面板左下角点「PDF」→「存储为 PDF」' : '在打印面板的「打印机」里选「另存为 PDF」', 12000);
   const result = await window.api.export.pdf(staticHtml, tab.title, tab.id);
+  if (result?.printed) return;
   if (result?.success && result.path) notifyExported('已导出 PDF', [result.path]);
   else if (result && !result.canceled) useAppStore.getState().notify(`导出失败：${result.error || '未知错误'}`);
 }
 
-/** 导出为长图（PNG）：发群里、发朋友圈用。很长的笔记会自动分成几张 */
+/** 导出为长图（PNG）：发群里、发朋友圈用。很长的文档会自动分成几张，切在段落的边界上 */
 export async function exportActiveTabToImage(): Promise<void> {
   useAppStore.getState().editorFlush?.();
-  const { tabs, activeTabId, notify } = useAppStore.getState();
+  const { tabs, activeTabId, notify, getNewNoteDir } = useAppStore.getState();
   const tab = tabs.find((t) => t.id === activeTabId);
   if (!tab) return;
+  // 先问存哪：取消了就不必白白生成
+  const target = await window.api.export.askPath(tab.title, 'PNG 图片', 'png');
+  if (!target) return;
   notify('正在生成长图…', 60000);
-  const staticHtml = await expandEmbedsForExport(await markdownToStaticHtml(tab.content), tab.id);
-  const result = await window.api.export.image(staticHtml, tab.title, tab.id);
-  if (result?.success && result.path) notifyExported(result.paths && result.paths.length > 1 ? `笔记很长，分成了 ${result.paths.length} 张图` : '已导出长图', result.paths?.length ? result.paths : [result.path]);
-  else if (result?.canceled) useAppStore.setState({ notice: null });
-  else notify(`导出失败：${result?.error || '未知错误'}`);
+  try {
+    const { renderLongImage } = await import('./exportImage');
+    const parts = await renderLongImage(await markdownToStaticHtml(tab.content), noteDirOf(tab.id, getNewNoteDir()));
+    const result = await window.api.export.writeFiles(target, parts);
+    // 分成好几张的只给「显示」：打开只能开一张，不如在文件夹里一起看
+    if (result?.success && result.paths?.length) notifyExported(result.paths.length > 1 ? `文档很长，分成了 ${result.paths.length} 张图` : '已导出长图', result.paths);
+    else notify(`导出失败：${result?.error || '未知错误'}`);
+  } catch (err: any) {
+    notify(`导出失败：${err?.message || err}`);
+  }
 }
 
 const MAX_DOCX_IMAGE_PIXELS = 1600;
@@ -90,7 +99,7 @@ export async function exportActiveTabToDocx(): Promise<void> {
   if (!tab) return;
   notify('正在生成 Word 文档…', 60000);
   try {
-    const staticHtml = await expandEmbedsForExport(await markdownToStaticHtml(tab.content), tab.id);
+    const staticHtml = await markdownToStaticHtml(tab.content);
     const noteDir = noteDirOf(tab.id, getNewNoteDir());
     const { htmlToDocx } = await import('./exportDocx');
     const bytes = await htmlToDocx(staticHtml, { title: tab.title.replace(/\.(md|markdown|mdown|mkd|txt)$/i, ''), loadImage: (src) => loadImageAsPng(src, noteDir) });
@@ -109,7 +118,7 @@ export async function exportActiveTabToHtml(): Promise<void> {
   const { tabs, activeTabId, notify } = useAppStore.getState();
   const tab = tabs.find((t) => t.id === activeTabId);
   if (!tab) return;
-  const staticHtml = await expandEmbedsForExport(await markdownToStaticHtml(tab.content, { keepFrontmatter: true }), tab.id);
+  const staticHtml = await markdownToStaticHtml(tab.content, { keepFrontmatter: true });
   const result = await window.api.export.html(staticHtml, tab.title, tab.id);
   if (result?.success && result.path) notifyExported('已导出 HTML', [result.path]);
   else if (result && !result.canceled) notify(`导出失败：${result.error || '未知错误'}`);

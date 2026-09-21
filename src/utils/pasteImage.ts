@@ -47,7 +47,12 @@ export async function prepareImage(file: File, compress: boolean): Promise<Prepa
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(bitmap, 0, 0, width, height);
     bitmap.close?.();
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', WEBP_QUALITY));
+    let blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', WEBP_QUALITY));
+    // Safari 内核（Tauri 壳在 macOS 上用的系统 WebView）的画布编不出 WebP，悄悄给回一张 PNG：这时把原图交给壳去压
+    if ((!blob || blob.type !== 'image/webp') && window.api.image?.toWebp) {
+      const encoded = await window.api.image.toWebp(original, MAX_WIDTH, MAX_HEIGHT, WEBP_QUALITY * 100);
+      blob = encoded ? new Blob([encoded], { type: 'image/webp' }) : null;
+    }
     if (!blob || blob.type !== 'image/webp' || blob.size > original.byteLength * 0.9) return keep;
     const base = (file.name || 'image.png').replace(/\.[^.]+$/, '') || 'image';
     return { buffer: await blob.arrayBuffer(), name: `${base}.webp`, originalBytes: original.byteLength, bytes: blob.size, compressed: true };
@@ -59,9 +64,12 @@ export async function prepareImage(file: File, compress: boolean): Promise<Prepa
 
 /** 粘贴 / 拖入的图片：按设置压缩 → 存到笔记旁的 assets/ → 返回 Markdown 里用的相对路径 */
 export async function storeImageFile(file: File, tabId: string | null): Promise<string | null> {
-  const owner = imageOwnerPath(tabId);
-  if (!owner) return null;
   const { imageCompression, notify } = useAppStore.getState();
+  const owner = imageOwnerPath(tabId);
+  if (!owner) {
+    notify('先保存这篇文档，图片才有地方放：它会存进文档旁边的 assets/ 文件夹', 8000);
+    return null;
+  }
   const prepared = await prepareImage(file, imageCompression);
   const result = await window.api.fs.saveImage(owner, prepared.name, prepared.buffer);
   if (!result.success || !result.path) {
@@ -73,11 +81,13 @@ export async function storeImageFile(file: File, tabId: string | null): Promise<
 }
 
 /**
- * data URL（本地上传 / AI 生成的图片）→ 存成笔记旁的文件，返回相对路径。
- * 存不了（比如还没有笔记库目录）就把 data URL 原样还回去，插入照常进行。
+ * data URL（本地上传的图片）→ 存成文档旁的文件，返回相对路径。
+ * 文档还没保存过就返回 null（不插入）；其他原因存不了，把 data URL 原样还回去，插入照常进行。
  */
-export async function persistDataUrl(dataUrl: string, tabId: string | null, nameHint = 'image'): Promise<string> {
+export async function persistDataUrl(dataUrl: string, tabId: string | null, nameHint = 'image'): Promise<string | null> {
   if (!dataUrl.startsWith('data:image/')) return dataUrl;
+  // 文档还没保存过：storeImageFile 会提示「先保存」，这里不插入，免得几 MB 的 base64 进了正文
+  if (!imageOwnerPath(tabId)) { await storeImageFile(new File([], 'image.png'), tabId); return null; }
   try {
     // 不用 fetch(dataUrl)：页面的 CSP 只放行了 connect-src 'self'，data: 会被拦
     const m = /^data:([^;,]+)((?:;[^;,]+)*?)(;base64)?,([\s\S]*)$/.exec(dataUrl);

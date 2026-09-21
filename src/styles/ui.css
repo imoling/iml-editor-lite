@@ -235,6 +235,8 @@
 .menu-item--dim { opacity: 0.6; }
 .menu-hint { margin-left: auto; opacity: 0.4; font-size: 11px; }
 .menu-divider { height: 1px; background-color: var(--border-subtle); margin: 6px 4px; }
+.menu-label { padding: 2px 12px 4px; font-size: 11px; color: var(--text-muted); }
+.menu-item .truncate { max-width: 170px; }
 /* ── 快速打开（⌘T）── 面板靠上悬浮，实底（同右键菜单：压在正文上不能半透明） */
 .quick-open-backdrop { position: fixed; inset: 0; z-index: 9000; background-color: rgba(0, 0, 0, 0.18); display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh; }
 .quick-open {

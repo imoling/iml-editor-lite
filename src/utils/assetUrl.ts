@@ -4,7 +4,7 @@
  * 会相对应用自己去找，永远找不到。这里按「笔记所在目录」解析，并走主进程注册的 iml-asset:// 协议读本地文件。
  */
 
-const ASSET_SCHEME = 'iml-asset://local/';
+const ASSET_SCHEME: string = (typeof window !== 'undefined' && window.api?.assetBase) || 'iml-asset://local/';
 
 const isWindowsAbs = (p: string) => /^[A-Za-z]:[\\/]/.test(p);
 

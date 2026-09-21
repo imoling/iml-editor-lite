@@ -1,36 +1,24 @@
 import React from 'react';
-import { Loader2, Sparkles, RotateCcw } from 'lucide-react';
-import { useAppStore } from '../../../stores/appStore';
 
 interface ImageInsertDialogProps {
   onConfirm: (src: string, alt: string) => void;
   onCancel: () => void;
 }
 
-type Tab = 'upload' | 'url' | 'ai';
+type Tab = 'upload' | 'url';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'upload', label: '本地上传' },
   { id: 'url', label: '网络链接' },
-  { id: 'ai', label: 'AI 生成' },
 ];
 
-/** 插入图片：本地上传 / 网络链接 / AI 生成 */
+/** 插入图片：本地上传 / 网络链接 */
 export const ImageInsertDialog: React.FC<ImageInsertDialogProps> = ({ onConfirm, onCancel }) => {
-  const imageGenConfig = useAppStore((s) => s.imageGenConfig);
-  const aiEnabled = useAppStore((s) => s.aiEnabled);
   const [tab, setTab] = React.useState<Tab>('upload');
   const [url, setUrl] = React.useState('');
   const [alt, setAlt] = React.useState('');
   const [preview, setPreview] = React.useState('');
   const [dragging, setDragging] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  const [aiPrompt, setAiPrompt] = React.useState('');
-  const [aiImages, setAiImages] = React.useState<{ url: string }[]>([]);
-  const [aiSelected, setAiSelected] = React.useState<number | null>(null);
-  const [aiLoading, setAiLoading] = React.useState(false);
-  const [aiError, setAiError] = React.useState('');
-  const [lightboxSrc, setLightboxSrc] = React.useState<string | null>(null);
 
   const handleFile = (file: File) => {
     if (!file.type.startsWith('image/')) return;
@@ -49,30 +37,12 @@ export const ImageInsertDialog: React.FC<ImageInsertDialogProps> = ({ onConfirm,
     if (file) handleFile(file);
   };
 
-  const handleGenerate = async () => {
-    if (!aiPrompt.trim() || aiLoading) return;
-    setAiLoading(true);
-    setAiError('');
-    setAiImages([]);
-    setAiSelected(null);
-    try {
-      const results = await window.api.ai.generateImage({ prompt: aiPrompt.trim(), config: imageGenConfig });
-      setAiImages(results);
-      if (results.length > 0) setAiSelected(0);
-    } catch (err: any) {
-      setAiError(err.message || '生成失败，请检查 API Key 配置');
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  const canConfirm = tab === 'upload' ? !!preview : tab === 'url' ? !!url.trim() : aiSelected !== null && aiImages.length > 0;
+  const canConfirm = tab === 'upload' ? !!preview : !!url.trim();
 
   const handleConfirm = () => {
     if (!canConfirm) return;
     if (tab === 'upload') onConfirm(preview, alt.trim());
-    else if (tab === 'url') onConfirm(url.trim(), alt.trim());
-    else if (aiSelected !== null && aiImages[aiSelected]) onConfirm(aiImages[aiSelected].url, alt.trim() || aiPrompt.trim());
+    else onConfirm(url.trim(), alt.trim());
   };
 
   const onInputKey = (e: React.KeyboardEvent) => {
@@ -86,7 +56,7 @@ export const ImageInsertDialog: React.FC<ImageInsertDialogProps> = ({ onConfirm,
         <div className="image-dialog__head">
           <h3 className="modal-title modal-title--sm">插入图片</h3>
           <div className="segmented">
-            {TABS.filter((t) => t.id !== 'ai' || aiEnabled).map((t) => (
+            {TABS.map((t) => (
               <button key={t.id} onClick={() => setTab(t.id)} className={`segmented__btn ${tab === t.id ? 'segmented__btn--active' : ''}`}>{t.label}</button>
             ))}
           </div>
@@ -128,59 +98,10 @@ export const ImageInsertDialog: React.FC<ImageInsertDialogProps> = ({ onConfirm,
             </div>
           )}
 
-          {tab === 'ai' && (
-            <div className="col gap-10">
-              <div className="row gap-8">
-                <input
-                  autoFocus type="text" value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleGenerate(); if (e.key === 'Escape') onCancel(); }}
-                  placeholder="描述你想要的图片…"
-                  className="field-input field-input--xs flex-1"
-                />
-                <button onClick={handleGenerate} disabled={!aiPrompt.trim() || aiLoading} className="btn btn-gradient btn-xs image-dialog__generate">
-                  {aiLoading ? <><Loader2 size={13} className="animate-spin" /> 生成中</> : <><Sparkles size={13} /> 生成</>}
-                </button>
-              </div>
-
-              {aiLoading && aiImages.length === 0 && (
-                <div className="image-dialog__skeleton"><Loader2 size={20} className="animate-spin" color="var(--text-muted)" /></div>
-              )}
-
-              {aiImages.length > 0 && (
-                <div className="image-dialog__result">
-                  <img src={aiImages[0].url} alt="生成图" />
-                  <button onClick={() => setLightboxSrc(aiImages[0].url)} title="查看大图" className="overlay-btn overlay-btn--left">
-                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M1 1h4M1 1v4M13 1h-4M13 1v4M1 13h4M1 13v-4M13 13h-4M13 13v-4" stroke="white" strokeWidth="1.8" strokeLinecap="round" /></svg>
-                  </button>
-                  <button onClick={handleGenerate} title="重新生成" className="overlay-btn overlay-btn--right"><RotateCcw size={12} /></button>
-                </div>
-              )}
-
-              {aiError && <div className="error-box">{aiError}</div>}
-
-              {!aiLoading && aiImages.length === 0 && !aiError && (
-                <div className="hint text-center image-dialog__tip">
-                  {!imageGenConfig.apiKey ? (
-                    <span className="image-dialog__tip--warn">
-                      需先配置 API Key<br />
-                      <span className="image-dialog__tip-small">菜单「智能」→ AI 配图 → 选择提供商并填入 Key</span>
-                    </span>
-                  ) : (
-                    <>输入描述后点击「生成」<br />
-                    <span className="image-dialog__tip-small">当前提供商：{imageGenConfig.provider}　可在「智能」→ AI 配图中切换</span></>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {tab !== 'ai' && (
-            <div className="col gap-6">
-              <label className="text-sm text-secondary fw-500">图片描述 <span className="text-muted fw-400">(可选)</span></label>
-              <input type="text" value={alt} onChange={(e) => setAlt(e.target.value)} onKeyDown={onInputKey} placeholder="图片说明文字" className="field-input field-input--xs" />
-            </div>
-          )}
+          <div className="col gap-6">
+            <label className="text-sm text-secondary fw-500">图片描述 <span className="text-muted fw-400">(可选)</span></label>
+            <input type="text" value={alt} onChange={(e) => setAlt(e.target.value)} onKeyDown={onInputKey} placeholder="图片说明文字" className="field-input field-input--xs" />
+          </div>
 
           <div className="row gap-10 mt-2">
             <button onClick={onCancel} className="btn btn-ghost btn-sm btn-block">取消</button>
@@ -189,12 +110,6 @@ export const ImageInsertDialog: React.FC<ImageInsertDialogProps> = ({ onConfirm,
         </div>
       </div>
 
-      {lightboxSrc && (
-        <div className="lightbox" onClick={() => setLightboxSrc(null)}>
-          <img src={lightboxSrc} onClick={(e) => e.stopPropagation()} />
-          <button onClick={() => setLightboxSrc(null)} className="lightbox__close">×</button>
-        </div>
-      )}
     </div>
   );
 };

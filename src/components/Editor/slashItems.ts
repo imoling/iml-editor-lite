@@ -1,13 +1,11 @@
 import type { Editor, Range } from '@tiptap/core';
 import type { SlashItem } from '../../extensions/SlashCommand';
 
-/** 需要 React 层配合（打开对话框 / 气泡）的动作 */
+/** 需要 React 层配合（打开对话框）的动作 */
 export interface SlashActions {
   openTable: () => void;
   openImage: () => void;
   openLink: () => void;
-  openAI: () => void;
-  openDailyNote?: () => void;
 }
 
 import { formatDate, formatTime } from '../../utils/date';
@@ -33,20 +31,16 @@ export function createSlashItems(actions: SlashActions): SlashItem[] {
     { id: 'callout-warning', group: '块', title: '警告块', description: '> [!WARNING] 需要留意的内容', keywords: ['warning', 'caution', 'jg', 'jinggao'], icon: 'TriangleAlert', run: after((e) => e.chain().focus().toggleCallout('WARNING').run()) },
     { id: 'divider', group: '块', title: '分割线', description: '水平分隔', keywords: ['hr', 'divider', 'line', 'fgx', 'fengexian'], icon: 'Minus', run: after((e) => e.chain().focus().setHorizontalRule().run()) },
     { id: 'table', group: '插入', title: '表格', description: '指定行列数', keywords: ['table', 'bg', 'biaoge'], icon: 'Table', run: after(() => actions.openTable()) },
-    { id: 'image', group: '插入', title: '图片', description: '本地 / 链接 / AI 生成', keywords: ['image', 'img', 'picture', 'tp', 'tupian'], icon: 'Image', run: after(() => actions.openImage()) },
+    { id: 'image', group: '插入', title: '图片', description: '本地图片 / 网络链接', keywords: ['image', 'img', 'picture', 'tp', 'tupian'], icon: 'Image', run: after(() => actions.openImage()) },
     { id: 'link', group: '插入', title: '链接', description: '插入超链接', keywords: ['link', 'url', 'lj', 'lianjie'], icon: 'Link', run: after(() => actions.openLink()) },
     { id: 'math', group: '插入', title: '公式', description: 'LaTeX 数学公式', keywords: ['math', 'latex', 'formula', 'gs', 'gongshi'], icon: 'Sigma', run: after((e) => e.chain().focus().insertContent({ type: 'math', attrs: { latex: 'e = mc^2' } }).run()) },
     { id: 'mermaid', group: '插入', title: 'Mermaid 图表', description: '流程图 / 时序图 / 甘特图', keywords: ['mermaid', 'chart', 'flow', 'tb', 'tubiao', 'lct'], icon: 'Activity', run: after((e) => e.chain().focus().insertContent({ type: 'diagram', attrs: { code: 'graph TD\n  A[开始] --> B{选择}\n  B -->|选项1| C[结果1]\n  B -->|选项2| D[结果2]' } }).run()) },
     { id: 'svg', group: '插入', title: 'SVG 插图', description: '内联矢量图', keywords: ['svg', 'vector', 'ct', 'chatu'], icon: 'PenTool', run: after((e) => e.chain().focus().insertContent({ type: 'svgBlock', attrs: { code: '<svg width="100" height="100" viewBox="0 0 100 100">\n  <circle cx="50" cy="50" r="40" stroke="#6366F1" stroke-width="3" fill="#EEF2FF" />\n  <text x="50" y="55" font-size="12" text-anchor="middle" fill="#1D1D1F">SVG</text>\n</svg>' } }).run()) },
     { id: 'toc', group: '插入', title: '目录', description: '[TOC] 随标题自动更新', keywords: ['toc', 'contents', 'ml', 'mulu'], icon: 'ListTree', run: after((e) => e.chain().focus().insertToc().run()) },
-    { id: 'frontmatter', group: '笔记', title: '属性（Frontmatter）', description: '文档开头的 YAML：标签、日期、别名', keywords: ['frontmatter', 'yaml', 'properties', 'tags', 'sx', 'shuxing'], icon: 'Tags', run: after((e) => e.chain().focus().insertFrontmatter(`tags: []\ndate: ${formatDate(new Date())}`).run()) },
+    { id: 'frontmatter', group: '插入', title: '属性（Frontmatter）', description: '文档开头的 YAML：标签、日期、别名', keywords: ['frontmatter', 'yaml', 'properties', 'tags', 'sx', 'shuxing'], icon: 'Tags', run: after((e) => e.chain().focus().insertFrontmatter(`tags: []\ndate: ${formatDate(new Date())}`).run()) },
     { id: 'date', group: '插入', title: '今天日期', description: formatDate(new Date()), keywords: ['date', 'today', 'rq', 'riqi', 'jintian'], icon: 'Calendar', run: after((e) => e.chain().focus().insertContent(formatDate(new Date())).run()) },
     { id: 'datetime', group: '插入', title: '当前时间', description: `${formatDate(new Date())} ${formatTime(new Date())}`, keywords: ['time', 'now', 'sj', 'shijian'], icon: 'Clock', run: after((e) => e.chain().focus().insertContent(`${formatDate(new Date())} ${formatTime(new Date())}`).run()) },
-    { id: 'ai', group: 'AI', title: 'AI 助手', description: '续写、结合上下文补全、生成图表', keywords: ['ai', 'gpt', 'assistant', 'zs', 'zhushou'], icon: 'Sparkles', run: after(() => actions.openAI()) },
   ];
-  if (actions.openDailyNote) {
-    items.push({ id: 'daily', group: '笔记', title: '今日日记', description: '打开或新建今天的日记', keywords: ['daily', 'journal', 'diary', 'rj', 'riji'], icon: 'CalendarDays', run: after(() => actions.openDailyNote!()) });
-  }
   return items;
 }
 

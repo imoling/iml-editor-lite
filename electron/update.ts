@@ -40,15 +40,25 @@ export function pickInstaller(assets: ReleaseAsset[], platform: string, arch: st
     ?? null;
 }
 
-/** GitHub releases/latest 的响应 → 界面要用的信息 */
-export function describeRelease(data: any, platform: string, arch: string): UpdateInfo {
+/**
+ * 从 GitHub releases 列表（新的在前）里挑出带指定标签前缀的最新一个正式版；草稿和预发布不算。
+ * 几个应用共用一个仓库时，靠标签前缀分清哪些版本是自己的。
+ */
+export function pickLatestRelease(list: any, tagPrefix: string): any | null {
+  if (!Array.isArray(list)) return null;
+  return list.find((r) => r && !r.draft && !r.prerelease && typeof r.tag_name === 'string' && r.tag_name.startsWith(tagPrefix)) ?? null;
+}
+
+/** GitHub 的一个 release → 界面要用的信息。tagPrefix 是标签上版本号前面的那一段（默认 `v`） */
+export function describeRelease(data: any, platform: string, arch: string, tagPrefix = 'v'): UpdateInfo {
   const assets: ReleaseAsset[] = Array.isArray(data?.assets)
     ? data.assets.filter((a: any) => typeof a?.name === 'string' && typeof a?.browser_download_url === 'string').map((a: any) => ({ name: a.name, browser_download_url: a.browser_download_url, size: Number(a.size) || 0 }))
     : [];
   const installer = pickInstaller(assets, platform, arch);
+  const tag = String(data?.tag_name || '');
   return {
     success: true,
-    latestVersion: String(data?.tag_name || '').replace(/^v/, ''),
+    latestVersion: tag.startsWith(tagPrefix) ? tag.slice(tagPrefix.length) : tag.replace(/^v/, ''),
     releaseUrl: data?.html_url,
     notes: typeof data?.body === 'string' ? data.body : '',
     download: installer ? { url: installer.browser_download_url, name: installer.name, size: installer.size, label: platformLabel(platform, arch) } : undefined,

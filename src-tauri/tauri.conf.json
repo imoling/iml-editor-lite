@@ -1,0 +1,71 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "iML 编辑器",
+  "mainBinaryName": "iml-editor",
+  "version": "../package.json",
+  "identifier": "com.imoling.editor",
+  "build": {
+    "beforeDevCommand": "npm run dev:web",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build:web",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "iML 编辑器",
+        "width": 1024,
+        "height": 768,
+        "minWidth": 800,
+        "minHeight": 600,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "纯粹的 Markdown 编辑器",
+    "longDescription": "打开、写、保存。富文本 / 源码双模，原样保存，导出 PDF / HTML / Word。",
+    "copyright": "© 2026 iML Studio",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "md",
+          "markdown",
+          "mdown",
+          "mkd"
+        ],
+        "name": "Markdown Document",
+        "description": "Markdown 文档",
+        "role": "Editor",
+        "mimeType": "text/markdown"
+      }
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "-"
+    },
+    "windows": {
+      "nsis": {
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

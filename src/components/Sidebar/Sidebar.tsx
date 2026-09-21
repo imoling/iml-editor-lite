@@ -1,18 +1,10 @@
 import React from 'react';
 import { useAppStore, FileNode, HeadingNode, readLibraryDir } from '../../stores/appStore';
-import { SearchPanel } from './SearchPanel';
-import { TagsPanel } from './TagsPanel';
-import { RelatedPanel } from './RelatedPanel';
-import { AskPanel } from './AskPanel';
-import { TranscribePanel } from './TranscribePanel';
-import { CalendarPanel } from './CalendarPanel';
-import { TasksPanel } from './TasksPanel';
 import { sortFileNodes, FILE_SORT_LABELS, FileSortMode } from '../../utils/fileSort';
 import {
   ChevronDown, ChevronRight, FolderOpen, FileText, FileCode, FolderClosed,
-  List, RotateCw, Star, BookOpen, Settings, FilePlus, FolderPlus, CalendarDays, LayoutTemplate, FolderOpen as FolderOpenIcon, Search, Hash, MessageCircleQuestion, Mic, Link2, ListChecks, ArrowUpDown, Check,
+  List, RotateCw, Folder, FilePlus, FolderPlus, ArrowUpDown, Check, X,
 } from 'lucide-react';
-import type { BacklinkResult, MentionResult, MentionSnippet } from '../../types/window';
 
 const isMac = window.api.app.platform === 'darwin';
 const REVEAL_LABEL = isMac ? '在访达中显示' : '在资源管理器中显示';
@@ -21,13 +13,8 @@ const MD_RE = /\.(md|markdown|mdown|mkd)$/i;
 export const ActivityBar: React.FC = () => {
   const { sidebarTab, setSidebarTab, sidebarVisible } = useAppStore();
   const tabs = [
-    { id: 'library' as const, icon: <BookOpen size={16} />, label: '笔记库', title: '笔记库（所有笔记与文件夹）' },
-    { id: 'catalog' as const, icon: <List size={16} />, label: '目录', title: '当前文档目录、反向链接与相关笔记' },
-    { id: 'tags' as const, icon: <Hash size={16} />, label: '标签', title: '所有标签' },
-    { id: 'tasks' as const, icon: <ListChecks size={16} />, label: '待办', title: '全库待办：散在各篇笔记里的 - [ ] 汇到一处' },
-    { id: 'search' as const, icon: <Search size={16} />, label: '搜索', title: '搜索所有笔记 (⇧⌘F)' },
-    { id: 'ask' as const, icon: <MessageCircleQuestion size={16} />, label: '问答', title: '问你的笔记 (⌘J)' },
-    { id: 'transcribe' as const, icon: <Mic size={16} />, label: '转写', title: '实时转写：会议、听课的语音在本机变成文字' },
+    { id: 'files' as const, icon: <Folder size={16} />, label: '文件', title: '打开的文件夹' },
+    { id: 'outline' as const, icon: <List size={16} />, label: '大纲', title: '当前文档的大纲' },
   ];
   return (
     <div className="activity-bar">
@@ -41,7 +28,7 @@ export const ActivityBar: React.FC = () => {
   );
 };
 
-/** 打开（或激活）一个笔记标签页 */
+/** 打开（或激活）一个标签页 */
 async function openNote(path: string, title: string) {
   const { tabs, setActiveTab, openTab } = useAppStore.getState();
   if (tabs.some((t) => t.id === path)) {
@@ -52,12 +39,12 @@ async function openNote(path: string, title: string) {
   if (result.success && result.content !== undefined) {
     openTab({ id: path, title, content: result.content, isDirty: false, mode: 'word' });
   } else {
-    useAppStore.getState().notify(`打不开「${title}」：文件可能已被移动或删除，刷新一下笔记库试试`, 8000);
+    useAppStore.getState().notify(`打不开「${title}」：文件可能已被移动或删除，刷新一下文件夹试试`, 8000);
   }
 }
 
 const FileTreeItem: React.FC<{ node: FileNode; level: number }> = ({ node, level }) => {
-  const { updateFileNode, activeTabId, expandedPaths, setExpanded, starredFiles, toggleStar, selectedNodePath, setSelectedNodePath, renamingPath, setRenamingPath, renameFile, setContextMenu } = useAppStore();
+  const { updateFileNode, activeTabId, expandedPaths, setExpanded, selectedNodePath, setSelectedNodePath, renamingPath, setRenamingPath, renameFile, setContextMenu } = useAppStore();
   const isOpen = expandedPaths.includes(node.path);
   const fileSort = useAppStore((st) => st.fileSort);
   const [editName, setEditName] = React.useState(node.name.replace(/\.md$/i, ''));
@@ -88,7 +75,6 @@ const FileTreeItem: React.FC<{ node: FileNode; level: number }> = ({ node, level
   const isActive = activeTabId === node.path;
   const isSelected = selectedNodePath === node.path;
   const isRenaming = renamingPath === node.path;
-  const isStarred = starredFiles.includes(node.path);
 
   const handleRenameSubmit = async () => {
     if (editName.trim() && editName !== node.name.replace(/\.md$/i, '')) {
@@ -139,11 +125,6 @@ const FileTreeItem: React.FC<{ node: FileNode; level: number }> = ({ node, level
         ) : (
           <span className={`tree-item__name ${isActive ? 'text-primary' : ''}`}>{node.isDirectory ? node.name : node.name.replace(/\.md$/i, '')}</span>
         )}
-        {!node.isDirectory && !isRenaming && (
-          <div className={`tree-item-star ${isStarred ? 'starred' : ''}`} onClick={(e) => { e.stopPropagation(); toggleStar(node.path); }} title={isStarred ? '取消收藏' : '加入收藏'}>
-            <Star size={13} strokeWidth={isStarred ? 0 : 1.5} fill={isStarred ? 'currentColor' : 'none'} />
-          </div>
-        )}
       </div>
 
       {node.isDirectory && isOpen && node.children && (
@@ -155,22 +136,6 @@ const FileTreeItem: React.FC<{ node: FileNode; level: number }> = ({ node, level
           )}
         </div>
       )}
-    </div>
-  );
-};
-
-const StarredItem: React.FC<{ path: string }> = ({ path }) => {
-  const { activeTabId, toggleStar } = useAppStore();
-  const name = path.split(/[/\\]/).pop() || 'Unknown';
-  const isActive = activeTabId === path;
-  return (
-    <div className={`tree-item tree-item--flat ${isActive ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); openNote(path, name); }} title={path}>
-      <span className="tree-item__spacer" />
-      <FileCode size={14} color={isActive ? 'var(--text-primary)' : 'var(--color-accent-green)'} />
-      <span className={`tree-item__name ${isActive ? 'text-primary' : ''}`}>{name.replace(/\.md$/i, '')}</span>
-      <div className="tree-item-star starred" onClick={(e) => { e.stopPropagation(); toggleStar(path); }} title="取消收藏">
-        <Star size={13} strokeWidth={0} fill="currentColor" />
-      </div>
     </div>
   );
 };
@@ -209,7 +174,7 @@ const ContextMenuComponent = () => {
     <div className="context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>
       {node.isDirectory && (
         <>
-          <MenuItem label="新建笔记" onClick={() => { done(); createNoteIn(node.path); }} />
+          <MenuItem label="新建文档" onClick={() => { done(); createNoteIn(node.path); }} />
           <MenuItem label="新建文件夹" onClick={() => { done(); createFolderIn(node.path); }} />
           <div className="context-menu__divider" />
         </>
@@ -227,89 +192,6 @@ const ContextMenuComponent = () => {
   );
 };
 
-/**
- * 当前笔记的反向链接：哪些笔记里写了 [[本篇]]（文件名、一级标题、别名都算），
- * 以及「未链接提及」：提到了本篇的名字但还没加链接的地方，点一下就地改成 [[链接]]。
- */
-const BacklinksPanel: React.FC = () => {
-  const activeTabId = useAppStore((s) => s.activeTabId);
-  const libraryVersion = useAppStore((s) => s.libraryVersion);
-  const openFileByPath = useAppStore((s) => s.openFileByPath);
-  const linkMention = useAppStore((s) => s.linkMention);
-  const notify = useAppStore((s) => s.notify);
-  const [links, setLinks] = React.useState<BacklinkResult[]>([]);
-  const [mentions, setMentions] = React.useState<MentionResult[]>([]);
-  const [showMentions, setShowMentions] = React.useState(false);
-  const [reload, setReload] = React.useState(0);
-
-  React.useEffect(() => {
-    if (!activeTabId || activeTabId.startsWith('new-')) { setLinks([]); setMentions([]); return; }
-    let cancelled = false;
-    window.api.search.backlinks(activeTabId).then((r) => { if (!cancelled) setLinks(r); }).catch(() => setLinks([]));
-    window.api.search.unlinkedMentions(activeTabId).then((r) => { if (!cancelled) setMentions(r); }).catch(() => setMentions([]));
-    return () => { cancelled = true; };
-  }, [activeTabId, libraryVersion, reload]);
-
-  if (!activeTabId) return null;
-
-  // 侧边栏窄、片段只显示两行：前文留太长，命中的那个词会被挤到看不见的地方
-  const lead = (before: string) => (before.length > 18 ? `…${before.slice(-18).replace(/^…/, '')}` : before);
-  const mentionCount = mentions.reduce((n, m) => n + m.snippets.length, 0);
-  const link = async (notePath: string, snippet: MentionSnippet) => {
-    const grown = await linkMention(notePath, snippet, activeTabId);
-    if (grown === null) {
-      notify('那篇笔记刚被改过，位置对不上了，已重新查找。');
-      setReload((n) => n + 1);
-      return;
-    }
-    // 这一处从列表里拿掉；同一篇里排在后面的提及跟着原文挪位置（索引要等那篇存盘后才会更新）
-    setMentions((prev) => prev
-      .map((m) => (m.path !== notePath ? m : {
-        ...m,
-        snippets: m.snippets.filter((s) => s !== snippet).map((s) => (s.offset > snippet.offset ? { ...s, offset: s.offset + grown } : s)),
-      }))
-      .filter((m) => m.snippets.length > 0));
-  };
-
-  return (
-    <div className="backlinks">
-      <div className="sidebar-section-title">🔗 反向链接{links.length ? ` · ${links.length}` : ''}</div>
-      {links.length === 0 ? (
-        <div className="tree-empty tree-empty--root">还没有其他笔记链接到这里。在别的笔记里输入 [[ 即可引用。</div>
-      ) : (
-        links.map((l) => (
-          <div key={l.path} className="search-result" onClick={() => openFileByPath(l.path)} title={l.path}>
-            <div className="search-result__title"><span className="truncate flex-1">{l.title}</span></div>
-            {l.snippets.slice(0, 2).map((s, i) => (
-              <div key={i} className="search-result__snippet">{lead(s.before)}<mark>{s.match}</mark>{s.after}</div>
-            ))}
-          </div>
-        ))
-      )}
-      {mentionCount > 0 && (
-        <>
-          <div className="sidebar-section-title sidebar-section-title--toggle" onClick={() => setShowMentions((v) => !v)} title="提到了这篇笔记的名字、但还没加链接的地方">
-            {showMentions ? <ChevronDown size={12} /> : <ChevronRight size={12} />} 未链接提及 · {mentionCount}
-          </div>
-          {showMentions && mentions.map((m) => (
-            <div key={m.path} className="search-result" onClick={() => openFileByPath(m.path)} title={m.path}>
-              <div className="search-result__title"><span className="truncate flex-1">{m.title}</span></div>
-              {m.snippets.map((s) => (
-                <div key={s.offset} className="search-result__snippet mention-row">
-                  <span className="flex-1">{lead(s.before)}<mark>{s.match}</mark>{s.after}</span>
-                  <button className="mention-row__link" title={`改成 [[链接]]`} onClick={(e) => { e.stopPropagation(); void link(m.path, s); }}>
-                    <Link2 size={11} /> 链接
-                  </button>
-                </div>
-              ))}
-            </div>
-          ))}
-        </>
-      )}
-    </div>
-  );
-};
-
 /** 文件树排序方式的下拉。文件夹总在前面按名称排，这里选的是文件怎么排 */
 const SortMenu: React.FC<{ current: FileSortMode; onPick: (mode: FileSortMode) => void; onClose: () => void }> = ({ current, onPick, onClose }) => {
   React.useEffect(() => {
@@ -319,7 +201,7 @@ const SortMenu: React.FC<{ current: FileSortMode; onPick: (mode: FileSortMode) =
   }, [onClose]);
   return (
     <div className="popover-menu template-menu sort-menu" onClick={(e) => e.stopPropagation()}>
-      <div className="popover-menu__label">笔记的排列顺序</div>
+      <div className="popover-menu__label">文件的排列顺序</div>
       {(Object.keys(FILE_SORT_LABELS) as FileSortMode[]).map((mode) => (
         <button key={mode} className="popover-menu__item" onClick={() => onPick(mode)}>
           <span className="sort-menu__check">{mode === current && <Check size={12} />}</span>
@@ -330,55 +212,12 @@ const SortMenu: React.FC<{ current: FileSortMode; onPick: (mode: FileSortMode) =
   );
 };
 
-/** 「从模板新建」下拉：列出笔记库/模板 下的文件，没有时提供一键创建示例模板 */
-const TemplateMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { listTemplates, createNoteFromTemplate, createSampleTemplates, workspacePath } = useAppStore();
-  const [templates, setTemplates] = React.useState<{ name: string; path: string }[] | null>(null);
-
-  React.useEffect(() => {
-    listTemplates().then(setTemplates);
-    const close = () => onClose();
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, []);
-
-  const templateDir = workspacePath ? `${workspacePath}${workspacePath.includes('\\') ? '\\' : '/'}模板` : '';
-
-  return (
-    <div className="popover-menu template-menu" onClick={(e) => e.stopPropagation()}>
-      <div className="popover-menu__label">从模板新建</div>
-      {templates === null ? (
-        <div className="popover-menu__label">加载中…</div>
-      ) : templates.length === 0 ? (
-        <button className="popover-menu__item" onClick={async () => { await createSampleTemplates(); setTemplates(await listTemplates()); }}>
-          还没有模板，创建示例模板
-        </button>
-      ) : (
-        templates.map((t) => (
-          <button key={t.path} className="popover-menu__item" onClick={() => { onClose(); createNoteFromTemplate(t.path); }}>
-            <LayoutTemplate size={12} /> {t.name}
-          </button>
-        ))
-      )}
-      {templates && templates.length > 0 && (
-        <>
-          <div className="context-menu__divider" />
-          <button className="popover-menu__item" onClick={() => { onClose(); window.api.shell.showItemInFolder(templateDir); }}>
-            <FolderOpenIcon size={12} /> 打开模板文件夹
-          </button>
-        </>
-      )}
-    </div>
-  );
-};
-
 export const Sidebar: React.FC = () => {
   const {
     fileTree, workspacePath, workspaceName, sidebarVisible, outline, sidebarTab,
-    refreshWorkspace, starredFiles, sidebarWidth, setSidebarWidth,
-    createNoteIn, createFolderIn, getNewNoteDir, setContextMenu, setSelectedNodePath, openDailyNote,
+    refreshWorkspace, sidebarWidth, setSidebarWidth,
+    createNoteIn, createFolderIn, getNewNoteDir, setContextMenu, setSelectedNodePath, openDirectory, closeFolder,
   } = useAppStore();
-  const [showTemplates, setShowTemplates] = React.useState(false);
   const [showSort, setShowSort] = React.useState(false);
   const fileSort = useAppStore((st) => st.fileSort);
   const setFileSort = useAppStore((st) => st.setFileSort);
@@ -407,9 +246,9 @@ export const Sidebar: React.FC = () => {
 
   React.useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      // 别人已经处理过的按键不再管（快速打开、命令面板里的回车）。
+      // 别人已经处理过的按键不再管。
       // 判断「是不是在输入」看的是按键从哪发出来的，不是此刻焦点在哪：很多输入框一回车就消失了（弹窗关闭、卡片重画），
-      // 等事件冒泡到这里焦点早已回到 body——曾经因此在快速打开里按回车，文件树里选中的文件就进了重命名状态
+      // 等事件冒泡到这里焦点早已回到 body，文件树里选中的文件会误进重命名状态
       if (e.defaultPrevented) return;
       const from = e.target as HTMLElement | null;
       if (from?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
@@ -431,65 +270,42 @@ export const Sidebar: React.FC = () => {
     if (!workspacePath) return;
     e.preventDefault();
     setSelectedNodePath(null);
-    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, node: { name: workspaceName || '笔记库', path: workspacePath, isDirectory: true } });
+    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, node: { name: workspaceName || '文件夹', path: workspacePath, isDirectory: true } });
   };
 
   return (
     <aside ref={asideRef} className="sidebar" style={{ width: sidebarWidth }}>
       <div ref={handleRef} className="sidebar-resize-handle" onPointerDown={onHandlePointerDown} onPointerMove={onHandlePointerMove} onPointerUp={onHandlePointerUp} title="拖动调整宽度" />
-      <div className="sidebar-content" onContextMenu={sidebarTab === 'library' ? openRootMenu : undefined}>
-        {sidebarTab === 'transcribe' ? (
-          <TranscribePanel />
-        ) : sidebarTab === 'ask' ? (
-          <AskPanel />
-        ) : sidebarTab === 'search' ? (
-          <SearchPanel />
-        ) : sidebarTab === 'tags' ? (
-          <TagsPanel />
-        ) : sidebarTab === 'tasks' ? (
-          <TasksPanel />
-        ) : sidebarTab === 'catalog' ? (
+      <div className="sidebar-content" onContextMenu={sidebarTab === 'files' ? openRootMenu : undefined}>
+        {sidebarTab === 'outline' ? (
           <div className="catalog-view">
-            {outline.length === 0 ? <div className="empty-state">暂无目录层级</div> : outline.map((item) => <OutlineItem key={item.id} node={item} />)}
-            <BacklinksPanel />
-            <RelatedPanel />
+            {outline.length === 0 ? <div className="empty-state">这篇文档还没有标题</div> : outline.map((item) => <OutlineItem key={item.id} node={item} />)}
           </div>
         ) : !workspacePath ? (
           <div className="empty-state">
-            <BookOpen size={28} color="var(--text-muted)" className="empty-state__icon" />
-            <div className="text-sm text-secondary mb-8">笔记库未配置</div>
-            <div className="hint mb-16">选一个文件夹作为笔记库，<br />所有笔记与子文件夹都在这里管理</div>
-            <button onClick={() => useAppStore.getState().openDialog('settings')} className="btn btn-ghost btn-xs"><Settings size={11} /> 前往设置</button>
+            <Folder size={28} color="var(--text-muted)" className="empty-state__icon" />
+            <div className="text-sm text-secondary mb-8">还没有打开文件夹</div>
+            <div className="hint mb-16">打开一个文件夹，<br />里面的文档会列在这里，方便来回切换</div>
+            <button onClick={() => void openDirectory()} className="btn btn-ghost btn-xs"><FolderOpen size={11} /> 打开文件夹…</button>
           </div>
         ) : (
           <>
-            {starredFiles.length > 0 && (
-              <div className="mb-12">
-                <div className="sidebar-section-title">⭐ 收藏夹</div>
-                {starredFiles.map((path) => <StarredItem key={`star-${path}`} path={path} />)}
-              </div>
-            )}
-
             <div className="tree-item library-header" title={workspacePath} onClick={() => setSelectedNodePath(null)} onContextMenu={(e) => { e.stopPropagation(); openRootMenu(e); }}>
-              <BookOpen size={14} color="var(--color-brand-indigo)" />
+              <Folder size={14} color="var(--color-brand-indigo)" />
               <span className="truncate flex-1">{workspaceName}</span>
-              <button onClick={(e) => { e.stopPropagation(); createNoteIn(getNewNoteDir()); }} className="icon-btn icon-btn--sm hover-bg" title="新建笔记（在选中的文件夹里）"><FilePlus size={13} /></button>
-              <div className="menu-anchor">
-                <button onClick={(e) => { e.stopPropagation(); setShowTemplates((v) => !v); }} className="icon-btn icon-btn--sm hover-bg" title="从模板新建"><LayoutTemplate size={13} /></button>
-                {showTemplates && <TemplateMenu onClose={() => setShowTemplates(false)} />}
-              </div>
-              <button onClick={(e) => { e.stopPropagation(); openDailyNote(); }} className="icon-btn icon-btn--sm hover-bg" title="今日日记 (⇧⌘D)"><CalendarDays size={13} /></button>
+              <button onClick={(e) => { e.stopPropagation(); createNoteIn(getNewNoteDir()); }} className="icon-btn icon-btn--sm hover-bg" title="新建文档（在选中的文件夹里）"><FilePlus size={13} /></button>
               <button onClick={(e) => { e.stopPropagation(); createFolderIn(getNewNoteDir()); }} className="icon-btn icon-btn--sm hover-bg" title="新建文件夹"><FolderPlus size={13} /></button>
               <div className="menu-anchor">
                 <button onClick={(e) => { e.stopPropagation(); setShowSort((v) => !v); }} className="icon-btn icon-btn--sm hover-bg" title={`排序：${FILE_SORT_LABELS[fileSort]}`}><ArrowUpDown size={12} /></button>
                 {showSort && <SortMenu current={fileSort} onPick={(m) => { setFileSort(m); setShowSort(false); }} onClose={() => setShowSort(false)} />}
               </div>
               <button onClick={(e) => { e.stopPropagation(); refreshWorkspace(); }} className="icon-btn icon-btn--sm hover-bg" title="刷新"><RotateCw size={12} /></button>
+              <button onClick={(e) => { e.stopPropagation(); closeFolder(); }} className="icon-btn icon-btn--sm hover-bg" title="关闭文件夹（打开的标签页不受影响）"><X size={12} /></button>
             </div>
 
             <div className="workspace-tree">
               {fileTree.length === 0 ? (
-                <div className="tree-empty tree-empty--root">还没有笔记，点上方 ＋ 新建一篇</div>
+                <div className="tree-empty tree-empty--root">这个文件夹里还没有文档，点上方 ＋ 新建一篇</div>
               ) : (
                 sortFileNodes(fileTree, fileSort).map((node) => <FileTreeItem key={node.path} node={node} level={1} />)
               )}
@@ -497,8 +313,6 @@ export const Sidebar: React.FC = () => {
           </>
         )}
       </div>
-      {/* 月历在滚动区外面、钉在侧边栏底部：笔记再多，文件树自己滚，月历不会被挤到下面去 */}
-      {sidebarTab === 'library' && <CalendarPanel />}
       <ContextMenuComponent />
     </aside>
   );

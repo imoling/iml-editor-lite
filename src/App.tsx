@@ -4,46 +4,35 @@ import { Sidebar, ActivityBar } from './components/Sidebar/Sidebar';
 import { EditorArea } from './components/Editor/EditorArea';
 import { StatusBar } from './components/StatusBar/StatusBar';
 import { useAppStore, THEME_PRESETS, clearSessionAndReload, type DialogId } from './stores/appStore';
-import { useTranscribeStore } from './stores/transcribeStore';
 import AboutModal from './components/About/AboutModal';
 import ShortcutsModal from './components/Help/ShortcutsModal';
-import ModelConfigModal from './components/AI/ModelConfigModal';
-import { ImageConfigModal } from './components/AI/ImageConfigModal';
 import { SettingsModal } from './components/Settings/SettingsModal';
-import { WhatsNewModal } from './components/WhatsNew/WhatsNewModal';
-import { latestWhatsNew, shouldShowWhatsNew } from './data/whatsNew';
 import { extractHeadings } from './utils/outline';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { exportActiveTabToPdf, exportActiveTabToHtml, exportActiveTabToDocx, exportActiveTabToImage } from './utils/exportPdf';
-import { HistoryModal } from './components/History/HistoryModal';
-import { ImageCleanupModal } from './components/Library/ImageCleanupModal';
-import { SemanticIndexModal } from './components/AI/SemanticIndexModal';
-import { TranscribeConfigModal } from './components/AI/TranscribeConfigModal';
-import { AiSetupModal } from './components/AI/AiSetupModal';
-import { QuickOpenModal } from './components/QuickOpen/QuickOpenModal';
-import { CommandPalette } from './components/QuickOpen/CommandPalette';
 import { formatVersion, isNewerVersion } from './utils/version';
+import { APP_NAME, RELEASES_URL } from './utils/appInfo';
 import './styles/layout.css';
 
-/** 拉取主进程排队的「打开方式」/ 命令行文件并逐个打开（启动完成后与收到提醒时都会调用） */
-/** 取走主进程那边排着队的 iml:// 链接，逐个执行 */
-async function drainAppUrls() {
-  try { for (const action of await window.api.app.consumePendingUrls()) await useAppStore.getState().runAppUrl(action); } catch (e) { console.error('Failed to handle app url:', e); }
-}
-
-async function drainPendingOpenFiles() {
-  try {
-    const files = await window.api.app.consumePendingOpenFiles();
-    for (const filePath of files) {
-      await useAppStore.getState().openFileByPath(filePath);
+/**
+ * 拉取主进程排队的「打开方式」/ 命令行文件并逐个打开（启动完成后与收到提醒时都会调用）。
+ * 几次调用排成一队：启动时要等「传进来的文件都开完了」才能判断要不要给一篇空白文档，
+ * 不排队的话，另一次调用正读着文件、标签页还是空的，就会多出一个「未命名」
+ */
+let openQueue: Promise<void> = Promise.resolve();
+function drainPendingOpenFiles(): Promise<void> {
+  openQueue = openQueue.then(async () => {
+    try {
+      const files = await window.api.app.consumePendingOpenFiles();
+      for (const filePath of files) {
+        await useAppStore.getState().openFileByPath(filePath);
+      }
+    } catch (e) {
+      console.error('Failed to open pending files:', e);
     }
-  } catch (e) {
-    console.error('Failed to open pending files:', e);
-  }
+  });
+  return openQueue;
 }
-
-/** 已经处理过的快速捕获请求（见下面 capture:append 的监听） */
-const handledCaptures = new Set<number>();
 
 const App: React.FC = () => {
   const { 
@@ -81,11 +70,10 @@ const App: React.FC = () => {
   } = useAppStore();
 
   const activeTab = tabs.find(t => t.id === activeTabId);
-  const whatsNewEntry = latestWhatsNew(window.api.appVersion);
 
   // 主窗口标题带上当前文档名，Dock / 调度中心里一眼能分清
   useEffect(() => {
-    document.title = activeTab ? `${activeTab.title} — iML Markdown Editor` : 'iML Markdown Editor';
+    document.title = activeTab ? `${activeTab.title} — ${APP_NAME}` : APP_NAME;
   }, [activeTab?.title]);
 
   // Update outline when active tab content changes
@@ -97,14 +85,6 @@ const App: React.FC = () => {
       setOutline([]);
     }
   }, [activeTab?.content, setOutline]);
-
-  // 关之前要不要先提醒：由相应的功能登记的把关函数说了算；用户点过「继续」的不再问
-  const closeGuard = useAppStore((st) => st.closeGuard);
-  const closeGuardPassed = useAppStore((st) => st.closeGuardPassed);
-  // 转写的状态变了（停了 / 开始了）提醒也要跟着变
-  const transcribeStatus = useTranscribeStore((st) => st.status);
-  const closingTab = tabToClose ? tabs.find((t) => t.id === tabToClose) : undefined;
-  const closeWarning = closingTab && closeGuardPassed !== tabToClose && transcribeStatus ? closeGuard?.(closingTab) ?? null : null;
 
   const handleConfirmSave = async () => {
     if (!tabToClose) return;
@@ -153,31 +133,10 @@ const App: React.FC = () => {
         return;
       }
 
-      // Cmd+Shift+F：全文搜索
-      if (modKey && e.shiftKey && !e.altKey && e.code === 'KeyF') {
-        e.preventDefault();
-        useAppStore.getState().openGlobalSearch();
-        return;
-      }
-
       // Cmd+F：查找
       if (modKey && !e.altKey && !e.shiftKey && e.code === 'KeyF') {
         e.preventDefault();
         toggleFind();
-        return;
-      }
-
-      // Cmd+Shift+D：今日日记
-      if (modKey && e.shiftKey && e.code === 'KeyD') {
-        e.preventDefault();
-        useAppStore.getState().openDailyNote();
-        return;
-      }
-
-      // Cmd+Shift+H：版本历史
-      if (modKey && e.shiftKey && !e.altKey && e.code === 'KeyH') {
-        e.preventDefault();
-        openDialog('history');
         return;
       }
 
@@ -211,36 +170,6 @@ const App: React.FC = () => {
         if (modalOpen || !ts.activeTabId) return;
         if (e.altKey) ts.closeOtherTabs(ts.activeTabId);
         else ts.requestCloseTab(ts.activeTabId);
-        return;
-      }
-
-      // Cmd+Shift+L：转写时「打点」—— 在正文光标处插入现在的时间，之后点它，录音跳到这一刻
-      if (modKey && e.shiftKey && !e.altKey && e.code === 'KeyL') {
-        e.preventDefault();
-        if (!modalOpen) useTranscribeStore.getState().markMoment();
-        return;
-      }
-
-      // Cmd+J：问你的笔记（侧边栏「问答」页）
-      if (modKey && !e.shiftKey && !e.altKey && e.code === 'KeyJ') {
-        e.preventDefault();
-        if (!modalOpen) ts.openAsk();
-        return;
-      }
-
-      // Cmd+T：快速打开（敲几个字跳到笔记）。再按一次收起
-      if (modKey && !e.shiftKey && !e.altKey && e.code === 'KeyT') {
-        e.preventDefault();
-        if (ts.dialog === 'quick-open') ts.closeDialog();
-        else if (!ts.tabToClose) ts.openDialog('quick-open');
-        return;
-      }
-
-      // Cmd+Shift+P：命令面板（敲几个字找到要做的事）。再按一次收起
-      if (modKey && e.shiftKey && !e.altKey && e.code === 'KeyP') {
-        e.preventDefault();
-        if (ts.dialog === 'command-palette') ts.closeDialog();
-        else if (!modalOpen || ts.dialog === 'quick-open') ts.openDialog('command-palette');
         return;
       }
 
@@ -296,12 +225,6 @@ const App: React.FC = () => {
         openDialog('shortcuts');
       }
 
-      // Cmd+Shift+M：写作助手（模型设置）
-      if (modKey && e.shiftKey && e.key.toLowerCase() === 'm') {
-        e.preventDefault();
-        openDialog('ai-config');
-      }
-      
       // Cmd+S or Cmd+Shift+S to save file
       if (modKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
@@ -336,23 +259,11 @@ const App: React.FC = () => {
   useEffect(() => {
     window.api.events.on('open-file', () => drainPendingOpenFiles());
     window.api.events.on('session:clear', () => clearSessionAndReload());
-    // 笔记库目录被外部（同步盘 / 其他编辑器）改动：刷新树，未修改的标签页跟随磁盘
-    window.api.events.on('library:changed', (paths: string[]) => useAppStore.getState().handleExternalChanges(paths));
-    // iml:// 链接：主进程已经解析、校验过，这里拉过来逐个执行
-    window.api.events.on('app-url', () => { void drainAppUrls(); });
-    // 用户的 CSS 片段被保存了：立刻重新应用
-    window.api.events.on('snippets:changed', () => { void useAppStore.getState().reloadUserCss(); });
-    // 快速捕获：主进程把小输入窗里的那句话交过来，由这边写进今天的日记（日记可能正开着），写完回个话
-    window.api.events.on('capture:append', async (req: { id: number; text: string }) => {
-      // events.on 注销不掉；开发模式下这个 effect 会跑两遍，监听器就有两个。「追加」不是幂等的，按请求 id 只处理一次
-      if (handledCaptures.has(req.id)) return;
-      handledCaptures.add(req.id);
-      let ok = false;
-      try { ok = await useAppStore.getState().captureToDaily(req.text); } catch { ok = false; }
-      window.api.events.send('capture:appended', { id: req.id, ok, error: ok ? undefined : '没写进去：笔记库没设置，或文件写入失败' });
-    });
+    // 打开的文件夹被外部（同步盘 / 其他编辑器）改动：刷新树，未修改的标签页跟随磁盘
+    window.api.events.on('folder:changed', (paths: string[]) => useAppStore.getState().handleExternalChanges(paths));
     window.api.events.on('menu:new-file', () => createNewFile());
     window.api.events.on('menu:open-file', () => openFile());
+    window.api.events.on('menu:open-folder', () => openDirectory());
     window.api.events.on('menu:save', () => saveActiveFile());
     window.api.events.on('menu:export', (kind: 'pdf' | 'html' | 'docx' | 'image') => (kind === 'html' ? exportActiveTabToHtml() : kind === 'docx' ? exportActiveTabToDocx() : kind === 'image' ? exportActiveTabToImage() : exportActiveTabToPdf()));
     // macOS 上 ⌘W / ⌘⇧T 由原生菜单拦下（键不会再到达渲染进程），走这条；Windows 没有原生菜单，走上面的 keydown
@@ -361,7 +272,6 @@ const App: React.FC = () => {
       if (s.dialog || s.tabToClose || !s.activeTabId) return;
       s.requestCloseTab(s.activeTabId);
     });
-    window.api.events.on('menu:ask-notes', () => useAppStore.getState().openAsk());
     window.api.events.on('menu:close-other-tabs', () => {
       const s = useAppStore.getState();
       if (s.dialog || s.tabToClose || !s.activeTabId) return;
@@ -384,7 +294,18 @@ const App: React.FC = () => {
     });
     // 原生菜单 / 其他入口要求打开某个弹窗
     window.api.events.on('dialog:open', (id: DialogId) => openDialog(id));
-  }, [openFileByPath, createNewFile, openFile, saveActiveFile, openDialog]);
+  }, [openFileByPath, createNewFile, openFile, openDirectory, saveActiveFile, openDialog]);
+
+  // 窗口重新拿到焦点：打开着的文件在别处可能被改过了，都对一遍磁盘（没改过的标签页静默跟随，改过的用橙点提示）。
+  // 单独打开的文件不在任何被监听的文件夹里，靠的就是这一下
+  useEffect(() => {
+    const onFocus = () => {
+      const open = useAppStore.getState().tabs.filter((t) => !t.id.startsWith('new-')).map((t) => t.id);
+      if (open.length > 0) void useAppStore.getState().handleExternalChanges(open);
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
 
   // 自动检查更新：启动后稍等一下查一次；应用一直开着不关的，每天再查一次。
   // 用「每小时看一眼距上次多久」而不是一个 24 小时的定时器 —— 电脑睡眠时定时器不走
@@ -410,18 +331,8 @@ const App: React.FC = () => {
       }
       // 无论会话恢复是否成功，启动时传入的文件都要打开
       await drainPendingOpenFiles();
-      // 应用是被 iml:// 链接唤起来的：同样要等设置（笔记库在哪）读完再执行，不然「新建」找不到往哪建
-      await drainAppUrls();
-      // 新安装或升级后展示一次新特性介绍
-      try {
-        const state = await window.api.app.getWhatsNewState();
-        if (shouldShowWhatsNew(state.current, state.lastSeen)) {
-          await window.api.app.markWhatsNewSeen();
-          setTimeout(() => useAppStore.getState().openDialog('whats-new'), 600);
-        }
-      } catch (e) {
-        console.warn('[whats-new] check failed', e);
-      }
+      // 什么都没有打开：和记事本一样，直接是一篇空白文档
+      if (useAppStore.getState().tabs.length === 0) useAppStore.getState().createNewFile();
     };
     init();
 
@@ -478,17 +389,7 @@ const App: React.FC = () => {
       
       {statusBarVisible && <StatusBar />}
 
-      {/* 关之前的把关提醒（比如这篇正连着一场进行中的转写）先问；点了继续、又有未保存的修改，再问要不要保存 */}
-      {tabToClose && closeWarning && (
-        <ConfirmDialog
-          title={closeWarning.title}
-          message={closeWarning.message}
-          confirmLabel={closeWarning.confirmLabel}
-          onConfirm={() => useAppStore.getState().passCloseGuard(tabToClose)}
-          onCancel={() => useAppStore.getState().cancelCloseQueue()}
-        />
-      )}
-      {tabToClose && !closeWarning && (
+      {tabToClose && (
         <ConfirmDialog
           title="保存更改？"
           // 批量关闭时逐个问，顺带说清楚后面还排着几个，免得用户以为点不完
@@ -507,20 +408,10 @@ const App: React.FC = () => {
         <UpdateModal />
       )}
 
-      {/* 配置 / 关于 / 快捷键：主窗口内的浮层，不新开窗口 */}
+      {/* 设置 / 关于 / 快捷键：主窗口内的浮层，不新开窗口 */}
       {dialog === 'about' && <AboutModal isOpen onClose={closeDialog} />}
       {dialog === 'shortcuts' && <ShortcutsModal isOpen onClose={closeDialog} />}
-      {dialog === 'ai-config' && <ModelConfigModal isOpen onClose={closeDialog} />}
-      {dialog === 'image-config' && <ImageConfigModal onClose={closeDialog} />}
       {dialog === 'settings' && <SettingsModal onClose={closeDialog} />}
-      {dialog === 'whats-new' && whatsNewEntry && <WhatsNewModal entry={whatsNewEntry} onClose={closeDialog} />}
-      {dialog === 'history' && <HistoryModal onClose={closeDialog} />}
-      {dialog === 'image-cleanup' && <ImageCleanupModal onClose={closeDialog} />}
-      {dialog === 'semantic-config' && <SemanticIndexModal onClose={closeDialog} />}
-      {dialog === 'transcribe-config' && <TranscribeConfigModal onClose={closeDialog} />}
-      {dialog === 'ai-setup' && <AiSetupModal onClose={closeDialog} />}
-      {dialog === 'quick-open' && <QuickOpenModal onClose={closeDialog} />}
-      {dialog === 'command-palette' && <CommandPalette onClose={closeDialog} />}
 
     </div>
   );
@@ -543,7 +434,7 @@ const UpdateModal: React.FC = () => {
   const hasUpdate = isNewerVersion(updateStatus.latestVersion, current);
   const release = updateStatus.release;
   const summary = summarizeReleaseNotes(release?.notes);
-  const releasePage = release?.releaseUrl || 'https://github.com/imoling/iml-markdown-editor/releases';
+  const releasePage = release?.releaseUrl || RELEASES_URL;
   const open = (url: string) => { close(); window.api.shell.openExternal(url); };
 
   if (updateStatus.loading || updateStatus.error || !hasUpdate) {
@@ -601,7 +492,7 @@ const UpdateModal: React.FC = () => {
             <button onClick={() => open(releasePage)} className="btn btn-primary btn-sm update-card__download">前往下载</button>
           )}
         </div>
-        <p className="update-card__note">下载后退出应用、装上新的即可，笔记和设置都不受影响。这个版本不会再主动弹出，「帮助」菜单上的红点会一直留到你更新。</p>
+        <p className="update-card__note">下载后退出应用、装上新的即可，文档和设置都不受影响。这个版本不会再主动弹出，「帮助」菜单上的红点会一直留到你更新。</p>
       </div>
     </div>
   );

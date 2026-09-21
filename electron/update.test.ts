@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickInstaller, describeRelease, platformLabel } from './update';
+import { pickInstaller, describeRelease, platformLabel, pickLatestRelease } from './update';
 
 const asset = (name: string, size = 1) => ({ name, browser_download_url: `https://github.com/imoling/iml-markdown-editor/releases/download/v1/${name}`, size });
 
@@ -38,5 +38,22 @@ describe('检查更新：挑出这台电脑该下的安装包', () => {
     expect(info.download).toMatchObject({ name: 'iML.Markdown.Editor-26.3.0-arm64.dmg', size: 82_000_000, label: 'macOS（Apple 芯片）' });
     expect(describeRelease({ tag_name: 'v1.0.0' }, 'win32', 'x64')).toMatchObject({ success: true, latestVersion: '1.0.0', notes: '', download: undefined });
     expect(platformLabel('win32', 'x64')).toBe('Windows');
+  });
+
+  it('和别的应用共用一个仓库：只认带自己标签前缀的正式版，版本号去掉前缀', () => {
+    const list = [
+      { tag_name: 'v26.5.0', assets: [] },
+      { tag_name: 'lite-v26.5.0', prerelease: true, assets: [] },
+      { tag_name: 'lite-v26.4.1', draft: true, assets: [] },
+      { tag_name: 'lite-v26.4.0', html_url: 'https://example.com/lite', assets: [asset('iML-Editor-26.4.0-arm64.dmg')] },
+      { tag_name: 'lite-v26.3.0', assets: [] },
+    ];
+    const hit = pickLatestRelease(list, 'lite-v');
+    expect(hit?.tag_name).toBe('lite-v26.4.0');
+    const info = describeRelease(hit, 'darwin', 'arm64', 'lite-v');
+    expect(info.latestVersion).toBe('26.4.0');
+    expect(info.download?.name).toBe('iML-Editor-26.4.0-arm64.dmg');
+    expect(pickLatestRelease([{ tag_name: 'v26.5.0' }], 'lite-v')).toBeNull();
+    expect(pickLatestRelease({ message: 'rate limited' }, 'lite-v')).toBeNull();
   });
 });

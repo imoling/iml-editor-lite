@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E6E8FB"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5B6CF0"/>
+      <stop offset="1" stop-color="#8A2BE2"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="14" stdDeviation="20" flood-color="#1B1464" flood-opacity="0.30"/>
+    </filter>
+  </defs>
+  <!-- 和「iML 笔记」同一个圆角方块，颜色反过来：那边是紫底白字，这边是白纸紫字 -->
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#paper)" filter="url(#shadow)"/>
+  <rect x="102" y="102" width="820" height="820" rx="184" fill="none" stroke="#CDD0F6" stroke-width="4"/>
+  <!-- Markdown 标记：M 和向下的箭头 -->
+  <g transform="translate(116 232) scale(3.68)" fill="url(#ink)">
+    <path d="M30 98V30h20l20 25 20-25h20v68H90V59L70 84 50 59v39zm125 0l-30-33h20V30h20v35h20z"/>
+  </g>
+  <rect x="226" y="672" width="572" height="5" rx="2.5" fill="#CDD0F6"/>
+  <text x="512" y="800" text-anchor="middle" font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" font-size="112" font-weight="800" letter-spacing="6" fill="url(#ink)">iML</text>
+</svg>

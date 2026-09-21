@@ -1,9 +1,9 @@
 /**
- * 长图底部的出处角标：「来自 iML Markdown Editor」。纯函数，主进程用。
+ * 长图底部的出处角标：「来自 iML 编辑器」。纯函数。
  *
- * 分成几张的长图每一张都要带（别人转发时可能只转其中一张），所以角标单独截一条、拼到每张图的末尾。
+ * 分成几张的长图每一张都要带（别人转发时可能只转其中一张），所以角标单独画一条、拼到每张图的末尾。
  */
-export const BRAND_TEXT = '来自 iML Markdown Editor';
+export const BRAND_TEXT = '来自 iML 编辑器';
 
 export const BRAND_CSS = `
   .export-brand { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 44px; padding-top: 18px; border-top: 1px solid #eceef1; color: #9aa1ab; font-size: 13px; line-height: 20px; }

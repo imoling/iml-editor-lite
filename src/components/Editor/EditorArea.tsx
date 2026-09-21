@@ -3,14 +3,12 @@ import { useAppStore } from '../../stores/appStore';
 import { TiptapEditor } from './TiptapEditor';
 import { MarkdownEditor } from './MarkdownEditor';
 import { FindReplacePanel } from './FindReplacePanel';
-import { StartPage } from './StartPage';
-import { LinkPreview } from './LinkPreview';
 
 export const EditorArea: React.FC = () => {
   const { mode, activeTabId, autoSave, saveActiveFile } = useAppStore();
 
   const handleBlur = (e: React.FocusEvent) => {
-    // 如果启用了无感保存，且焦点完全离开了编辑器区域（比如点击了侧边栏），则静默存盘
+    // 开了自动保存：焦点完全离开编辑器区域（比如点了侧边栏）时把已有的文件存盘；未命名文档不会被悄悄建成文件
     if (autoSave && !e.currentTarget.contains(e.relatedTarget as Node)) {
       saveActiveFile(false, true);
     }
@@ -19,9 +17,9 @@ export const EditorArea: React.FC = () => {
   return (
     <main className="editor-area editor-area--host" onBlur={handleBlur}>
       <FindReplacePanel />
-      <LinkPreview />
       <div className={`editor-content ${mode === 'word' ? 'editor-content--column' : 'editor-content--row'}`}>
-        {!activeTabId ? <StartPage /> : mode === 'word' ? <TiptapEditor /> : <MarkdownEditor />}
+        {/* 没有欢迎页。标签页为空只出现在启动的那一瞬间（设置、会话还没读完），这时什么都不画 */}
+        {!activeTabId ? null : mode === 'word' ? <TiptapEditor /> : <MarkdownEditor />}
       </div>
     </main>
   );

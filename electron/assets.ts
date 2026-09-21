@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { Readable } from 'stream';
+import { extractHtmlTitle, detectCharset } from './shared/pageTitle';
 
 /** 笔记里会出现的图片类型；iml-asset:// 只放行图片和音频的扩展名，避免笔记里的一条地址就能读任意本地文件 */
 export const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico|tiff?)$/i;
@@ -73,23 +74,8 @@ export function handleAssetProtocol() {
   });
 }
 
-// ── 粘贴图片的文件名 ─────────────────────────────────────────────────────────
-
-const pad = (n: number) => String(n).padStart(2, '0');
-
-/**
- * 剪贴板里的截图统一叫 image.png，拖进来的文件名可能带空格（Markdown 地址里要转义）。
- * 这里给出落盘用的名字：通用名换成时间戳，空白换成 -，去掉路径非法字符。
- */
-export function assetFileName(original: string, now = new Date()): string {
-  const ext = (path.extname(original) || '.png').toLowerCase();
-  let base = path.basename(original, path.extname(original)).trim();
-  if (!base || /^(image|img|untitled|blob|截屏|屏幕截图|screenshot|pasted[ -_]?image)$/i.test(base)) {
-    base = `img-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  }
-  base = base.replace(/[\\/:*?"<>|#%()[\]]/g, '').replace(/\s+/g, '-').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '') || 'img';
-  return `${base.slice(0, 80)}${ext}`;
-}
+// 粘贴图片的文件名：纯函数，在 shared/assetNames.ts（Tauri 壳的前端适配层也用）
+export { assetFileName } from './shared/assetNames';
 
 // ── 未引用图片扫描 ───────────────────────────────────────────────────────────
 
@@ -154,27 +140,27 @@ export function filterTrashable(root: string, paths: string[]): string[] {
 
 // ── 网页标题 ─────────────────────────────────────────────────────────────────
 
-const decodeEntities = (s: string) =>
-  s.replace(/&#(\d+);/g, (_m, d) => String.fromCodePoint(Number(d)))
-    .replace(/&#x([0-9a-f]+);/gi, (_m, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&nbsp;/g, ' ');
+// 网页标题的解析：纯函数，在 shared/pageTitle.ts
+export { extractHtmlTitle, detectCharset } from './shared/pageTitle';
 
-/** 从 HTML 里取标题：<title> 优先，其次 og:title */
-export function extractHtmlTitle(html: string): string | null {
-  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]
-    ?? /<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']*)["']/i.exec(html)?.[1]
-    ?? /<meta[^>]+content=["']([^"']*)["'][^>]*property=["']og:title["']/i.exec(html)?.[1];
-  if (!title) return null;
-  const clean = decodeEntities(title).replace(/\s+/g, ' ').trim();
-  return clean ? clean.slice(0, 140) : null;
-}
-
-/** Content-Type 或 <meta charset> 里声明的编码（不少中文站还是 GBK） */
-export function detectCharset(contentType: string, head: string): string {
-  const fromHeader = /charset=["']?([\w-]+)/i.exec(contentType)?.[1];
-  const fromMeta = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head)?.[1];
-  const name = (fromHeader || fromMeta || 'utf-8').toLowerCase();
-  return name === 'gb2312' ? 'gbk' : name;
+/** 取一张网上的图片（导出长图要把图片内联进去）：只认 http(s)，15 秒超时，最多 12MB，回来的得是图片；任何失败都返回 null */
+export async function fetchImageBytes(target: string): Promise<Uint8Array | null> {
+  let url: URL;
+  try { url = new URL(target); } catch { return null; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const resp = await fetch(url, { signal: controller.signal, redirect: 'follow', headers: { Accept: 'image/*,*/*;q=0.5' } });
+    const type = resp.headers.get('content-type') || '';
+    if (!resp.ok || (type && !/^(image\/|application\/octet-stream)/i.test(type))) return null;
+    const bytes = new Uint8Array(await resp.arrayBuffer());
+    return bytes.byteLength > 12 * 1024 * 1024 ? null : bytes;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** 抓网页标题：只认 http(s)，5 秒超时，最多读 512KB；任何失败都返回 null（调用方保留原链接即可） */

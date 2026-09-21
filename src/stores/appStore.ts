@@ -1,22 +1,12 @@
 import { create } from 'zustand';
 import { isNewerVersion } from '../utils/version';
 import type { UpdateInfo } from '../types/window';
-import { formatDate } from '../utils/date';
 import { deriveNoteTitle } from '../utils/noteTitle';
-import { useAskStore } from './askStore';
-import { extractHeadings } from '../utils/outline';
-import { resolveWikiTarget, findHeadingIndex, linkifyMention, noteBaseName } from '../../electron/shared/wikiLink';
-import { toggleTaskLine } from '../../electron/shared/tasks';
-import { appendCapture } from '../../electron/shared/capture';
-import type { AppUrlAction } from '../../electron/shared/appUrl';
 import { FileSortMode, DEFAULT_FILE_SORT, isFileSortMode } from '../utils/fileSort';
-import { applyUserCss, snippetsPathOf, SNIPPETS_TEMPLATE } from '../utils/userCss';
 
 const FILE_SORT_KEY = 'iml.fileSort';
-import { renameTagInMarkdown, isValidTagName, tagMatches } from '../../electron/shared/noteMeta';
 
-export type DialogId = 'about' | 'shortcuts' | 'quick-open' | 'command-palette' | 'ai-config' | 'ai-setup' | 'image-config' | 'semantic-config' | 'transcribe-config' | 'settings' | 'whats-new' | 'history' | 'image-cleanup';
-import { DAILY_DIR, TEMPLATE_DIR, DEFAULT_DAILY_TEMPLATE, SAMPLE_TEMPLATES, renderNoteTemplate } from '../utils/noteTemplates';
+export type DialogId = 'about' | 'shortcuts' | 'settings';
 
 export interface FileNode {
   name: string;
@@ -116,32 +106,17 @@ export const THEME_PRESETS: ThemeConfig[] = [
 
 export interface NavigationRequest {
   heading?: HeadingNode;
-  /** `[[笔记#^块]]`：跳到以 `^块ID` 结尾的那一段 */
+  /** 跳到以 `^块ID` 结尾的那一段 */
   blockId?: string;
-  /** 从待办面板点过来：源码模式按行号跳，富文本按这一行的文字找 */
+  /** 源码模式按行号跳，富文本按这一行的文字找 */
   line?: number;
   lineText?: string;
   timestamp: number;
 }
 
-export interface ImageGenConfig {
-  provider: 'agnes-cn' | 'agnes' | 'gemini' | 'gemini-imagen' | 'gemini-flash' | 'volcengine' | 'minimax' | 'custom';
-  apiKey: string;
-  model: string;
-  endpoint: string;
-}
-
-// 全新安装默认 Agnes 国内站：有免费额度，填个 Key 就能出图（已保存过配置的用户不受影响）
-export const DEFAULT_IMAGE_GEN_CONFIG: ImageGenConfig = {
-  provider: 'agnes-cn',
-  apiKey: '',
-  model: '',
-  endpoint: '',
-};
-
 /** 状态栏提示上的按钮（「打开」「在访达中显示」……）；点过就收起提示 */
 export interface NoticeAction { label: string; run: () => void }
-export type SidebarTab = 'library' | 'catalog' | 'tags' | 'tasks' | 'search' | 'ask' | 'transcribe';
+export type SidebarTab = 'files' | 'outline';
 
 /** 正文排版：字体、字号、行距、页宽（富文本与预览共用） */
 export interface EditorPrefs {
@@ -218,30 +193,19 @@ export interface AppState {
   searchCommand: SearchCommand | null;
   /** 当前编辑器注册的「把未写回的内容立刻同步到 store」钩子（保存 / 导出 / 关窗前调用） */
   editorFlush: (() => void) | null;
-  /** 当前编辑器提供的两个动作：往光标处插一段文字（返回是否插成功）、在文末另起一个空的列表项并把光标放进去。侧边栏功能（转写）要用 */
-  /** runSlash：按 id 执行一条斜杠菜单里的命令（命令面板的「插入…」靠它）；只有富文本编辑器提供 */
-  editorActions: { insertText: (text: string) => boolean; startList: () => void; runSlash?: (id: string) => boolean } | null;
   /** 编辑器里当前选中的文字；没有选区时是空串。状态栏据此显示「选中 N 字」 */
   selectionText: string;
   setSelectionText: (text: string) => void;
-  /** 最近一次「不是编辑器自己打的字」的改写（转写、纪要这类侧边栏功能写进笔记）。富文本编辑器看到 rev 变了就重载这篇，哪怕光标正在里面 */
+  /** 最近一次「不是编辑器自己打的字」的改写。富文本编辑器看到 rev 变了就重载这篇，哪怕光标正在里面 */
   externalWrite: { id: string; rev: number } | null;
   sidebarTab: SidebarTab;
-  /** 标签视图里选中的标签 */
-  selectedTag: string | null;
-  /** 状态栏里一闪而过的提示（图片压缩了多少、恢复了哪个版本……）；带按钮的会多停留一会儿 */
+  /** 状态栏里一闪而过的提示（图片压缩了多少、导出到了哪……）；带按钮的会多停留一会儿 */
   notice: { id: number; text: string; actions?: NoticeAction[] } | null;
   /** 专注模式：收起侧边栏与工具栏，当前段落以外的内容淡出，光标所在行保持在屏幕中间 */
   focusMode: boolean;
   sidebarWidth: number;
   /** 文件树的排序方式（文件夹总在前、按名称）；记在 localStorage 里 */
   fileSort: FileSortMode;
-  /** 每次 +1 让搜索面板重新聚焦输入框 */
-  globalSearchFocus: number;
-  /** 外面（iml://search 链接）指定要搜的词：搜索面板拿走之后清空 */
-  globalSearchQuery: string | null;
-  /** 笔记库内容版本：树刷新 / 外部改动时 +1，反向链接面板据此重新查询 */
-  libraryVersion: number;
   expandedPaths: string[];
   navigationRequest: NavigationRequest | null;
   updateStatus: {
@@ -252,37 +216,20 @@ export interface AppState {
     /** 最新版本的说明、Release 页面、这台电脑对应的安装包 */
     release?: Pick<UpdateInfo, 'notes' | 'releaseUrl' | 'download'> | null;
   };
-  /** 当前打开的弹窗（配置 / 关于 / 快捷键都在主窗口内以浮层显示，不再新开窗口） */
+  /** 当前打开的弹窗（设置 / 关于 / 快捷键都在主窗口内以浮层显示，不再新开窗口） */
   dialog: DialogId | null;
-  aiStatus: {
-    generating: boolean;
-    onStop: (() => void) | null;
-  };
   zoom: number;
   theme: ThemeConfig;
   appearanceMode: 'light' | 'dark' | 'system' | 'eye-protection';
-  startupBehavior: 'restore' | 'dashboard';
+  /** 启动时：恢复上次的标签页，还是一篇空白文档 */
+  startupBehavior: 'restore' | 'blank';
+  /** 失焦时把已有的文件存盘（默认关：和记事本一样，存不存你说了算） */
   autoSave: boolean;
-  defaultLibraryPath: string;
-  starredFiles: string[];
-  imageGenConfig: ImageGenConfig;
   /** 粘贴 / 拖入的图片压缩成 WebP 再存盘 */
   imageCompression: boolean;
   /** 粘贴网址时自动取网页标题 */
   fetchLinkTitle: boolean;
-  /** 鼠标停在 [[链接]] 上弹出预览卡片 */
-  linkPreview: boolean;
-  /** 应用 <笔记库>/.iml/snippets.css 里的自定义样式 */
-  userCss: boolean;
-  /** 源码模式用 Vim 键位 */
-  vimMode: boolean;
-  /** 读片段文件并应用（关着、或文件不存在就撤掉）。启动、切换笔记库、片段文件被保存时调用 */
-  reloadUserCss: () => Promise<void>;
-  /** 在访达里显示片段文件；还没有就先按示例模板建一个（模板全是注释，不改变外观） */
-  revealUserCss: () => Promise<void>;
   spellcheck: boolean;
-  /** AI 总开关：关掉后所有 AI 入口隐藏，应用不会向任何模型服务发请求 */
-  aiEnabled: boolean;
   editorPrefs: EditorPrefs;
 
   // File Management State
@@ -305,15 +252,6 @@ export interface AppState {
   closeAllTabs: () => void;
   /** 批量关闭时还在排队等用户决定的标签页 */
   pendingCloseIds: string[];
-  /**
-   * 关标签页之前的额外把关：返回一句提醒 = 关之前要先问用户（比如这篇正连着一场进行中的转写，关掉转写就结束了）。
-   * 由相应的功能自己登记，appStore 不需要认识它们
-   */
-  closeGuard: ((tab: Tab) => { title: string; message: string; confirmLabel: string } | null) | null;
-  registerCloseGuard: (guard: AppState['closeGuard']) => void;
-  /** 这个标签页的把关提醒用户已经点过「继续」了（接下来可能还要问要不要保存） */
-  closeGuardPassed: string | null;
-  passCloseGuard: (id: string) => void;
   advanceCloseQueue: () => void;
   cancelCloseQueue: () => void;
   /** 最近关掉的文件路径（栈顶是最后关的），供 ⌘⇧T 用 */
@@ -321,57 +259,19 @@ export interface AppState {
   /** ⌘⇧T：重新打开最近关掉的那个标签页 */
   reopenClosedTab: () => Promise<void>;
   updateTabContent: (id: string, content: string) => void;
-  /** 由编辑器之外的功能改写一篇笔记：先把编辑器里还没写回的字刷进来，再基于最新内容改。笔记已经关掉时返回 false */
+  /** 由编辑器之外的功能改写一篇文档：先把编辑器里还没写回的字刷进来，再基于最新内容改。文档已经关掉时返回 false */
   editTabContent: (id: string, edit: (current: string) => string) => boolean;
-  /** 加载笔记库（树根 = defaultLibraryPath），并开始监听目录变化 */
-  loadLibrary: (path: string) => Promise<void>;
-  /** 在指定目录新建笔记并进入重命名 */
+  /** 打开一个文件夹作为侧边栏的文件树，并开始监听目录变化 */
+  loadFolder: (path: string) => Promise<void>;
+  /** 收起文件树（不影响已经打开的标签页） */
+  closeFolder: () => void;
+  /** 在指定目录新建文档并进入重命名 */
   createNoteIn: (dirPath: string) => Promise<string | null>;
   createFolderIn: (dirPath: string) => Promise<string | null>;
-  /** 新建 / 静默保存时的目标目录：侧边栏选中的文件夹（或选中文件所在目录），否则笔记库根 */
+  /** 文件树里新建时的目标目录：选中的文件夹（或选中文件所在目录），否则打开的文件夹；没打开文件夹时是空串 */
   getNewNoteDir: () => string;
-  /** 主进程通知：笔记库里这些路径被外部改动 */
+  /** 这些路径可能被外部改动了（文件夹监听的通知，或窗口重新拿到焦点时把打开的文件都查一遍） */
   handleExternalChanges: (paths: string[]) => Promise<void>;
-  /** 打开（不存在则按「模板/日记.md」或内置模板新建）某一天的日记，默认今天：<笔记库>/日记/YYYY-MM-DD.md */
-  openDailyNote: (date?: Date) => Promise<void>;
-  /** 执行一个 iml:// 链接要做的事（主进程已经解析、校验过） */
-  runAppUrl: (action: AppUrlAction) => Promise<void>;
-  /** 确保某一天的日记存在（不存在就按模板建），但不打开它；返回路径，没有笔记库时返回 null */
-  ensureDailyNote: (date?: Date) => Promise<string | null>;
-  /** 快速捕获：把一句话带上时间追加到今天的日记末尾，不打开也不切过去 */
-  captureToDaily: (text: string) => Promise<boolean>;
-  /** 列出 <笔记库>/模板 下的模板 */
-  listTemplates: () => Promise<{ name: string; path: string }[]>;
-  /** 用模板在目录里新建笔记（默认目录 = getNewNoteDir） */
-  createNoteFromTemplate: (templatePath: string, dirPath?: string) => Promise<string | null>;
-  /** 写入示例模板（已存在的不覆盖） */
-  createSampleTemplates: () => Promise<void>;
-  /**
-   * 打开 [[目标]] 指向的笔记：按文件名、一级标题或别名匹配，优先同目录；找不到就在当前笔记所在目录新建。
-   * `[[笔记#小节]]` 打开后跳到小节，`[[#小节]]` 在本篇内跳，`[[笔记#^块]]` 跳到那一段。
-   */
-  openWikiLink: (target: string) => Promise<void>;
-  /**
-   * 把 notePath 那篇里的一处「未链接提及」改成指向 targetPath 的 [[链接]]。
-   * 那篇有没存盘的改动时只改编辑器里的内容；否则直接写盘（覆盖前版本历史会留底）。
-   * 返回原文因此变长了多少个字符（同一篇里排在后面的提及要跟着挪位置）；原文对不上就什么都不动，返回 null。
-   */
-  linkMention: (notePath: string, mention: { offset: number; length: number; match: string }, targetPath: string) => Promise<number | null>;
-  /**
-   * 改写一篇（不一定是当前这篇）笔记，给侧边栏里「就地改别的笔记」的功能用：未链接提及转链接、勾待办、标签改名。
-   * 那篇开着且有没存盘的改动 → 只改编辑器里的；否则读盘、改、写盘（版本历史留底），开着的标签页同步更新且不变脏。
-   * transform 返回 null 表示「原文对不上，别动」，此时什么都不写、返回 null。
-   */
-  rewriteNote: (notePath: string, transform: (content: string) => string | null) => Promise<{ before: string; after: string } | null>;
-  /**
-   * 全库把标签 from 改成 to（子标签 from/x 跟着变成 to/x）；to 已经存在就是合并。
-   * 逐篇改写，每篇覆盖前版本历史都会留底。返回改了几篇、几篇没改成。
-   */
-  renameTag: (from: string, to: string) => Promise<{ changed: number; failed: number }>;
-  /** 打开待办所在的笔记并跳到那一行 */
-  openTask: (notePath: string, task: { line: number; text: string }) => Promise<void>;
-  /** 在待办面板里勾上 / 取消一条待办；那一行对不上了就不动，返回 false */
-  toggleTask: (notePath: string, task: { line: number; raw: string; done: boolean }, done: boolean) => Promise<boolean>;
   updateFileNode: (path: string, updates: Partial<FileNode>) => void;
   updateTabId: (oldId: string, newId: string, newTitle: string) => void;
   setExpanded: (path: string, expanded: boolean) => void;
@@ -394,20 +294,11 @@ export interface AppState {
   /** 编辑器处理完命令后清掉，避免切换编辑模式时新挂载的编辑器重放（例如再来一次「全部替换」） */
   consumeSearchCommand: () => void;
   registerEditorFlush: (fn: (() => void) | null) => void;
-  registerEditorActions: (actions: AppState['editorActions']) => void;
   setSidebarTab: (tab: SidebarTab) => void;
-  /** 打开侧边栏的标签视图并选中某个标签（点击正文里的 #标签 时调用） */
-  openTag: (tag: string | null) => void;
   /** 状态栏里的一行提示；报错类的可以给长一点的停留时间。带按钮（「打开」「在访达中显示」这类）的默认停 15 秒，给人时间点 */
   notify: (text: string, ms?: number, actions?: NoticeAction[]) => void;
   toggleFocusMode: () => void;
-  /** ⌘⇧F：打开侧边栏搜索面板并聚焦 */
-  openGlobalSearch: () => void;
-  /** ⌘J：打开侧边栏的「问答」页并聚焦输入框 */
-  openAsk: () => void;
-  /** 打开侧边栏的「转写」页 */
-  openTranscribe: () => void;
-  /** 用给定关键词打开文档内查找（全文搜索结果点开后定位用） */
+  /** 用给定关键词打开文档内查找 */
   showFindWith: (query: string) => void;
   setSidebarWidth: (width: number) => void;
   setFileSort: (mode: FileSortMode) => void;
@@ -421,21 +312,17 @@ export interface AppState {
   checkUpdates: () => Promise<void>;
   autoCheckUpdates: () => Promise<void>;
   setUpdateStatus: (status: Partial<AppState['updateStatus']>) => void;
-  setAIStatus: (status: Partial<AppState['aiStatus']>) => void;
   openDialog: (id: DialogId) => void;
   closeDialog: () => void;
   setZoom: (zoom: number) => void;
   setTheme: (themeId: string) => void;
   setAppearanceMode: (mode: 'light' | 'dark' | 'system' | 'eye-protection') => void;
-  setStartupBehavior: (behavior: 'restore' | 'dashboard') => void;
+  setStartupBehavior: (behavior: 'restore' | 'blank') => void;
   setAutoSave: (autoSave: boolean) => void;
-  setDefaultLibraryPath: (path: string) => void;
   loadSession: () => Promise<boolean>;
   loadSettings: () => Promise<void>;
   saveSettings: () => Promise<void>;
   applyAppearance: (mode: 'light' | 'dark' | 'system' | 'eye-protection') => void;
-  toggleStar: (path: string) => void;
-  setImageGenConfig: (config: Partial<ImageGenConfig>) => void;
 
   // File Management Actions
   setSelectedNodePath: (path: string | null) => void;
@@ -446,6 +333,14 @@ export interface AppState {
   duplicateFile: (path: string) => Promise<boolean>;
 }
 
+/** 一篇空白的未命名文档。没有欢迎页：启动时、关掉最后一个标签页之后，看到的都是它 */
+function blankTab(): Tab {
+  return { id: `new-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.md`, title: '未命名', content: '', isDirty: false, mode: 'word' };
+}
+
+/** 还没动过的空白文档：打开别的文件时顺手把它换掉，不留一个没用的「未命名」标签 */
+const isPristineBlank = (tab: Tab) => tab.id.startsWith('new-') && !tab.content && !tab.isDirty;
+
 /** 路径分隔符：出现反斜杠即按 Windows 处理（dialog / path.join 在 Windows 上一律给反斜杠） */
 function pathSep(p: string): '/' | '\\' {
   return p.includes('\\') ? '\\' : '/';
@@ -453,7 +348,7 @@ function pathSep(p: string): '/' | '\\' {
 
 const NOTE_FILE_RE = /\.(md|markdown|mdown|mkd|txt)$/i;
 
-/** 读取笔记库目录：隐藏文件与非笔记文件（图片、附件等）不进树，文件夹全部保留 */
+/** 读取文件夹：隐藏文件与非文档文件（图片、附件等）不进树，子文件夹全部保留 */
 export async function readLibraryDir(dirPath: string): Promise<FileNode[] | null> {
   const result = await window.api.fs.readDir(dirPath);
   if (!result.success || !result.files) return null;
@@ -480,7 +375,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   workspacePath: null,
   workspaceName: null,
   fileTree: [],
-  sidebarVisible: true,
+  sidebarVisible: false,
   toolbarVisible: true,
   statusBarVisible: true,
   recentFiles: [],
@@ -490,25 +385,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   search: { query: '', replacement: '', caseSensitive: false, total: 0, current: 0 },
   searchCommand: null,
   editorFlush: null,
-  editorActions: null,
   selectionText: '',
   setSelectionText: (text) => { if (get().selectionText !== text) set({ selectionText: text }); },
   externalWrite: null,
-  sidebarTab: 'library',
-  selectedTag: null,
+  sidebarTab: 'files',
   notice: null,
   focusMode: false,
-  globalSearchFocus: 0,
-  globalSearchQuery: null,
-  libraryVersion: 0,
   sidebarWidth: 240,
   fileSort: (() => { try { const v = localStorage.getItem(FILE_SORT_KEY); return isFileSortMode(v) ? v : DEFAULT_FILE_SORT; } catch { return DEFAULT_FILE_SORT; } })(),
   expandedPaths: [],
   navigationRequest: null,
   tabToClose: null,
   pendingCloseIds: [],
-  closeGuard: null,
-  closeGuardPassed: null,
   closedTabs: [],
   
   // File Management Default State
@@ -518,52 +406,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   updateStatus: { show: false, loading: false, latestVersion: null, error: null },
   dialog: null,
-  aiStatus: { generating: false, onStop: null },
   zoom: 100,
   theme: THEME_PRESETS[0],
   appearanceMode: 'light',
   startupBehavior: 'restore',
-  autoSave: true,
-  defaultLibraryPath: '',
-  starredFiles: [],
-  imageGenConfig: DEFAULT_IMAGE_GEN_CONFIG,
+  autoSave: false,
   imageCompression: true,
   fetchLinkTitle: true,
-  linkPreview: true,
-  userCss: true,
-  vimMode: false,
-  reloadUserCss: async () => {
-    const root = get().workspacePath || get().defaultLibraryPath;
-    if (!get().userCss || !root) { applyUserCss(''); return; }
-    let css = '';
-    try { const res = await window.api.fs.readFile(snippetsPathOf(root)); if (res.success) css = res.content || ''; } catch { css = ''; }
-    applyUserCss(css);
-  },
-  revealUserCss: async () => {
-    const root = get().workspacePath || get().defaultLibraryPath;
-    if (!root) return;
-    const file = snippetsPathOf(root);
-    if (!(await window.api.fs.exists(file))) {
-      const dir = file.slice(0, Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\')));
-      if (!(await window.api.fs.exists(dir))) await window.api.fs.mkdir(dir);
-      await window.api.fs.writeFile(file, SNIPPETS_TEMPLATE);
-    }
-    window.api.shell.showItemInFolder(file);
-  },
   spellcheck: false,
-  aiEnabled: true,
   editorPrefs: DEFAULT_EDITOR_PREFS,
-
-  toggleStar: (path: string) => set((state) => ({
-    starredFiles: state.starredFiles.includes(path)
-      ? state.starredFiles.filter(p => p !== path)
-      : [...state.starredFiles, path]
-  })),
-
-  setImageGenConfig: (config: Partial<ImageGenConfig>) => {
-    set((state) => ({ imageGenConfig: { ...state.imageGenConfig, ...config } }));
-    get().saveSettings();
-  },
 
   setTabToClose: (id: string | null) => set({ tabToClose: id }),
   
@@ -575,7 +426,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ activeTabId: id });
     if (!id || id.startsWith('new-')) return;
     get().addToRecent(id);
-    // 树根固定为笔记库；库内文件展开定位，库外文件只在标签页里打开，不动树
+    // 文件在打开的文件夹里就展开定位；不在的只在标签页里打开，不动树
     await get().revealInSidebar(id);
   },
   
@@ -583,7 +434,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get();
     const exists = state.tabs.find((t) => t.id === tab.id);
     if (!exists) {
-      set({ tabs: [...state.tabs, tab] });
+      // 只开着一篇没动过的空白文档时，新打开的文件直接顶替它（Notepad++ 的做法）
+      const onlyBlank = state.tabs.length === 1 && isPristineBlank(state.tabs[0]);
+      set({ tabs: onlyBlank ? [tab] : [...state.tabs, tab] });
     }
     get().setActiveTab(tab.id);
   },
@@ -600,7 +453,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     for (const id of ids) {
       const tab = state.tabs.find((t) => t.id === id);
       if (!tab) continue;
-      if (needsSavePrompt(tab) || state.closeGuard?.(tab)) asking.push(id);
+      if (needsSavePrompt(tab)) asking.push(id);
       else get().closeTab(id);
     }
     if (asking.length > 0) set({ tabToClose: asking[0], pendingCloseIds: asking.slice(1) });
@@ -610,20 +463,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   advanceCloseQueue: () => set((state) => ({
     tabToClose: state.pendingCloseIds[0] ?? null,
     pendingCloseIds: state.pendingCloseIds.slice(1),
-    closeGuardPassed: null,
   })),
 
   /** 在确认框上点「取消」= 放弃整批，而不是只跳过这一个 */
-  cancelCloseQueue: () => set({ tabToClose: null, pendingCloseIds: [], closeGuardPassed: null }),
-
-  registerCloseGuard: (guard) => set({ closeGuard: guard }),
-  /** 把关提醒点了「继续」：没有未保存的修改就直接关，有的话留在队列里接着问要不要保存 */
-  passCloseGuard: (id) => {
-    const tab = get().tabs.find((t) => t.id === id);
-    if (tab && needsSavePrompt(tab)) { set({ closeGuardPassed: id }); return; }
-    get().closeTab(id);
-    get().advanceCloseQueue();
-  },
+  cancelCloseQueue: () => set({ tabToClose: null, pendingCloseIds: [] }),
 
   closeOtherTabs: (id: string) => get().closeTabs(get().tabs.filter((t) => t.id !== id).map((t) => t.id)),
 
@@ -660,9 +503,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       ? (newTabs.length > 0 ? newTabs[newTabs.length - 1].id : null)
       : state.activeTabId;
     
-    // 关掉最后一个标签页时保留工作区，文件树不应随文档关闭而消失
+    // 关掉最后一个标签页：回到一篇空白文档（没有欢迎页；最近打开的文件在「文件」菜单里）。文件树留着，不随文档关闭而消失
     if (newTabs.length === 0) {
-      return { tabs: [], activeTabId: null, outline: [], closedTabs };
+      const blank = blankTab();
+      return { tabs: [blank], activeTabId: blank.id, outline: [], closedTabs };
     }
 
     return {
@@ -703,38 +547,42 @@ export const useAppStore = create<AppState>((set, get) => ({
     return newState;
   }),
 
-  loadLibrary: async (libraryPath: string) => {
-    if (!libraryPath) return;
-    const files = await readLibraryDir(libraryPath);
+  loadFolder: async (folderPath: string) => {
+    if (!folderPath) return;
+    const files = await readLibraryDir(folderPath);
     if (!files) {
-      console.warn('Library path not readable:', libraryPath);
+      console.warn('Folder not readable:', folderPath);
       return;
     }
     set({
-      workspacePath: libraryPath,
-      workspaceName: libraryPath.split(/[/\\]/).filter(Boolean).pop() || '笔记库',
+      workspacePath: folderPath,
+      workspaceName: folderPath.split(/[/\\]/).filter(Boolean).pop() || '文件夹',
       fileTree: files,
-      expandedPaths: [...new Set([libraryPath, ...get().expandedPaths])],
+      expandedPaths: [...new Set([folderPath, ...get().expandedPaths])],
     });
     // 已展开的子目录补加载子节点
     await get().refreshWorkspace();
-    window.api.library.watch(libraryPath).catch(() => {});
-    void get().reloadUserCss();
+    window.api.folder.watch(folderPath).catch(() => {});
+  },
+
+  closeFolder: () => {
+    set({ workspacePath: null, workspaceName: null, fileTree: [], selectedNodePath: null });
+    window.api.folder.watch(null).catch(() => {});
   },
 
   getNewNoteDir: () => {
-    const { selectedNodePath, fileTree, workspacePath, defaultLibraryPath } = get();
+    const { selectedNodePath, fileTree, workspacePath } = get();
     if (selectedNodePath && workspacePath) {
       const node = findNode(fileTree, selectedNodePath);
       if (node?.isDirectory) return node.path;
       if (node) return selectedNodePath.substring(0, selectedNodePath.lastIndexOf(pathSep(selectedNodePath)));
     }
-    return workspacePath || defaultLibraryPath;
+    return workspacePath || '';
   },
 
   createNoteIn: async (dirPath: string) => {
     const sep = pathSep(dirPath);
-    const base = '未命名笔记';
+    const base = '未命名';
     let filePath = `${dirPath}${sep}${base}.md`;
     for (let i = 2; await window.api.fs.exists(filePath); i++) filePath = `${dirPath}${sep}${base} ${i}.md`;
     const res = await window.api.fs.writeFile(filePath, '');
@@ -758,219 +606,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     return folderPath;
   },
 
-  ensureDailyNote: async (date?: Date) => {
-    // 菜单、快捷键会把事件对象当参数传进来：不是日期的一律当今天
-    const day = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
-    const root = get().workspacePath || get().defaultLibraryPath;
-    if (!root) return null;
-    const sep = pathSep(root);
-    const dir = `${root}${sep}${DAILY_DIR}`;
-    if (!(await window.api.fs.exists(dir))) await window.api.fs.mkdir(dir);
-    const today = formatDate(day);
-    const filePath = `${dir}${sep}${today}.md`;
-    if (!(await window.api.fs.exists(filePath))) {
-      const tplPath = `${root}${sep}${TEMPLATE_DIR}${sep}日记.md`;
-      let template = DEFAULT_DAILY_TEMPLATE;
-      if (await window.api.fs.exists(tplPath)) {
-        const tpl = await window.api.fs.readFile(tplPath);
-        if (tpl.success && tpl.content) template = tpl.content;
-      }
-      // 补写过去某天的日记时，模板里的 {{date}} {{weekday}} 是那一天，不是今天
-      const res = await window.api.fs.writeFile(filePath, renderNoteTemplate(template, { title: today, date: day }));
-      if (!res.success) return null;
-      set({ expandedPaths: [...new Set([...get().expandedPaths, dir])] });
-      await get().refreshWorkspace();
-    }
-    return filePath;
-  },
-
-  openDailyNote: async (date?: Date) => {
-    const filePath = await get().ensureDailyNote(date);
-    if (filePath) await get().openFileByPath(filePath);
-  },
-
-  runAppUrl: async (action) => {
-    switch (action.action) {
-      case 'open-path': await get().openFileByPath(action.path); break;
-      case 'open-name': await get().openWikiLink(action.name); break;
-      case 'daily': await get().openDailyNote(); break;
-      case 'capture': await get().captureToDaily(action.text); break;
-      case 'search': get().openGlobalSearch(); set({ globalSearchQuery: action.query }); break;
-      case 'new': {
-        const dir = get().workspacePath || get().defaultLibraryPath;
-        if (!dir) return;
-        const sep = pathSep(dir);
-        // 标题做文件名；没给标题就用正文的第一行。永远不覆盖已有的文件
-        const base = (action.title || deriveNoteTitle(action.content) || '未命名').replace(/[\\/:*?"<>|#^[\]]/g, '').trim().slice(0, 80) || '未命名';
-        let name = base;
-        for (let i = 2; await window.api.fs.exists(`${dir}${sep}${name}.md`); i++) name = `${base} ${i}`;
-        const body = action.content || `# ${base}\n\n`;
-        const res = await window.api.fs.writeFile(`${dir}${sep}${name}.md`, body.endsWith('\n') ? body : `${body}\n`);
-        if (!res.success) return;
-        await get().refreshWorkspace();
-        await get().openFileByPath(`${dir}${sep}${name}.md`);
-        break;
-      }
-    }
-  },
-
-  captureToDaily: async (text: string) => {
-    if (!text.trim()) return false; // 先判空：别为了一句空话白建一篇日记
-    const now = new Date();
-    const filePath = await get().ensureDailyNote(now);
-    if (!filePath) return false;
-    // 不打开、不切过去：用户此刻在别的软件里。日记正开着的话 rewriteNote 会照顾好没存盘的改动
-    return !!(await get().rewriteNote(filePath, (content) => appendCapture(content, text, now)));
-  },
-
-  listTemplates: async () => {
-    const root = get().workspacePath || get().defaultLibraryPath;
-    if (!root) return [];
-    const dir = `${root}${pathSep(root)}${TEMPLATE_DIR}`;
-    if (!(await window.api.fs.exists(dir))) return [];
-    const files = await readLibraryDir(dir);
-    return (files || [])
-      .filter((f) => !f.isDirectory)
-      .map((f) => ({ name: f.name.replace(/\.(md|markdown|mdown|mkd|txt)$/i, ''), path: f.path }));
-  },
-
-  createNoteFromTemplate: async (templatePath: string, dirPath?: string) => {
-    const dir = dirPath || get().getNewNoteDir();
-    if (!dir) return null;
-    const tpl = await window.api.fs.readFile(templatePath);
-    if (!tpl.success) return null;
-    const sep = pathSep(dir);
-    const tplName = (templatePath.split(/[/\\]/).pop() || '笔记').replace(/\.(md|markdown|mdown|mkd|txt)$/i, '');
-    const base = `${tplName} ${formatDate(new Date())}`;
-    let title = base;
-    let filePath = `${dir}${sep}${title}.md`;
-    for (let i = 2; await window.api.fs.exists(filePath); i++) {
-      title = `${base} ${i}`;
-      filePath = `${dir}${sep}${title}.md`;
-    }
-    const res = await window.api.fs.writeFile(filePath, renderNoteTemplate(tpl.content || '', { title }));
-    if (!res.success) return null;
-    await get().refreshWorkspace();
-    get().openTab({ id: filePath, title: `${title}.md`, content: renderNoteTemplate(tpl.content || '', { title }), isDirty: false, mode: 'word' });
-    set({ selectedNodePath: filePath, renamingPath: filePath });
-    return filePath;
-  },
-
-  createSampleTemplates: async () => {
-    const root = get().workspacePath || get().defaultLibraryPath;
-    if (!root) return;
-    const sep = pathSep(root);
-    const dir = `${root}${sep}${TEMPLATE_DIR}`;
-    if (!(await window.api.fs.exists(dir))) await window.api.fs.mkdir(dir);
-    for (const tpl of SAMPLE_TEMPLATES) {
-      const filePath = `${dir}${sep}${tpl.name}.md`;
-      if (!(await window.api.fs.exists(filePath))) await window.api.fs.writeFile(filePath, tpl.content);
-    }
-    set({ expandedPaths: [...new Set([...get().expandedPaths, dir])] });
-    await get().refreshWorkspace();
-  },
-
-  openWikiLink: async (target: string) => {
-    const raw = target.trim();
-    if (!raw) return;
-    const { activeTabId, workspacePath, defaultLibraryPath } = get();
-    const currentDir = activeTabId && !activeTabId.startsWith('new-')
-      ? activeTabId.substring(0, activeTabId.lastIndexOf(pathSep(activeTabId)))
-      : (workspacePath || defaultLibraryPath);
-    let notes: { path: string; title: string; aliases?: string[] }[] = [];
-    try { notes = await window.api.search.listNotes(); } catch { notes = []; }
-    const link = resolveWikiTarget(notes, raw, currentDir);
-
-    // 打开之后跳到 #小节 / #^块；小节对不上就停在笔记开头，不报错
-    const jump = (tabId: string | null) => {
-      if (link.block) { set({ navigationRequest: { blockId: link.block, timestamp: Date.now() } }); return; }
-      if (link.headings.length === 0) return;
-      const tab = get().tabs.find((t) => t.id === tabId);
-      if (!tab) return;
-      const headings = extractHeadings(tab.content);
-      const at = findHeadingIndex(headings, link.headings);
-      if (at !== -1) get().scrollToHeading(headings[at]);
-    };
-
-    if (!link.note) { jump(activeTabId); return; } // [[#小节]]：本篇内跳转
-    if (link.hit) {
-      await get().openFileByPath(link.hit.path);
-      jump(link.hit.path);
-      return;
-    }
-    // 新建：名字只取笔记名那一段（不带 #小节；路径写法取最后一级）
-    const name = (link.note.split(/[/\\]/).pop() || '').replace(/[\\/:*?"<>|#^[\]]/g, '').trim();
-    const dir = currentDir || workspacePath || defaultLibraryPath;
-    if (!dir || !name) return;
-    const filePath = `${dir}${pathSep(dir)}${name}.md`;
-    if (!(await window.api.fs.exists(filePath))) {
-      const res = await window.api.fs.writeFile(filePath, `# ${name}\n\n`);
-      if (!res.success) return;
-      await get().refreshWorkspace();
-    }
-    await get().openFileByPath(filePath);
-  },
-
-  rewriteNote: async (notePath, transform) => {
-    const tab = get().tabs.find((t) => t.id === notePath);
-    if (tab?.isDirty) {
-      // 有没存盘的改动：只改编辑器里的内容，跟着用户下次保存一起落盘
-      let result: { before: string; after: string } | null = null;
-      get().editTabContent(notePath, (current) => {
-        const next = transform(current);
-        if (next !== null) result = { before: current, after: next };
-        return next ?? current;
-      });
-      return result;
-    }
-    const read = await window.api.fs.readFile(notePath);
-    if (!read.success) return null;
-    const before = read.content || '';
-    const after = transform(before);
-    if (after === null) return null;
-    if (after === before) return { before, after };
-    const written = await window.api.fs.writeFile(notePath, after); // 覆盖前版本历史会留底
-    if (!written.success) return null;
-    if (tab) {
-      set((state) => ({
-        tabs: state.tabs.map((t) => (t.id === notePath ? { ...t, content: after, isDirty: false, diskSig: contentSig(after) } : t)),
-        externalWrite: { id: notePath, rev: (state.externalWrite?.rev ?? 0) + 1 },
-      }));
-    }
-    return { before, after };
-  },
-
-  linkMention: async (notePath, mention, targetPath) => {
-    const done = await get().rewriteNote(notePath, (content) => linkifyMention(content, mention.offset, mention.length, mention.match, noteBaseName(targetPath)));
-    return done ? done.after.length - done.before.length : null;
-  },
-
-  renameTag: async (from, to) => {
-    const a = from.trim().replace(/^#/, '');
-    const b = to.trim().replace(/^#/, '');
-    if (!a || !isValidTagName(b) || a === b) return { changed: 0, failed: 0 };
-    let notes: { path: string }[] = [];
-    try { notes = await window.api.search.notesByTag(a); } catch { notes = []; }
-    let changed = 0;
-    let failed = 0;
-    for (const note of notes) {
-      const done = await get().rewriteNote(note.path, (content) => renameTagInMarkdown(content, a, b));
-      if (!done) failed++;
-      else if (done.after !== done.before) changed++;
-    }
-    // 正看着的就是被改名的标签（或它的子标签）：跟过去，别停在一个已经不存在的标签上
-    const selected = get().selectedTag;
-    if (selected && tagMatches(selected, a)) set({ selectedTag: b + selected.slice(a.length) });
-    return { changed, failed };
-  },
-
-  openTask: async (notePath, task) => {
-    await get().openFileByPath(notePath);
-    if (get().activeTabId === notePath) set({ navigationRequest: { line: task.line, lineText: task.text, timestamp: Date.now() } });
-  },
-
-  toggleTask: async (notePath, task, done) => !!(await get().rewriteNote(notePath, (content) => toggleTaskLine(content, task, done))),
-
   handleExternalChanges: async (paths: string[]) => {
     await get().refreshWorkspace();
     const changed = new Set(paths);
@@ -986,7 +621,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const diskContent = result.content || '';
       if (diskContent === tab.content) continue;
       // 磁盘上还是我们上次读到 / 写进去的那一份：不是别人改了文件，只是这边打了字还没存。
-      // 典型场景是应用自己新建文件（会议记录、双链新建的笔记）→ 打开 → 用户马上开始打字，文件监听的通知这时才到
+      // 典型场景是在文件树里新建文件 → 打开 → 用户马上开始打字，文件监听的通知这时才到
       if (tab.diskSig && tab.diskSig === contentSig(diskContent)) continue;
       if (tab.isDirty) {
         mark({ externallyModified: true, diskSig: contentSig(diskContent) }); // 两边都改了，交给用户决定（保存即覆盖）
@@ -1055,16 +690,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     recentFiles: [path, ...state.recentFiles.filter(p => p !== path)].slice(0, 10)
   })),
 
-  createNewFile: () => {
-    const id = `new-${Date.now()}.md`;
-    get().openTab({
-      id,
-      title: '未命名',
-      content: '',
-      isDirty: false,
-      mode: 'word'
-    });
-  },
+  createNewFile: () => get().openTab(blankTab()),
 
   // ⌘F：未开 → 开查找；开着替换 → 收起替换行；只开着查找 → 关闭（并清除高亮）
   toggleFind: () => {
@@ -1093,12 +719,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sendSearchCommand: (type) => set({ searchCommand: { type } }),
   consumeSearchCommand: () => { if (get().searchCommand) set({ searchCommand: null }); },
   registerEditorFlush: (fn) => set({ editorFlush: fn }),
-  registerEditorActions: (actions) => set({ editorActions: actions }),
-  openGlobalSearch: () => set((state) => ({ sidebarTab: 'search', sidebarVisible: true, globalSearchFocus: state.globalSearchFocus + 1 })),
-  openTranscribe: () => set({ sidebarTab: 'transcribe', sidebarVisible: true, focusMode: false }),
-  openAsk: () => { set({ sidebarTab: 'ask', sidebarVisible: true, focusMode: false }); useAskStore.getState().requestFocus(); },
   showFindWith: (query) => set((state) => ({ findVisible: true, replaceVisible: false, search: { ...state.search, query } })),
-  openTag: (tag) => set({ selectedTag: tag, sidebarTab: 'tags', sidebarVisible: true, focusMode: false }),
   notify: (text, ms, actions) => {
     const id = Date.now();
     set({ notice: actions?.length ? { id, text, actions } : { id, text } });
@@ -1130,7 +751,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           if (!sub) return node;
           return { ...node, children: await loadExpanded(sub) };
         }));
-      set((state) => ({ fileTree: state.fileTree, libraryVersion: state.libraryVersion + 1 }));
       set({ fileTree: await loadExpanded(rootFiles) });
     } catch (error) {
       console.error('Failed to refresh workspace:', error);
@@ -1156,31 +776,19 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   openFile: async () => {
     const result = await window.api.dialog.open({
-      properties: ['openFile'],
-      filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }]
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] }]
     });
 
-    if (result && result.length > 0) {
-      const filePath = result[0];
-      const readResult = await window.api.fs.readFile(filePath);
-      if (readResult.success) {
-        get().openTab({
-          id: filePath,
-          title: filePath.split(/[/\\]/).pop() || 'Untitled',
-          content: readResult.content || '',
-          isDirty: false,
-          mode: 'word'
-        });
-        get().addToRecent(filePath);
-      }
-    }
+    for (const filePath of result || []) await get().openFileByPath(filePath);
   },
 
-  // 切换笔记库：选一个目录作为新的树根并持久化到设置
+  // 打开文件夹：选一个目录作为侧边栏的文件树，并把侧边栏亮出来
   openDirectory: async () => {
     const result = await window.api.dialog.open({ properties: ['openDirectory'] });
     if (result && result.length > 0) {
-      get().setDefaultLibraryPath(result[0]);
+      await get().loadFolder(result[0]);
+      set({ sidebarTab: 'files', sidebarVisible: true });
     }
   },
 
@@ -1197,27 +805,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (isAutoSave && !isTempFile && !activeTab.isDirty) return true;
 
     if (isTempFile || saveAs) {
-      if (isTempFile && isAutoSave) {
-        // 无感静默创建新文件：文件名取自内容的第一行正文。
-        // AI 正在往文档里写内容时不落盘（半成品会被当成文件名）；空文档或只有符号的文档也先不落盘，
-        // 内容已经随会话保存，等有了正文再建文件。
-        if (get().aiStatus.generating) return false;
-        const titleStr = deriveNoteTitle(activeTab.content);
-        if (!titleStr) return false;
-
-        const targetDir = get().getNewNoteDir();
-        if (!targetDir) return false;
-        const dirSep = pathSep(targetDir);
-        filePath = `${targetDir}${dirSep}${titleStr}.md`;
-        for (let i = 2; await window.api.fs.exists(filePath); i++) filePath = `${targetDir}${dirSep}${titleStr} ${i}.md`;
-      } else {
-        const result = await window.api.dialog.save({
-          defaultPath: isTempFile ? (activeTab.title === '未命名' ? 'untitled.md' : `${activeTab.title}.md`) : filePath,
-          filters: [{ name: 'Markdown', extensions: ['md'] }]
-        });
-        if (!result) return false;
-        filePath = result;
-      }
+      // 未命名文档从不悄悄建成文件：内容随会话保存着，存到哪、叫什么，由用户在保存框里定
+      if (isTempFile && isAutoSave) return false;
+      // 保存框里先替用户想一个名字（正文第一行），位置默认在打开的文件夹里
+      const dir = get().getNewNoteDir();
+      const name = `${deriveNoteTitle(activeTab.content) || '未命名'}.md`;
+      const result = await window.api.dialog.save({
+        defaultPath: isTempFile ? (dir ? `${dir}${pathSep(dir)}${name}` : name) : filePath,
+        filters: [{ name: 'Markdown', extensions: ['md'] }]
+      });
+      if (!result) return false;
+      filePath = result;
     }
 
     const saveResult = await window.api.fs.writeFile(filePath, activeTab.content);
@@ -1245,10 +843,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   openDialog: (id) => set({ dialog: id }),
   closeDialog: () => set({ dialog: null }),
 
-  setAIStatus: (status: Partial<AppState['aiStatus']>) => set((state) => ({
-    aiStatus: { ...state.aiStatus, ...status }
-  })),
-
   setZoom: (zoom: number) => set({ zoom }),
   
   setTheme: (themeId: string) => {
@@ -1273,7 +867,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().saveSettings();
   },
 
-  setStartupBehavior: (behavior: 'restore' | 'dashboard') => {
+  setStartupBehavior: (behavior: 'restore' | 'blank') => {
     set({ startupBehavior: behavior });
     get().saveSettings();
   },
@@ -1281,12 +875,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   setAutoSave: (autoSave: boolean) => {
     set({ autoSave });
     get().saveSettings();
-  },
-
-  setDefaultLibraryPath: (path: string) => {
-    set({ defaultLibraryPath: path });
-    get().saveSettings();
-    get().loadLibrary(path);
   },
 
   applyAppearance: (mode: 'light' | 'dark' | 'system' | 'eye-protection') => {
@@ -1306,18 +894,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (sessionStr) {
         const session = JSON.parse(sessionStr);
 
-        // 树根固定为笔记库（loadSettings 已加载），会话只恢复目录展开状态
-        const root = get().workspacePath;
-        if (root && Array.isArray(session.expandedPaths)) {
-          set({ expandedPaths: [...new Set([root, ...session.expandedPaths])] });
-          await get().refreshWorkspace();
+        // 上次打开的文件夹和它的展开状态；文件夹已经不在了就算了，不报错
+        if (typeof session.folderPath === 'string' && session.folderPath && await window.api.fs.exists(session.folderPath)) {
+          if (Array.isArray(session.expandedPaths)) set({ expandedPaths: session.expandedPaths });
+          await get().loadFolder(session.folderPath);
           restoredWorkspace = true;
         }
-
-        // 恢复 Starred Files
-        if (session.starredFiles) {
-          set({ starredFiles: session.starredFiles });
-        }
+        if (typeof session.sidebarVisible === 'boolean') set({ sidebarVisible: session.sidebarVisible });
+        if (session.sidebarTab === 'files' || session.sidebarTab === 'outline') set({ sidebarTab: session.sidebarTab });
 
         // 恢复 Recent Files
         if (session.recentFiles) {
@@ -1383,26 +967,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (settings) {
         set({
           appearanceMode: settings.appearanceMode || 'light',
-          startupBehavior: settings.startupBehavior || 'restore',
-          autoSave: settings.autoSave ?? true,
-          defaultLibraryPath: settings.defaultLibraryPath || '',
-          imageGenConfig: settings.imageGenConfig || DEFAULT_IMAGE_GEN_CONFIG,
+          startupBehavior: settings.startupBehavior === 'restore' ? 'restore' : 'blank',
+          autoSave: !!settings.autoSave,
           imageCompression: settings.imageCompression ?? true,
           fetchLinkTitle: settings.fetchLinkTitle ?? true,
-          linkPreview: settings.linkPreview ?? true,
-          userCss: settings.userCss ?? true,
-          vimMode: !!settings.vimMode,
           spellcheck: !!settings.spellcheck,
-          aiEnabled: settings.aiEnabled ?? true,
           editorPrefs: normalizeEditorPrefs(settings.editorPrefs),
         });
         applyEditorPrefs(get().editorPrefs);
-        void get().reloadUserCss(); // 设置里开 / 关了「自定义样式」
         if (settings.themeId) get().setTheme(settings.themeId);
         get().applyAppearance(settings.appearanceMode || 'light');
-        // 笔记库路径变化（含设置窗口里改动后广播回来）时重新加载树
-        const libraryPath: string = settings.defaultLibraryPath || '';
-        if (libraryPath && libraryPath !== get().workspacePath) await get().loadLibrary(libraryPath);
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -1410,10 +984,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   saveSettings: async () => {
-    const { appearanceMode, startupBehavior, autoSave, defaultLibraryPath, imageGenConfig, theme, imageCompression, fetchLinkTitle, linkPreview, userCss, vimMode, spellcheck, aiEnabled, editorPrefs } = get();
+    const { appearanceMode, startupBehavior, autoSave, theme, imageCompression, fetchLinkTitle, spellcheck, editorPrefs } = get();
     await window.api.app.saveSettings({
-      appearanceMode, startupBehavior, autoSave, defaultLibraryPath, imageGenConfig,
-      imageCompression, fetchLinkTitle, linkPreview, userCss, vimMode, spellcheck, aiEnabled, editorPrefs,
+      appearanceMode, startupBehavior, autoSave,
+      imageCompression, fetchLinkTitle, spellcheck, editorPrefs,
       themeId: theme?.id,
     });
   },
@@ -1441,7 +1015,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeTabId: state.activeTabId ? remap(state.activeTabId) : state.activeTabId,
           renamingPath: null,
           selectedNodePath: state.selectedNodePath ? remap(state.selectedNodePath) : state.selectedNodePath,
-          starredFiles: state.starredFiles.map(remap),
           expandedPaths: state.expandedPaths.map(remap),
         }));
         await get().refreshWorkspace();
@@ -1461,10 +1034,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         // 删除目录时连同其下已打开的标签页一起关闭
         const sep = pathSep(path);
         get().tabs.filter(t => t.id === path || t.id.startsWith(path + sep)).forEach(t => get().closeTab(t.id));
-        set((state) => ({
-          selectedNodePath: state.selectedNodePath === path ? null : state.selectedNodePath,
-          starredFiles: state.starredFiles.filter(p => p !== path)
-        }));
+        set((state) => ({ selectedNodePath: state.selectedNodePath === path ? null : state.selectedNodePath }));
         await get().refreshWorkspace();
         return true;
       }
@@ -1557,7 +1127,7 @@ function markUpdateAnnounced(version: string) { try { localStorage.setItem(UPDAT
 // ── 会话持久化（防抖写入 localStorage）──
 // 未保存的修改（脏标签页 / 新建未命名文档）连同内容一起保存，重启后可恢复；超大内容跳过以免撑爆 localStorage
 const MAX_PERSISTED_CONTENT = 1_500_000;
-// 只有主窗口持有真实会话；设置 / 关于等子窗口的 store 是空的，绝不能让它们写回 localStorage
+// 只有主窗口持有真实会话；?window=xxx 的独立页面（截图用）store 是空的，绝不能让它们写回 localStorage
 const isMainWindow = !new URLSearchParams(window.location.search).get('window');
 let sessionSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let sessionPersistDisabled = false;
@@ -1565,11 +1135,13 @@ let sessionPersistDisabled = false;
 function persistSession(state: AppState) {
   if (!isMainWindow || sessionPersistDisabled) return;
   const sessionToSave = {
+    folderPath: state.workspacePath,
     expandedPaths: state.expandedPaths,
     activeTabId: state.activeTabId,
-    starredFiles: state.starredFiles,
     recentFiles: state.recentFiles,
     sidebarWidth: state.sidebarWidth,
+    sidebarVisible: state.sidebarVisible,
+    sidebarTab: state.sidebarTab,
     tabs: state.tabs.map(t => {
       const keepContent = (t.isDirty || t.id.startsWith('new-')) && t.content.length <= MAX_PERSISTED_CONTENT;
       return { id: t.id, title: t.title, isDirty: t.isDirty, mode: t.mode, ...(keepContent ? { content: t.content } : {}) };
@@ -1605,10 +1177,12 @@ useAppStore.subscribe((state, prevState) => {
   const shouldSave =
     state.tabs !== prevState.tabs ||
     state.activeTabId !== prevState.activeTabId ||
+    state.workspacePath !== prevState.workspacePath ||
     state.expandedPaths !== prevState.expandedPaths ||
-    state.starredFiles !== prevState.starredFiles ||
     state.recentFiles !== prevState.recentFiles ||
-    state.sidebarWidth !== prevState.sidebarWidth;
+    state.sidebarWidth !== prevState.sidebarWidth ||
+    state.sidebarVisible !== prevState.sidebarVisible ||
+    state.sidebarTab !== prevState.sidebarTab;
   if (!shouldSave || !isMainWindow || sessionPersistDisabled) return;
   if (sessionSaveTimer) clearTimeout(sessionSaveTimer);
   // 脏标签页的内容也会序列化，1s 防抖把连续打字合并成一次写入

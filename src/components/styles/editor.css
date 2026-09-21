@@ -1061,3 +1061,10 @@ span > .source-node__input { display: inline-block; width: auto; min-width: 160p
 .focus-mode .tiptap-prosemirror > .is-focus-block { opacity: 1; transition: opacity 0.2s; }
 .focus-mode .tiptap-page { box-shadow: none; }
 .focus-mode .tiptap-container { background-color: var(--bg-page); }
+
+/* ── 轻量版：[[链接]] 和 #标签 只是文字 ──
+   节点本身留着，是为了保存时原样写回；这里不解析、不跳转，样子上也别让人以为能点。
+   放在文件末尾单独成段：主版本改上面那些规则时不会和这里冲突 */
+.wiki-link, .wiki-link:hover { display: inline; padding: 0; margin: 0; border: none; border-radius: 0; background: none; color: inherit; font-size: inherit; line-height: inherit; cursor: text; }
+.wiki-link::before, .wiki-link::after { opacity: 1; font-size: 1em; margin: 0; }
+.tag-chip, .tag-chip:hover { padding: 0; border-radius: 0; background: none; color: inherit; font-size: inherit; cursor: text; }

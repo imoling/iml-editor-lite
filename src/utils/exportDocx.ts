@@ -239,7 +239,7 @@ export async function htmlToDocx(html: string, opts: DocxOptions): Promise<Uint8
 
   const file = new d.Document({
     title: opts.title,
-    creator: 'iML Markdown Editor',
+    creator: 'iML 编辑器',
     styles: {
       default: {
         document: { run: { font: { ascii: 'Calibri', hAnsi: 'Calibri', eastAsia: 'Microsoft YaHei', cs: 'Calibri' }, size: 22 } },

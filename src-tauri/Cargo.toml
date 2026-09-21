@@ -1,0 +1,40 @@
+[package]
+name = "iml-editor"
+version = "26.4.0"
+description = "iML 编辑器：纯粹的 Markdown 编辑器"
+authors = ["imoling"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "iml_editor_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 文件夹监听
+notify = "6"
+# 推入废纸篓 / 回收站
+trash = "5"
+# 取网页标题、查更新：只要最朴素的 GET，用系统自带的 TLS，不把 rustls 编进来
+ureq = { version = "2", default-features = false, features = ["native-tls", "gzip"] }
+native-tls = "0.2"
+percent-encoding = "2"
+# macOS 的系统 WebView 不能把画布编码成 WebP：粘贴图片的压缩在这边做
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+webp = { version = "0.3", default-features = false }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

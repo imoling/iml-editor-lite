@@ -18,7 +18,6 @@ import { SearchExtension } from '../../extensions/SearchExtension';
 import { CustomHeadingEnter, ShortcutOverrides } from '../../extensions/EditorKeymaps';
 import { SlashCommand } from '../../extensions/SlashCommand';
 import { WikiLink } from '../../extensions/WikiLink';
-import { WikiLinkSuggestion } from '../../extensions/WikiLinkSuggestion';
 import { Frontmatter } from '../../extensions/Frontmatter';
 import { Callout } from '../../extensions/Callout';
 import { Toc } from '../../extensions/Toc';
@@ -26,9 +25,7 @@ import { WikiEmbed } from '../../extensions/WikiEmbed';
 import { FootnoteLinks } from '../../extensions/FootnoteLinks';
 import { MoveBlock } from '../../extensions/MoveBlock';
 import { RawBlock, RawInline } from '../../extensions/RawHtml';
-import { TimestampLinks } from '../../extensions/TimestampLinks';
 import { InlineMath } from '../../extensions/InlineMath';
-import { TagHighlight } from '../../extensions/TagHighlight';
 import { Kbd, Subscript, Superscript, Highlight, SoftAwareHardBreak, NoteLink } from '../../extensions/InlineMarks';
 import { NoteImage } from '../../extensions/NoteImage';
 import { FocusMode } from '../../extensions/FocusMode';
@@ -40,9 +37,9 @@ export const editorExtensions = [
   ShortcutOverrides,
   SearchExtension,
   SlashCommand,
+  // [[链接]] 与 ![[嵌入]] 只保留节点本身：轻量版不解析、不跳转，但保存时必须原样写回
   WikiLink,
-  WikiLinkSuggestion,
-  // 兼容包：frontmatter / 提示块 / [TOC] / 原样保留的 HTML 与脚注 / 行内公式 / #标签 高亮
+  // 兼容包：frontmatter / 提示块 / [TOC] / 原样保留的 HTML 与脚注 / 行内公式
   Frontmatter,
   Callout,
   Toc,
@@ -51,9 +48,7 @@ export const editorExtensions = [
   MoveBlock,
   RawBlock,
   RawInline,
-  TimestampLinks,
   InlineMath,
-  TagHighlight,
   FocusMode,
   Kbd,
   Subscript,

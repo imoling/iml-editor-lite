@@ -49,18 +49,53 @@ describe('安装包体积', () => {
     expect(pkg.build.nsis.artifactName).toContain('${arch}');
   });
 
-  it('macOS：开着强化运行时，权限声明里必须有麦克风 —— 否则系统连授权框都不弹，实时转写在安装版里完全用不了', () => {
-    // 26.3.0 就是这么坏的：electron-builder 默认开强化运行时、默认的权限声明里没有麦克风。
-    // 开发模式下没有这层限制，从终端启动的包又会借用终端的麦克风权限，两种测法都发现不了；
-    // 必须用 open（等价于双击图标）启动安装包来验。对照实验：去掉这一项，请求 0.5 秒内被直接拒绝；加上就正常弹框
+  it('macOS：轻量版不申请任何设备权限，也不登记自己的链接协议；安装包的文件名是英文', () => {
+    // 这个版本没有录音、没有 iml:// 唤起：权限声明里多出麦克风，或者 Info.plist 里多出用途说明，都说明有东西从主版本漏过来了
     const mac = pkg.build.mac;
     expect(mac.hardenedRuntime).toBe(true);
     expect(mac.entitlements).toBe('build/entitlements.mac.plist');
-    expect(mac.entitlementsInherit).toBe(mac.entitlements);   // 真正开麦克风的是渲染进程那个 Helper，它用的是「继承」的这一份
+    expect(mac.entitlementsInherit).toBe(mac.entitlements);
     const plist = fs.readFileSync(path.join(root, mac.entitlements), 'utf8');
-    for (const key of ['com.apple.security.device.audio-input', 'com.apple.security.cs.disable-library-validation', 'com.apple.security.cs.allow-jit']) {
-      expect(plist).toMatch(new RegExp(`<key>${key.replace(/\./g, '\\.')}</key>\\s*<true/>`));
+    expect(plist).not.toMatch(/com\.apple\.security\.device\./);
+    expect(plist).toMatch(/<key>com\.apple\.security\.cs\.allow-jit<\/key>\s*<true\/>/);
+    expect(Object.keys(mac.extendInfo).filter((k) => /UsageDescription$/.test(k))).toEqual([]);
+    expect(pkg.build.protocols).toBeUndefined();
+    // GitHub Release 的附件名里放不了中文，检查更新又靠文件名里的架构挑安装包
+    for (const name of [mac.artifactName, pkg.build.nsis.artifactName]) {
+      expect(name).toMatch(/^[\x20-\x7e]+$/);
+      expect(name).toContain('${arch}');
     }
-    expect(mac.extendInfo.NSMicrophoneUsageDescription).toBeTruthy();
+  });
+
+  it('和「iML 笔记」装在同一台电脑上互不干扰：应用标识不同，数据目录钉死成自己的', () => {
+    expect(pkg.build.appId).toBe('com.imoling.editor');
+    const main = fs.readFileSync(path.join(root, 'electron/main.ts'), 'utf8');
+    expect(main).toMatch(/app\.setPath\('userData', path\.join\(app\.getPath\('appData'\), 'iML Editor'\)\)/);
+  });
+
+  it('Tauri 壳和 Electron 壳是同一个应用：标识、版本号一致；三个平台的窗口都关掉系统的拖放接管', () => {
+    const conf = (name: string) => JSON.parse(fs.readFileSync(path.join(root, 'src-tauri', name), 'utf8'));
+    const base = conf('tauri.conf.json');
+    expect(base.identifier).toBe(pkg.build.appId);
+    expect(base.version).toBe('../package.json');
+    const cargo = fs.readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8');
+    expect(/^version = "([^"]+)"/m.exec(cargo)?.[1]).toBe(pkg.version);
+    // 系统 WebView 默认自己接管文件拖放，页面收不到 drop 事件——往编辑器里拖图片就没反应了。
+    // 平台配置是整段覆盖 windows 数组的，每一份都得写
+    for (const name of ['tauri.conf.json', 'tauri.macos.conf.json', 'tauri.windows.conf.json']) {
+      for (const win of conf(name).app.windows) expect(win.dragDropEnabled).toBe(false);
+    }
+    // 两个壳认的文档类型一样
+    expect(base.bundle.fileAssociations[0].ext).toEqual(pkg.build.fileAssociations[0].ext);
+  });
+
+  it('轻量：KaTeX 只带 woff2；macOS 的包做本地签名（否则 Apple 芯片上下载下来报「已损坏」）', () => {
+    const vite = fs.readFileSync(path.join(root, 'vite.config.ts'), 'utf8');
+    expect(vite).toMatch(/plugins: \[react\(\), dropLegacyKatexFonts\]/);
+    const conf = JSON.parse(fs.readFileSync(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8'));
+    expect(conf.bundle.macOS.signingIdentity).toBe('-');
+    // Rust 这边的发布配置：按体积优化、整体链接优化、去掉符号
+    const cargo = fs.readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8');
+    for (const line of ['opt-level = "s"', 'lto = true', 'strip = true', 'panic = "abort"']) expect(cargo).toContain(line);
   });
 });

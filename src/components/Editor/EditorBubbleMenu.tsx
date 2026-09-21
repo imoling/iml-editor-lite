@@ -4,21 +4,17 @@ import type { Editor } from '@tiptap/core';
 import { BubbleMenu } from '@tiptap/react';
 import {
   Bold, Italic, Underline as UnderlineIcon, Code, Plus, Trash2, Columns, Rows, LayoutGrid,
-  Type, ListOrdered, List, SquareCheck, Quote, Sparkles, Wand2, FileText, FileCode,
+  Type, ListOrdered, List, SquareCheck, Quote, FileCode,
   AlignLeft, AlignCenter, AlignRight,
 } from 'lucide-react';
 
 interface Props {
   editor: Editor;
-  aiGenerating: boolean;
-  /** AI 总开关关闭时不显示润色 / 总结 / 扩写 */
-  aiEnabled?: boolean;
   onToggleCodeBlock: () => void;
-  onAIAction: (action: 'polish' | 'summarize' | 'expand', style?: string) => void;
 }
 
-/** 选中文本后的浮动菜单：格式、AI 润色 / 总结 / 扩写，以及代码块语言与表格操作 */
-export const EditorBubbleMenu: React.FC<Props> = ({ editor, aiGenerating, aiEnabled = true, onToggleCodeBlock, onAIAction }) => (
+/** 选中文本后的浮动菜单：格式，以及代码块语言与表格操作 */
+export const EditorBubbleMenu: React.FC<Props> = ({ editor, onToggleCodeBlock }) => (
     <BubbleMenu 
       editor={editor} 
       tippyOptions={{ 
@@ -29,7 +25,6 @@ export const EditorBubbleMenu: React.FC<Props> = ({ editor, aiGenerating, aiEnab
       shouldShow={({ state, editor }) => {
         if (state.selection.empty) return false;
         // 查找面板开着时，选区是「查找命中」而不是用户选的字：这时弹格式菜单只会挡住正文
-        //（从全文搜索、问答的引用跳进来定位时尤其碍眼）
         if (useAppStore.getState().findVisible) return false;
         // Don't show for custom block nodes
         const isCustomBlock = editor.isActive('diagram') || editor.isActive('svgBlock') || editor.isActive('frontmatter') || editor.isActive('rawBlock') || editor.isActive('toc') || editor.isActive('math');
@@ -55,14 +50,6 @@ export const EditorBubbleMenu: React.FC<Props> = ({ editor, aiGenerating, aiEnab
           <button onClick={() => editor.chain().focus().toggleCode().run()} className={`toolbar-icon-btn ${editor.isActive('code') ? 'active' : ''}`} title="行内代码"><Code size={16} /></button>
           <button onClick={() => onToggleCodeBlock()} className={`toolbar-icon-btn ${editor.isActive('codeBlock') ? 'active' : ''}`} title="代码块"><FileCode size={16} /></button>
           <button onClick={() => editor.chain().focus().toggleBlockquote().run()} className={`toolbar-icon-btn ${editor.isActive('blockquote') ? 'active' : ''}`} title="引用"><Quote size={16} /></button>
-          {aiEnabled && (
-            <>
-              <div className="toolbar-divider"></div>
-              <button onClick={() => onAIAction('polish')} className="toolbar-icon-btn" title="AI 润色" disabled={aiGenerating}><Wand2 size={16} color="var(--color-accent-indigo)" /></button>
-              <button onClick={() => onAIAction('summarize')} className="toolbar-icon-btn" title="AI 总结" disabled={aiGenerating}><FileText size={16} color="var(--color-accent-green)" /></button>
-              <button onClick={() => onAIAction('expand')} className="toolbar-icon-btn" title="AI 扩写" disabled={aiGenerating}><Sparkles size={16} color="var(--color-accent-orange)" /></button>
-            </>
-          )}
         </div>
         {editor.isActive('codeBlock') && (
           <>

@@ -525,52 +525,6 @@
 .library-header { font-weight: 600; color: var(--text-primary); padding-left: 8px; gap: 4px; }
 .empty-state__icon { margin-bottom: 10px; opacity: 0.5; }
 
-/* ── 启动页 ── */
-.start-page {
-  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  padding: 40px; position: relative; overflow: hidden; height: 100%;
-  background: radial-gradient(circle at 50% 0%, var(--brand-shadow) 0%, transparent 40%), var(--bg-page);
-}
-.start-page__blob { position: absolute; opacity: 0.03; filter: blur(100px); border-radius: 50%; pointer-events: none; }
-.start-page__blob--tl { top: -10%; left: -5%; width: 40vw; height: 40vw; background: var(--color-brand-indigo); }
-.start-page__blob--br { bottom: -10%; right: -5%; width: 30vw; height: 30vw; background: var(--color-brand-purple); }
-.start-page__inner { z-index: 1; width: 100%; max-width: 760px; animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
-.mb-48 { margin-bottom: 48px; }
-.start-page__title { font-size: 36px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.02em; margin: 0 0 12px; }
-.start-page__brand { background: var(--brand-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.start-page__subtitle { font-size: 15px; color: var(--text-secondary); margin: 0; display: flex; align-items: center; justify-content: center; gap: 10px; }
-.start-page__version {
-  font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: 8px; height: 18px; display: inline-flex; align-items: center;
-  background-color: var(--bg-code-inline); color: var(--color-brand-indigo); border: 1px solid var(--brand-shadow);
-}
-.start-page__actions { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 48px; }
-.start-page-action {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
-  padding: 24px 16px; border-radius: 16px; cursor: pointer;
-  background-color: var(--bg-elevated); border: 1px solid var(--border-subtle);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03); transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.start-page-action:hover { transform: translateY(-2px); box-shadow: 0 8px 24px var(--brand-shadow); border-color: var(--color-brand-indigo); }
-.start-page-action__icon { width: 48px; height: 48px; border-radius: 24px; background-color: var(--bg-surface); display: flex; align-items: center; justify-content: center; color: var(--color-brand-indigo); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); }
-.start-page-action__label { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
-.start-page-action__hotkey { font-size: 11px; color: var(--text-muted); }
-/* AI 未配置时的引导条：夹在快捷动作和卡片之间，配好后整条消失 */
-.start-page__ai-hint {
-  display: flex; align-items: center; gap: 10px; width: 100%; margin: -24px 0 24px; padding: 12px 16px;
-  border-radius: 12px; border: 1px solid var(--border-subtle); background-color: var(--bg-card);
-  color: var(--text-secondary); font-size: 13px; font-family: inherit; text-align: left; cursor: pointer;
-  transition: border-color 0.2s ease, background-color 0.2s ease;
-}
-.start-page__ai-hint > span { flex: 1; }
-.start-page__ai-hint strong { color: var(--text-primary); }
-.start-page__ai-hint:hover { border-color: var(--color-brand-indigo); background-color: rgba(99, 102, 241, 0.06); }
-.start-page__cards { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-.start-card { background-color: var(--bg-elevated); border-radius: 16px; padding: 20px; border: 1px solid var(--border-subtle); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02); }
-.start-card__title { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--text-primary); font-weight: 600; font-size: 14px; }
-.start-card__empty { font-size: 13px; color: var(--text-muted); padding: 12px 0; text-align: center; background-color: var(--bg-surface); border-radius: 8px; }
-.start-page-list-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; cursor: pointer; transition: all 0.2s; font-size: 13px; color: var(--text-secondary); }
-.start-page-list-item:hover { background-color: var(--bg-hover-editor); color: var(--text-primary); }
-
 /* ── 全文搜索面板 ── */
 /* ── 侧边栏功能页的空状态（问答 / 转写共用）：图标、一句话、几条要点 ── */
 /* 淡色底一律从主题色里调出来（color-mix），换了主题色也协调 */

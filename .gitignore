@@ -32,6 +32,8 @@ eslintdebug.log*
 .DS_Store
 Thumbs.db
 Icon?
+# 上面那条是访达的自定义图标文件（Icon\r）；文件系统不分大小写时它会连 icons 目录一起吃掉——Tauri 的图标得进仓库
+!src-tauri/icons
 
 # IDEs and Editors
 .vscode/

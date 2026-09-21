@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import ReactDOM from 'react-dom';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { TextSelection } from '@tiptap/pm/state';
 import type { Editor } from '@tiptap/core';
@@ -9,25 +8,18 @@ import { serializeDoc } from '../../utils/incrementalMarkdown';
 import { registerSource, placeCursorAfterFrontmatter, loadDocFresh } from '../../utils/sourceMap';
 import { searchPluginKey } from '../../extensions/SearchExtension';
 import { editorExtensions } from './editorExtensions';
-import { useEditorAI } from './useEditorAI';
 import { EditorToolbar } from './EditorToolbar';
 import { EditorBubbleMenu } from './EditorBubbleMenu';
 import { PromptDialog, PromptDialogProps } from './dialogs/PromptDialog';
 import { ImageInsertDialog } from './dialogs/ImageInsertDialog';
-import { StyleSelector } from './dialogs/StyleSelector';
-import { AIPalette } from '../AI/AIPalette';
 import { SlashMenu } from './SlashMenu';
 import { createSlashItems, filterSlashItems } from './slashItems';
 import { slashMenuRegistry, SlashItem } from '../../extensions/SlashCommand';
-import { wikiLinkRegistry, filterWikiCandidates, WikiLinkCandidate } from '../../extensions/WikiLinkSuggestion';
-import { WikiLinkMenu } from './WikiLinkMenu';
 import type { SuggestionProps } from '@tiptap/suggestion';
 import { storeImageFile, persistDataUrl } from '../../utils/pasteImage';
 import { isSingleUrl } from '../../utils/pasteText';
 import { normalizeHeading } from '../../../electron/shared/wikiLink';
 import { extractHeadings } from '../../utils/outline';
-import { wikiHeadingCandidates, toNameCandidates } from '../../utils/wikiComplete';
-import { readNoteForLink } from '../../utils/noteReader';
 import { jumpToFootnote } from '../../extensions/FootnoteLinks';
 import '../styles/editor.css';
 
@@ -58,11 +50,10 @@ function reportSearchState(editor: Editor) {
 export const TiptapEditor: React.FC = () => {
   const { 
     activeTabId, tabs, updateTabContent, navigationRequest, zoom,
-    outline, toolbarVisible,
+    toolbarVisible,
   } = useAppStore();
   const search = useAppStore((s) => s.search);
   const searchCommand = useAppStore((s) => s.searchCommand);
-  const aiEnabled = useAppStore((s) => s.aiEnabled);
   const spellcheck = useAppStore((s) => s.spellcheck);
   const focusMode = useAppStore((s) => s.focusMode);
   const registerEditorFlush = useAppStore((s) => s.registerEditorFlush);
@@ -137,30 +128,6 @@ export const TiptapEditor: React.FC = () => {
     return () => registerEditorFlush(null);
   }, [registerEditorFlush]);
 
-  // 给侧边栏功能用的两个动作（转写的「打点」往光标处插时间戳；新建的会议记录把光标放进「要点」）
-  useEffect(() => {
-    const { registerEditorActions } = useAppStore.getState();
-    registerEditorActions({
-      insertText: (text) => { const ed = editorRef.current as Editor | null; if (!ed || ed.isDestroyed) return false; return ed.chain().focus().insertContent(text).run(); },
-      // 命令面板的「插入…」：和在正文里敲 / 选同一项走的是同一段代码，只是没有要先删掉的 `/xxx`
-      runSlash: (id) => {
-        const ed = editorRef.current as Editor | null;
-        if (!ed || ed.isDestroyed) return false;
-        const item = buildSlashItems().find((x) => x.id === id);
-        if (!item) return false;
-        const at = ed.state.selection.from;
-        item.run(ed, { from: at, to: at });
-        return true;
-      },
-      startList: () => {
-        const ed = editorRef.current as Editor | null;
-        if (!ed || ed.isDestroyed) return;
-        ed.chain().insertContentAt(ed.state.doc.content.size, { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph' }] }] }).focus('end').run();
-      },
-    });
-    return () => registerEditorActions(null);
-  }, []);
-
   const editor = useEditor({
     extensions: editorExtensions,
     content: activeTab ? markdownToHtml(activeTab.content) : '',
@@ -169,18 +136,9 @@ export const TiptapEditor: React.FC = () => {
         class: 'tiptap-prosemirror',
       },
       handleClick: (_view, _pos, event) => {
-        // 点击双向链接芯片 → 打开（或新建）目标笔记
-        const link = (event.target as HTMLElement).closest('[data-wiki-link]');
-        if (link) {
-          useAppStore.getState().openWikiLink(link.getAttribute('data-wiki-link') || '');
-          return true;
-        }
         // 点击脚注引用 [^1] → 跳到它的定义（按住 ⌘ / Ctrl 时照常落光标，方便改这几个字）
         const footnote = (event.target as HTMLElement).closest('[data-footnote-ref]');
         if (footnote && !event.metaKey && !event.ctrlKey && jumpToFootnote(_view, footnote.getAttribute('data-footnote-ref') || '')) return true;
-        // 点击 #标签 → 侧边栏标签视图（光标照常落位，不拦截）
-        const tag = (event.target as HTMLElement).closest('.tag-chip[data-tag]');
-        if (tag) useAppStore.getState().openTag(tag.getAttribute('data-tag'));
         return false;
       },
       handleDoubleClick: (view, pos, event) => {
@@ -332,12 +290,6 @@ export const TiptapEditor: React.FC = () => {
     onBlur: () => flushSyncRef.current(),
   });
 
-  const {
-    aiGenerating, showAIPalette, setShowAIPalette, palettePos, setPalettePos,
-    showStyleSelector, setShowStyleSelector, handleAIAction, handleAIPaletteStop,
-    handleAIPaletteAction, triggerAIPalette, closePalette,
-  } = useEditorAI({ editor, outline, activeTabIdRef, pushToStore });
-
   const insertMermaid = () => {
     if (!editor) return;
     editor.chain().focus().insertContent({
@@ -346,7 +298,6 @@ export const TiptapEditor: React.FC = () => {
         code: 'graph TD\n  A[开始] --> B{选择}\n  B -->|选项1| C[结果1]\n  B -->|选项2| D[结果2]'
       }
     }).run();
-    closePalette();
   };
 
   const insertSVG = () => {
@@ -357,7 +308,6 @@ export const TiptapEditor: React.FC = () => {
         code: '<svg width="100" height="100" viewBox="0 0 100 100">\n  <circle cx="50" cy="50" r="40" stroke="var(--color-brand-indigo)" stroke-width="3" fill="var(--bg-elevated)" />\n  <text x="50" y="55" font-size="12" text-anchor="middle" fill="var(--text-main)">SVG</text>\n</svg>'
       }
     }).run();
-    closePalette();
   };
 
   const handleToggleHeading = useCallback((level: number) => {
@@ -483,6 +433,9 @@ export const TiptapEditor: React.FC = () => {
     prevExternalRevRef.current = externalWrite?.rev ?? 0;
 
     const newHtml = markdownToHtml(activeTab.content);
+    // 空白的未命名文档（刚启动、⌘N、关掉最后一个标签页之后）：光标直接放进去，和记事本一样打开就能写。
+    // 别的文档不抢焦点——从文件树点开一个文件之后，F2 / ⌫ 这些键还得归文件树
+    const focusIfBlank = () => { if (activeTab.id.startsWith('new-') && !activeTab.content && !useAppStore.getState().dialog) editor.commands.focus(); };
 
     // 检测是否是全新的 editor 实例（切换 word/markdown 模式后 TipTap 会完全卸载重载）
     const isNewEditor = prevEditorRef.current !== editor;
@@ -494,6 +447,7 @@ export const TiptapEditor: React.FC = () => {
       loadDocFresh(editor, newHtml);
       registerSource(editor, activeTab.content);
       placeCursorAfterFrontmatter(editor);
+      focusIfBlank();
       return;
     }
 
@@ -502,8 +456,8 @@ export const TiptapEditor: React.FC = () => {
       // store 的这次变化如果就是本编辑器刚写回的内容，直接跳过：
       // 否则 md→html 往返的细微差异（代码块 / 表格 / 任务列表）会让下面的 setContent 把文档整个重置
       if (lastSyncedMdRef.current === activeTab.content) return;
-      // 编辑器有焦点（且窗口在前台）或 AI 正在生成时跳过，避免回流冲突；窗口在后台时允许外部改动同步进来
-      if (!isExternalWrite && ((editor.isFocused && document.hasFocus()) || aiGenerating)) return;
+      // 编辑器有焦点（且窗口在前台）时跳过，避免回流冲突；窗口在后台时允许外部改动同步进来
+      if (!isExternalWrite && editor.isFocused && document.hasFocus()) return;
 
       const currentHtml = editor.getHTML();
       // 如果当前编辑器有 data URL 图片但 newHtml 没有，说明 markdown→html 转换丢失了图片，跳过
@@ -535,6 +489,7 @@ export const TiptapEditor: React.FC = () => {
     // 登记原文对照表：保存时没被编辑过的块直接写回原文（见 sourceMap.ts）
     registerSource(editor, activeTab.content);
     placeCursorAfterFrontmatter(editor);
+    focusIfBlank();
   }, [activeTabId, editor, activeTab?.content, externalWrite?.rev]);
 
   useEffect(() => {
@@ -608,19 +563,16 @@ export const TiptapEditor: React.FC = () => {
     openTable: () => {},
     openImage: () => setShowImageDialog(true),
     openLink: () => {},
-    openAI: () => {},
   });
   /** 斜杠菜单和命令面板共用的一份命令（对话框类的动作经 slashActionsRef 取到最新的） */
   const buildSlashItems = () => createSlashItems({
     openTable: () => slashActionsRef.current.openTable(),
     openImage: () => slashActionsRef.current.openImage(),
     openLink: () => slashActionsRef.current.openLink(),
-    openAI: () => slashActionsRef.current.openAI(),
-    openDailyNote: () => useAppStore.getState().openDailyNote(),
   });
 
   useEffect(() => {
-    slashMenuRegistry.items = (query) => filterSlashItems(buildSlashItems().filter((item) => item.id !== 'ai' || useAppStore.getState().aiEnabled), query);
+    slashMenuRegistry.items = (query) => filterSlashItems(buildSlashItems(), query);
     slashMenuRegistry.handlers = {
       onStart: (props) => setSlash({ props, index: 0 }),
       onUpdate: (props) => setSlash((prev) => ({ props, index: prev && prev.props.items.length === props.items.length ? prev.index : 0 })),
@@ -643,49 +595,6 @@ export const TiptapEditor: React.FC = () => {
     return () => {
       slashMenuRegistry.handlers = null;
       slashMenuRegistry.items = () => [];
-    };
-  }, []);
-
-  // ── [[ 笔记名补全 ──
-  const [wiki, setWiki] = useState<{ props: SuggestionProps<WikiLinkCandidate, WikiLinkCandidate>; index: number } | null>(null);
-  const wikiRef = useRef(wiki);
-  wikiRef.current = wiki;
-  useEffect(() => {
-    wikiLinkRegistry.items = async (query) => {
-      let notes: { title: string; path: string; aliases?: string[] }[] = [];
-      try { notes = await window.api.search.listNotes(); } catch { notes = []; }
-      // [[笔记# → 列那篇笔记的小节
-      const { tabs, activeTabId: currentId } = useAppStore.getState();
-      const headings = await wikiHeadingCandidates(notes, query, {
-        currentPath: currentId && !currentId.startsWith('new-') ? currentId : null,
-        currentContent: tabs.find((t) => t.id === currentId)?.content ?? '',
-        readNote: readNoteForLink,
-      });
-      if (headings) return headings.map((h) => ({ title: h.target, path: h.path, heading: { text: h.heading, level: h.level } }));
-      return filterWikiCandidates(toNameCandidates(notes), query);
-    };
-    wikiLinkRegistry.handlers = {
-      onStart: (props) => setWiki({ props, index: 0 }),
-      onUpdate: (props) => setWiki((prev) => ({ props, index: prev && prev.props.items.length === props.items.length ? prev.index : 0 })),
-      onExit: () => setWiki(null),
-      onKeyDown: ({ event }) => {
-        const current = wikiRef.current;
-        if (!current) return false;
-        const count = current.props.items.length;
-        if (event.key === 'ArrowDown') { setWiki({ ...current, index: count ? (current.index + 1) % count : 0 }); return true; }
-        if (event.key === 'ArrowUp') { setWiki({ ...current, index: count ? (current.index - 1 + count) % count : 0 }); return true; }
-        if (event.key === 'Enter' || event.key === 'Tab') {
-          const item = current.props.items[current.index];
-          if (item) current.props.command(item);
-          return true;
-        }
-        if (event.key === 'Escape') { setWiki(null); return true; }
-        return false;
-      },
-    };
-    return () => {
-      wikiLinkRegistry.handlers = null;
-      wikiLinkRegistry.items = () => [];
     };
   }, []);
 
@@ -712,10 +621,6 @@ export const TiptapEditor: React.FC = () => {
   // 对话框 / 气泡的打开函数在下面才定义，通过 ref 提供给斜杠菜单
   slashActionsRef.current.openTable = openTableDialog;
   slashActionsRef.current.openLink = openLinkDialog;
-  slashActionsRef.current.openAI = () => {
-    // 让 Suggestion 先退出、光标回到编辑器，再唤起气泡
-    requestAnimationFrame(() => triggerAIPalette());
-  };
 
   if (!editor) return null;
 
@@ -737,15 +642,6 @@ export const TiptapEditor: React.FC = () => {
 
       <div className="tiptap-container" ref={containerRef}>
         {prompt && <PromptDialog {...prompt} />}
-        {wiki && (
-          <WikiLinkMenu
-            items={wiki.props.items}
-            selectedIndex={wiki.index}
-            anchor={wiki.props.clientRect?.() ?? null}
-            onSelect={(item) => wiki.props.command(item)}
-            onHover={(index) => setWiki((prev) => (prev ? { ...prev, index } : prev))}
-          />
-        )}
         {slash && (
           <SlashMenu
             items={slash.props.items}
@@ -759,8 +655,9 @@ export const TiptapEditor: React.FC = () => {
           <ImageInsertDialog
             onConfirm={async (rawSrc, alt) => {
               setShowImageDialog(false);
-              // 本地上传 / AI 生成拿到的是 data URL：存成笔记旁的文件，Markdown 里只留相对路径，不再把几 MB 的 base64 塞进正文
+              // 本地上传拿到的是 data URL：存成笔记旁的文件，Markdown 里只留相对路径，不再把几 MB 的 base64 塞进正文
               const src = await persistDataUrl(rawSrc, activeTabIdRef.current, alt || 'image');
+              if (!src) return;
               requestAnimationFrame(() => {
                 if (!editor) return;
                 editor.commands.focus();
@@ -785,36 +682,6 @@ export const TiptapEditor: React.FC = () => {
             onCancel={() => setShowImageDialog(false)}
           />
         )}
-        {showStyleSelector && (
-          <StyleSelector 
-            onSelect={(style) => handleAIAction('polish', style)} 
-            onCancel={() => setShowStyleSelector(false)} 
-          />
-        )}
-        {showAIPalette && palettePos && ReactDOM.createPortal(
-          <div 
-            id="ai-palette-portal"
-            style={{ 
-              position: 'fixed', 
-              top: palettePos.top, 
-              left: palettePos.left,
-              zIndex: 9999 
-            }}
-          >
-            <AIPalette 
-              onClose={() => { 
-                setShowAIPalette(false); 
-                setPalettePos(null); 
-                editor?.chain().focus().run(); 
-              }} 
-              onAction={(p, useCtx, mode) => handleAIPaletteAction(p, useCtx, mode)}
-              onStop={handleAIPaletteStop}
-              loading={aiGenerating}
-            />
-          </div>,
-          document.body
-        )}
-
         {/* 点页面空白处也能开始写。但来自输入框 / 按钮 / 节点视图里可交互区域的点击不算：
             不然属性卡片里的输入框刚拿到焦点就被抢回编辑器，打的字全进了正文 */}
         <div className="tiptap-page" onClick={(e) => { if (!(e.target as HTMLElement).closest('input, textarea, select, button, [data-interactive]')) editor.chain().focus().run(); }} style={{
@@ -822,10 +689,7 @@ export const TiptapEditor: React.FC = () => {
         }}>
           <EditorBubbleMenu
             editor={editor}
-            aiGenerating={aiGenerating}
-            aiEnabled={aiEnabled}
             onToggleCodeBlock={toggleSmartCodeBlock}
-            onAIAction={handleAIAction}
           />
 
         <EditorContent 
@@ -836,28 +700,6 @@ export const TiptapEditor: React.FC = () => {
                     e.preventDefault();
                     openLinkDialog();
                     return;
-                }
-                const { selection } = editor.state;
-                if (!selection.empty || aiGenerating) return;
-
-                // 触发判定
-                const { $from } = selection;
-                const isAtStart = $from.parentOffset === 0;
-                const isEmptyLine = $from.parent.textContent.trim() === '';
-
-                // 1. 空格触发 (仅限行首且该行原本为空)
-                if (e.key === ' ' && isAtStart && isEmptyLine && !showAIPalette && aiEnabled) {
-                    e.preventDefault();
-                    triggerAIPalette();
-                    return;
-                }
-
-                // 2. 行首 `/` 由 SlashCommand（Suggestion 插件）接管，打开插入菜单
-
-                // 3. Esc 关闭
-                if (e.key === 'Escape' && showAIPalette) {
-                    setShowAIPalette(false);
-                    setPalettePos(null);
                 }
             }}
           />

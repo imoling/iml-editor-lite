@@ -1,15 +1,21 @@
 {
   "name": "iml-markdown-editor",
   "version": "26.4.0",
-  "description": "极简而极致的 Markdown 编辑器，支持双模编辑、PDF 导出与智能目录同步。",
+  "description": "纯粹的 Markdown 编辑器：打开、写、保存。富文本 / 源码双模，原样保存，导出 PDF / HTML / Word。",
   "main": "dist-electron/main.js",
   "scripts": {
     "test": "vitest run",
     "predev": "npx tsc -p electron/tsconfig.json",
     "dev": "concurrently \"vite\" \"npx tsc -p electron/tsconfig.json -w\" \"(wait-on tcp:5173 || wait-on tcp:5174) && cross-env NODE_ENV=development ELECTRON_RUN_AS_NODE= electron .\"",
-    "build": "tsc && vite build && tsc -p electron/tsconfig.json && electron-builder",
-    "build:mac": "tsc && vite build && tsc -p electron/tsconfig.json && electron-builder --mac",
-    "build:win": "tsc && vite build && tsc -p electron/tsconfig.json && electron-builder --win",
+    "dev:web": "vite --port 5173 --strictPort",
+    "build:web": "tsc && vite build",
+    "tauri": "node scripts/tauri.mjs",
+    "tauri:dev": "node scripts/tauri.mjs dev",
+    "tauri:build": "node scripts/tauri.mjs build",
+    "clean:electron": "node -e \"require('fs').rmSync('dist-electron',{recursive:true,force:true})\"",
+    "build": "tsc && vite build && npm run clean:electron && tsc -p electron/tsconfig.json && electron-builder",
+    "build:mac": "tsc && vite build && npm run clean:electron && tsc -p electron/tsconfig.json && electron-builder --mac",
+    "build:win": "tsc && vite build && npm run clean:electron && tsc -p electron/tsconfig.json && electron-builder --win",
     "test:watch": "vitest",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p electron/tsconfig.json",
@@ -20,17 +26,17 @@
     "editor",
     "electron",
     "tiptap",
-    "minimalist",
-    "productivity"
+    "minimalist"
   ],
   "author": "",
   "license": "ISC",
-  "dependencies": {},
   "devDependencies": {
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/language-data": "^6.5.2",
     "@codemirror/search": "^6.7.2",
-    "@replit/codemirror-vim": "^6.4.0",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/cli": "^2.11.5",
+    "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tiptap/core": "^2.11.5",
     "@tiptap/extension-bubble-menu": "^2.11.5",
     "@tiptap/extension-code-block-lowlight": "^2.11.5",
@@ -83,8 +89,8 @@
     "zustand": "^5.0.11"
   },
   "build": {
-    "appId": "com.imoling.markdown-editor",
-    "productName": "iML Markdown Editor",
+    "appId": "com.imoling.editor",
+    "productName": "iML 编辑器",
     "directories": {
       "output": "release"
     },
@@ -92,16 +98,7 @@
       "dist/**/*",
       "dist-electron/**/*",
       "!dist-electron/**/*.test.js",
-      "assets/logo.png",
-      "assets/icon-mac.png"
-    ],
-    "protocols": [
-      {
-        "name": "iML Markdown Editor",
-        "schemes": [
-          "iml"
-        ]
-      }
+      "assets/lite/icon-1024.png"
     ],
     "fileAssociations": [
       {
@@ -115,11 +112,11 @@
         "description": "Markdown 文档",
         "mimeType": "text/markdown",
         "role": "Editor",
-        "icon": "assets/logo.icns"
+        "icon": "src-tauri/icons/icon.icns"
       }
     ],
     "mac": {
-      "icon": "assets/logo.icns",
+      "icon": "src-tauri/icons/icon.icns",
       "category": "public.app-category.productivity",
       "target": [
         {
@@ -130,7 +127,7 @@
           ]
         }
       ],
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "artifactName": "iML-Editor-${version}-${arch}.${ext}",
       "extendInfo": {
         "CFBundleDocumentTypes": [
           {
@@ -170,15 +167,14 @@
               "public.mime-type": "text/markdown"
             }
           }
-        ],
-        "NSMicrophoneUsageDescription": "实时转写需要使用麦克风。声音只在这台电脑上识别成文字；录音（可以关掉）也只存在本机，不会上传。"
+        ]
       },
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "win": {
-      "icon": "assets/logo.ico",
+      "icon": "src-tauri/icons/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -193,17 +189,17 @@
       "oneClick": false,
       "perMachine": true,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "assets/logo.ico",
-      "uninstallerIcon": "assets/logo.ico",
-      "installerHeaderIcon": "assets/logo.ico",
+      "installerIcon": "src-tauri/icons/icon.ico",
+      "uninstallerIcon": "src-tauri/icons/icon.ico",
+      "installerHeaderIcon": "src-tauri/icons/icon.ico",
       "installerSidebar": "assets/installerSidebar.png",
       "installerHeader": "assets/installerHeader.png",
       "createDesktopShortcut": "always",
-      "shortcutName": "iML Markdown Editor",
+      "shortcutName": "iML 编辑器",
       "allowElevation": true,
       "runAfterFinish": true,
       "buildUniversalInstaller": false,
-      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+      "artifactName": "iML-Editor-Setup-${version}-${arch}.${ext}"
     },
     "electronLanguages": [
       "en",

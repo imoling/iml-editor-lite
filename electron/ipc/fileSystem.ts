@@ -1,72 +1,10 @@
-import { ipcMain, dialog, BrowserWindow, shell, nativeImage } from 'electron';
+import { ipcMain, dialog, BrowserWindow, shell } from 'electron';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import type { NoteHistory } from '../history';
-import { assetFileName, IMAGE_EXT_RE, AUDIO_EXT_RE } from '../assets';
-import { planTiles, planRanges, maxImageHeight, numberedPath } from '../shared/imageTiles';
-import { BRAND_CSS, brandFooterHtml, brandBand } from '../shared/imageBrand';
-
-/** 导出（PDF / HTML）共用的样式：与应用内预览保持同一套语义（提示块、目录、标签、属性卡片、脚注） */
-const EXPORT_CSS = `
-  body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 40px; color: #333; line-height: 1.7; max-width: 860px; margin: 0 auto; }
-  img { max-width: 100%; border-radius: 8px; margin: 10px 0; }
-  pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
-  code { font-family: 'Menlo', 'Monaco', monospace; font-size: 0.9em; }
-  table { border-collapse: collapse; width: 100%; margin: 20px 0; }
-  th, td { border: 1px solid #ddd; padding: 10px 12px; text-align: left; }
-  th { background-color: #f8f9fa; }
-  h1, h2, h3 { color: #111; margin-top: 1.5em; }
-  blockquote { margin: 1em 0; padding: 2px 16px; border-left: 3px solid #d0d7de; color: #57606a; }
-  mark { background: #fff3a3; padding: 0 2px; border-radius: 2px; }
-  kbd { font: 0.85em Menlo, monospace; padding: 1px 5px; border: 1px solid #d0d7de; border-bottom-width: 2px; border-radius: 4px; background: #f6f8fa; }
-  .callout { margin: 1em 0; padding: 10px 14px; border-radius: 8px; border-left: 4px solid #6366f1; background: #eef2ff; break-inside: avoid; }
-  .callout__title { font-weight: 600; margin-bottom: 4px; color: #4338ca; }
-  .callout__body > :first-child { margin-top: 0; } .callout__body > :last-child { margin-bottom: 0; }
-  .callout--tip { border-color: #10b981; background: #ecfdf5; } .callout--tip .callout__title { color: #047857; }
-  .callout--important { border-color: #8b5cf6; background: #f5f3ff; } .callout--important .callout__title { color: #6d28d9; }
-  .callout--warning { border-color: #f59e0b; background: #fffbeb; } .callout--warning .callout__title { color: #b45309; }
-  .callout--caution { border-color: #ef4444; background: #fef2f2; } .callout--caution .callout__title { color: #b91c1c; }
-  .toc-block { margin: 1em 0; padding: 12px 16px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa; }
-  .toc-block__item { display: block; color: #4f46e5; text-decoration: none; line-height: 1.9; }
-  .tag-chip { color: #4f46e5; background: #eef2ff; border-radius: 10px; padding: 0 7px; font-size: 0.92em; }
-  .wiki-link { color: #4f46e5; }
-  .frontmatter-card { margin: 0 0 1.5em; padding: 10px 14px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 0.9em; color: #57606a; }
-  .frontmatter-card__row { display: flex; gap: 12px; line-height: 1.9; } .frontmatter-card__key { min-width: 80px; color: #8b949e; }
-  .frontmatter-card__chip { display: inline-block; margin-right: 6px; padding: 0 8px; border-radius: 10px; background: #f0f2f5; }
-  .footnotes { margin-top: 2em; padding-top: 0.8em; border-top: 1px solid #e5e7eb; font-size: 0.9em; color: #57606a; }
-  .footnote-ref { color: #4f46e5; }
-  .math-block { text-align: center; margin: 1em 0; }
-  .note-embed { margin: 1em 0; padding: 2px 0 2px 14px; border-left: 3px solid #c7d2fe; }
-  .note-embed[data-embed-kind="image"] { border-left: none; padding-left: 0; }
-  .note-embed__head { font-size: 0.85em; font-weight: 600; color: #4f46e5; margin-bottom: 2px; }
-  .note-embed__hint { font-size: 0.85em; color: #8b949e; font-style: italic; }
-  .note-embed__body h1 { font-size: 1.35em; } .note-embed__body h2 { font-size: 1.2em; }
-`;
-
-/** 长图：固定成手机上好读的宽度，四周留白；滚动条不能截进图里 */
-const IMAGE_CSS_WIDTH = 750;
-const IMAGE_SCALE = 2;
-const IMAGE_VIEW_HEIGHT = 4000;
-const IMAGE_EXTRA_CSS = `
-  html, body { margin: 0; background: #fff; }
-  body { width: ${IMAGE_CSS_WIDTH}px; max-width: none; box-sizing: border-box; padding: 40px 44px 48px; }
-  ::-webkit-scrollbar { display: none; }
-${BRAND_CSS}`;
-
-/** 角标里的小 logo：应用图标缩到 40 像素（图里显示 20 个 CSS 像素 × 2 倍），转成 data: 地址内联。取不到就不放图 */
-let brandLogoDataUrl: string | null | undefined;
-function brandLogo(): string | null {
-  if (brandLogoDataUrl === undefined) {
-    try {
-      const icon = nativeImage.createFromPath(path.join(__dirname, '../../assets/logo.png'));
-      brandLogoDataUrl = icon.isEmpty() ? null : icon.resize({ width: 40, height: 40 }).toDataURL();
-    } catch {
-      brandLogoDataUrl = null;
-    }
-  }
-  return brandLogoDataUrl;
-}
+import { assetFileName, IMAGE_EXT_RE } from '../assets';
+import { exportDocument } from '../shared/exportDoc';
+import { numberedPath } from '../shared/imageTiles';
 
 /**
  * 保存到哪。正式使用时问用户；开发时的冒烟测试（IML_SMOKE_EXPORT_DIR）直接存进指定目录——系统的保存对话框没法自动化。
@@ -95,17 +33,6 @@ async function openExported(target: string, how: 'open' | 'reveal'): Promise<boo
   return (await shell.openPath(file)) === '';
 }
 
-const exportDocument = (htmlContent: string, title: string, baseHref?: string, extraCss = '') => `<!DOCTYPE html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="utf-8">
-    <title>${title.replace(/[<>&]/g, '')}</title>
-    ${baseHref ? `<base href="${baseHref}">` : ''}
-    <style>${EXPORT_CSS}${extraCss}</style>
-  </head>
-  <body>${htmlContent}</body>
-</html>`;
-
 const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', avif: 'image/avif', ico: 'image/x-icon', tif: 'image/tiff', tiff: 'image/tiff' };
 
 /** 单文件 HTML：把本地图片读进来内联成 data URL，拷到哪里都能看 */
@@ -131,12 +58,7 @@ async function inlineLocalImages(html: string, baseDir: string): Promise<string>
   return out;
 }
 
-export interface FileSystemDeps {
-  history?: NoteHistory;
-}
-
-export function setupFileSystemIPC(deps: FileSystemDeps = {}) {
-  const { history } = deps;
+export function setupFileSystemIPC() {
   // Open dialog to select an existing file or directory
   ipcMain.handle('dialog:open', async (event, options?: Electron.OpenDialogOptions) => {
     const window = BrowserWindow.fromWebContents(event.sender);
@@ -222,45 +144,11 @@ export function setupFileSystemIPC(deps: FileSystemDeps = {}) {
     }
   });
 
-  // 实时转写的录音：存到笔记旁边的 assets/。同一场转写再存一次是覆盖（停了又继续录，录音变长了），所以不加序号
-  ipcMain.handle('fs:saveRecording', async (_, noteDir: string, fileName: string, buffer: ArrayBuffer) => {
-    try {
-      const safeName = path.basename(fileName).replace(/[\\/:*?"<>|#%()[\]\s]+/g, '-');
-      if (!path.isAbsolute(noteDir) || !AUDIO_EXT_RE.test(safeName)) return { success: false, error: '录音的保存位置不对' };
-      const assetsDir = path.join(path.normalize(noteDir), 'assets');
-      await fs.promises.mkdir(assetsDir, { recursive: true });
-      const data = Buffer.from(buffer);
-      await fs.promises.writeFile(path.join(assetsDir, safeName), data);
-      return { success: true, path: `assets/${safeName}`, bytes: data.length };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  });
-
-  // 转写一段已有的录音：把原文件拷到笔记旁边的 assets/，笔记里的播放器才有一个跟着笔记走的相对地址。
-  // 在主进程里直接拷，不让上百 MB 的音频从渲染进程的内存里过一遍
-  ipcMain.handle('fs:copyRecording', async (_, noteDir: string, srcPath: string, fileName: string) => {
-    try {
-      const safeName = path.basename(fileName).replace(/[\\/:*?"<>|#%()[\]\s]+/g, '-');
-      if (!path.isAbsolute(noteDir) || !path.isAbsolute(srcPath) || !AUDIO_EXT_RE.test(safeName) || !AUDIO_EXT_RE.test(srcPath)) return { success: false, error: '录音的保存位置不对' };
-      const assetsDir = path.join(path.normalize(noteDir), 'assets');
-      await fs.promises.mkdir(assetsDir, { recursive: true });
-      const dest = path.join(assetsDir, safeName);
-      if (path.resolve(dest) !== path.resolve(srcPath)) await fs.promises.copyFile(srcPath, dest);
-      return { success: true, path: `assets/${safeName}` };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  });
-
   // Write file content
   ipcMain.handle('fs:writeFile', async (_, filePath: string, content: string) => {
     try {
       const normalizedPath = path.normalize(filePath);
-      // 版本历史：覆盖前先给磁盘上的现状留底，写完再记新版本。历史出任何问题都不能挡住保存
-      await history?.beforeOverwrite(normalizedPath, content).catch((err) => console.warn('[history] beforeOverwrite failed:', err));
       await fs.promises.writeFile(normalizedPath, content, 'utf-8');
-      await history?.record(normalizedPath, content, 'save').catch((err) => console.warn('[history] record failed:', err));
       return { success: true, filePath: normalizedPath };
     } catch (error: any) {
       console.error('Error writing file:', error);
@@ -333,102 +221,6 @@ export function setupFileSystemIPC(deps: FileSystemDeps = {}) {
     }
   });
 
-  // 导出为长图（PNG）：发群里、发朋友圈用。隐藏的离屏窗口里排好版，一块一块截下来再拼成一张
-  ipcMain.handle('export:image', async (event, htmlContent: string, defaultPath: string, activeFilePath: string) => {
-    let shotWindow: BrowserWindow | null = null;
-    try {
-      const window = BrowserWindow.fromWebContents(event.sender);
-      if (!window) return { success: false, error: 'No window found' };
-      const target = await askSavePath(window, defaultPath.replace(/\.(md|markdown|mdown|mkd|txt)$/i, '') + '.png', { name: 'PNG 图片', extensions: ['png'] });
-      if (!target) return { success: false, canceled: true };
-
-      const dirPath = !activeFilePath.startsWith('new-') ? path.dirname(activeFilePath) : os.homedir();
-      const baseHref = `file:///${dirPath.replace(/\\/g, '/').replace(/^\//, '')}/`;
-      // 先按「每个点 1 个像素」开窗口，加载完量出真实比例后再调整（见下面）
-      shotWindow = new BrowserWindow({
-        show: false, width: IMAGE_CSS_WIDTH * IMAGE_SCALE, height: IMAGE_VIEW_HEIGHT * IMAGE_SCALE, useContentSize: true, enableLargerThanScreen: true, frame: false,
-        webPreferences: { nodeIntegration: false, contextIsolation: true, offscreen: true },
-      });
-      const tmpFile = path.join(os.tmpdir(), `iml-export-${Date.now()}.html`);
-      await fs.promises.writeFile(tmpFile, exportDocument(htmlContent + brandFooterHtml(brandLogo()), path.basename(defaultPath), baseHref, IMAGE_EXTRA_CSS), 'utf8');
-      try { await shotWindow.loadFile(tmpFile); } finally { fs.promises.unlink(tmpFile).catch(() => {}); }
-      const wc = shotWindow.webContents;
-      // 成品要固定 1500 像素宽（750 排版 × 2 倍），不能取决于用户的屏幕：
-      // 离屏窗口每个点截出几个像素，Retina 屏是 2、普通屏是 1。先截一小块量出这个比例，再反推窗口大小和页面缩放
-      const probe = await wc.capturePage({ x: 0, y: 0, width: 20, height: 20 });
-      const density = Math.max(0.5, probe.getSize().width / 20);
-      const zoom = IMAGE_SCALE / density;
-      shotWindow.setContentSize(Math.round((IMAGE_CSS_WIDTH * IMAGE_SCALE) / density), Math.round((IMAGE_VIEW_HEIGHT * IMAGE_SCALE) / density));
-      wc.setZoomFactor(zoom);
-      // 图片、字体都到位了再量高度，不然量出来的偏矮；最多等 6 秒，坏掉的图不能把导出卡死
-      const measured: { docHeight: number; footerTop: number; cuts: number[] } = await wc.executeJavaScript(`Promise.race([
-        Promise.all([document.fonts ? document.fonts.ready : null, ...Array.from(document.images).map((img) => img.complete ? null : new Promise((r) => { img.onload = img.onerror = r; }))]),
-        new Promise((r) => setTimeout(r, 6000)),
-      ]).then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => {
-        const docHeight = Math.ceil(document.documentElement.scrollHeight);
-        const brand = document.querySelector('.export-brand');
-        const box = brand ? brand.getBoundingClientRect() : null;
-        // 分张时可以切的位置：段落、列表项、表格行、代码块这些的底边（文档坐标）
-        const cuts = Array.from(document.body.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, pre, tr, hr, img, figure, blockquote, .callout, .note-embed, .math-block'), (el) => Math.floor(el.getBoundingClientRect().bottom + window.scrollY)).sort((a, b) => a - b);
-        // 角标连同它上面的留白（margin-top）一起算进那一条，拼到别的图末尾时正文和角标之间才有同样的距离
-        r({ docHeight, cuts, footerTop: box ? Math.floor(box.top + window.scrollY - parseFloat(getComputedStyle(brand).marginTop)) : docHeight });
-      }))))`);
-      const { docHeight } = measured;
-      const band = brandBand(docHeight, measured.footerTop);
-
-      // 截一次页面、按这次截图自己的比例把某一段裁出来（实际像素和 CSS 像素可能不是整数倍关系：系统缩放）
-      const captureBand = async (scrollTo: number, topInShot: number, cssHeight: number) => {
-        await wc.executeJavaScript(`new Promise((r) => { window.scrollTo(0, ${scrollTo}); requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 120))); })`);
-        const shot = await wc.capturePage();
-        const size = shot.getSize();
-        const ratio = size.height / IMAGE_VIEW_HEIGHT;
-        const cropped = shot.crop({ x: 0, y: Math.round(topInShot * ratio), width: size.width, height: Math.max(1, Math.round(cssHeight * ratio)) });
-        return { bitmap: cropped.toBitmap(), ...cropped.getSize() };
-      };
-
-      // 每张图末尾都要拼上角标那一条，分张时给它留出高度；切在段落边界上，别把一行字切成两半
-      const ranges = planRanges(docHeight, maxImageHeight(IMAGE_CSS_WIDTH, IMAGE_SCALE) - band.height, measured.cuts.filter((c) => c < band.top));
-      const groups = ranges.map((range) => planTiles(docHeight, IMAGE_VIEW_HEIGHT, range.top, range.top + range.height));
-      // 角标那一条单独截一次：最后一张图里它本来就在，前面几张拼到末尾
-      const brandScroll = Math.max(0, docHeight - IMAGE_VIEW_HEIGHT);
-      const brandStrip = groups.length > 1 && band.height > 0 ? await captureBand(brandScroll, band.top - brandScroll, band.height) : null;
-      const saved: string[] = [];
-      for (let g = 0; g < groups.length; g++) {
-        const strips: Buffer[] = [];
-        let width = 0;
-        let height = 0;
-        for (const tile of groups[g]) {
-          const piece = await captureBand(tile.scrollTo, tile.offsetInShot, tile.height);
-          if (!strips.length && g > 0) {
-            // 后面几张的开头补一段和第一张页顶一样的留白（40 CSS 像素），不然正文顶着图的上边
-            const pad = Math.round((piece.height / tile.height) * 40);
-            strips.push(Buffer.alloc(piece.width * pad * 4, 0xff));
-            height += pad;
-          }
-          width = piece.width;
-          height += piece.height;
-          strips.push(piece.bitmap);
-        }
-        if (brandStrip && g < groups.length - 1 && brandStrip.width === width) {
-          strips.push(brandStrip.bitmap);
-          height += brandStrip.height;
-        }
-        // 各块宽度一样，原始位图首尾相接就是一张竖着拼好的图
-        const whole = nativeImage.createFromBitmap(Buffer.concat(strips), { width, height });
-        const file = numberedPath(target, g, groups.length);
-        await fs.promises.writeFile(file, whole.toPNG());
-        saved.push(file);
-      }
-      rememberExported(...saved);
-      return { success: true, path: saved[0], paths: saved };
-    } catch (error: any) {
-      console.error('Image Export Error:', error);
-      return { success: false, error: error.message };
-    } finally {
-      if (shotWindow && !shotWindow.isDestroyed()) shotWindow.destroy();
-    }
-  });
-
   // Export to a single-file HTML（图片内联）
   ipcMain.handle('export:html', async (event, htmlContent: string, defaultPath: string, activeFilePath: string) => {
     try {
@@ -443,6 +235,34 @@ export function setupFileSystemIPC(deps: FileSystemDeps = {}) {
       return { success: true, path: target };
     } catch (error: any) {
       console.error('HTML Export Error:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 分两步的导出（长图在界面里生成）：先问存哪，再写。写的时候只认刚问过的那个路径——界面不能借这个接口往任意位置写二进制文件
+  const askedPaths = new Set<string>();
+  ipcMain.handle('export:askPath', async (event, defaultName: string, filterName: string, extension: string) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window) return null;
+    const ext = String(extension || '').replace(/[^a-z0-9]/gi, '');
+    const target = await askSavePath(window, String(defaultName || '未命名').replace(/\.(md|markdown|mdown|mkd|txt)$/i, '') + '.' + ext, { name: String(filterName || ext), extensions: [ext] });
+    if (target) askedPaths.add(path.normalize(target));
+    return target;
+  });
+  ipcMain.handle('export:writeFiles', async (_event, target: string, parts: Uint8Array[]) => {
+    try {
+      const file = path.normalize(String(target || ''));
+      if (!askedPaths.delete(file) || !Array.isArray(parts) || parts.length === 0) return { success: false, error: '保存位置不对' };
+      const saved: string[] = [];
+      for (let i = 0; i < parts.length; i++) {
+        const out = numberedPath(file, i, parts.length);
+        await fs.promises.writeFile(out, Buffer.from(parts[i]));
+        saved.push(out);
+      }
+      rememberExported(...saved);
+      return { success: true, paths: saved };
+    } catch (error: any) {
+      console.error('Export write error:', error);
       return { success: false, error: error.message };
     }
   });
@@ -476,7 +296,7 @@ export function setupFileSystemIPC(deps: FileSystemDeps = {}) {
     }
   });
 
-  // 是否存在（新建笔记 / 文件夹时去重用）
+  // 是否存在（新建文档 / 文件夹时去重用）
   ipcMain.handle('fs:exists', async (_, targetPath: string) => fs.existsSync(path.normalize(targetPath)));
 
   // 新建文件夹
@@ -506,7 +326,6 @@ export function setupFileSystemIPC(deps: FileSystemDeps = {}) {
         return { success: false, error: 'Target already exists' };
       }
       await fs.promises.rename(normalizedOld, normalizedNew);
-      await history?.rename(normalizedOld, normalizedNew).catch((err) => console.warn('[history] rename failed:', err));
       return { success: true, oldPath: normalizedOld, newPath: normalizedNew };
     } catch (error: any) {
       console.error('Error renaming:', error);

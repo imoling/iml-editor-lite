@@ -1,14 +1,17 @@
-# 打 v* 标签时在 GitHub 上构建 macOS（arm64 / x64）与 Windows 安装包，并发布到同名 Release。
-# 也可在 Actions 页手动触发（填标签名）。本地网络不稳时用这条路发版。
-name: Release
+# 「iML 编辑器」（lite 分支）的发版流水线：打 lite-v* 标签时构建 macOS（arm64 / x64）与 Windows 安装包，发布到同名 Release。
+# 和「iML 笔记」（main 分支，v* 标签）共用一个仓库，两条规矩：
+#   ① 标签必须带 lite- 前缀 —— 应用里的检查更新靠它认出哪些版本是自己的；
+#   ② 发布时 make_latest: false —— 笔记那边查的是 /releases/latest，不能被这边的版本顶掉。
+# 也可在 Actions 页手动触发（填标签名）。
+name: Release (iML 编辑器)
 
 on:
   push:
-    tags: ['v*']
+    tags: ['lite-v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: '要发布的标签，如 v26.1.0'
+        description: '要发布的标签，如 lite-v26.4.0'
         required: true
 
 permissions:
@@ -22,12 +25,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS
-            os: macos-14
-            script: build:mac
-          - name: Windows
-            os: windows-latest
-            script: build:win
+          - { name: macOS-arm64,   os: macos-14,       target: aarch64-apple-darwin,     arch: arm64, bundles: dmg }
+          - { name: macOS-x64,     os: macos-14,       target: x86_64-apple-darwin,      arch: x64,   bundles: dmg }
+          - { name: Windows-x64,   os: windows-latest, target: x86_64-pc-windows-msvc,   arch: x64,   bundles: nsis }
+          - { name: Windows-arm64, os: windows-latest, target: aarch64-pc-windows-msvc,  arch: arm64, bundles: nsis }
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,11 +37,29 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
       - run: npm ci
-      - run: npm run check
-      - run: npm run ${{ matrix.script }} -- --publish never
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # 这里只构建 Tauri 壳；Electron 只在类型检查时用到它的类型声明，不必下载它一百多 MB 的运行时
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run check
+      # 壳是 Tauri（src-tauri/）：安装包几 MB。Electron 的构建脚本（build:mac / build:win）还留着当退路，这里不用
+      - run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      # 产物的文件名里带中文的应用名，GitHub Release 的附件名放不了中文；
+      # 应用里的检查更新又靠文件名里的架构（arm64 / x64）挑安装包——统一改成英文名
+      - name: Rename artifacts
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p release
+          find src-tauri/target/${{ matrix.target }}/release/bundle -name '*.dmg' -exec cp {} "release/iML-Editor-${VERSION}-${{ matrix.arch }}.dmg" \;
+          find src-tauri/target/${{ matrix.target }}/release/bundle -name '*-setup.exe' -exec cp {} "release/iML-Editor-Setup-${VERSION}-${{ matrix.arch }}.exe" \;
+          ls -la release
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
@@ -65,17 +84,17 @@ jobs:
         id: notes
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          VERSION="${TAG#v}"
-          NOTES="docs/release-notes-${VERSION}.md"
+          VERSION="${TAG#lite-v}"
+          NOTES="docs/release-notes-lite-${VERSION}.md"
           if [ ! -f "$NOTES" ]; then
             NOTES="release-notes.generated.md"
-            printf '## %s\n\n见 README 的「版本历史」。\n' "$TAG" > "$NOTES"
+            printf '## %s\n\n见 README。\n' "$VERSION" > "$NOTES"
           fi
           # Release 标题取发布说明的第一个标题（「## 26.2.0 — 放心把笔记搬进来」→「v26.2.0 — 放心把笔记搬进来」），
           # 不写死在这里：上一版的口号留到下一版就成了笑话
           SLOGAN=$(grep -m1 '^#' "$NOTES" | sed -E 's/^#+[[:space:]]*v?[0-9.]+[[:space:]]*(—|-)*[[:space:]]*//')
-          NAME="$TAG"
-          if [ -n "$SLOGAN" ] && [ "$SLOGAN" != "$TAG" ]; then NAME="$TAG — $SLOGAN"; fi
+          NAME="iML 编辑器 $VERSION"
+          if [ -n "$SLOGAN" ] && [ "$SLOGAN" != "$TAG" ]; then NAME="$NAME — $SLOGAN"; fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "file=$NOTES" >> "$GITHUB_OUTPUT"
@@ -88,6 +107,7 @@ jobs:
           body_path: ${{ steps.notes.outputs.file }}
           draft: false
           prerelease: false
+          make_latest: 'false'
           files: |
             artifacts/*.dmg
             artifacts/*.exe

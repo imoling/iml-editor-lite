@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <!-- Content Security Policy that allows data URIs for images and inline scripts (if needed during dev) -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data:; img-src 'self' data: https: http: file: iml-asset:; media-src 'self' data: blob: iml-asset:; font-src 'self' data: https:; connect-src 'self' http://localhost:* ws://localhost:* iml-asset:">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data:; img-src 'self' data: https: http: file: iml-asset:; media-src 'self' data: blob: iml-asset: http://iml-asset.localhost; font-src 'self' data: https:; connect-src 'self' http://localhost:* ws://localhost:* iml-asset: http://iml-asset.localhost ipc: http://ipc.localhost">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>iML Markdown Editor</title>
+    <title>iML 编辑器</title>
   </head>
   <body>
     <div id="root"></div>
