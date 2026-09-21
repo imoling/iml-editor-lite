@@ -1,6 +1,6 @@
 # iML 编辑器
 
-纯粹的 Markdown 编辑器：打开一个 `.md`，写，保存。没有笔记库，没有 AI，没有后台进程。macOS 安装包 5 MB。
+纯粹的 Markdown 编辑器：打开一个 `.md`，写，保存。没有笔记库，没有 AI，没有后台进程。安装包不到 4 MB。
 
 > 这是 `lite` 分支，[iML Markdown Editor](https://github.com/imoling/iml-markdown-editor)（即「iML 笔记」，`main` 分支）的轻量版。两者共用同一个编辑内核，可以装在同一台电脑上：要笔记库、双向链接、全库搜索、本机智能（转写、问你的笔记），用「iML 笔记」；只想改一份文档，用这个。
 
@@ -17,7 +17,7 @@
 - **文件**：新建 / 打开（可多选）/ 保存 / 另存为、最近打开、标签页全套（`⌘W`、`⌘⇧T` 重开、`⌃Tab`、`⌘1`~`⌘9`、右键批量关闭）、设为 `.md` 的默认打开方式、重启后恢复标签页——**没保存的修改也会恢复**
 - **打开文件夹**（`⌘⇧O`，可选）：侧边栏列出里面的文档，新建、重命名、创建副本、推入废纸篓、排序。就是一棵文件树，不建索引
 - **图片**：粘贴 / 拖入的图片自动压缩成 WebP，存进文档旁边的 `assets/`；粘贴网址自动取网页标题；源码模式粘贴网页内容自动转成 Markdown
-- **导出**：PDF（`⌘P`，走系统的打印面板，在里面选「存储为 PDF」）、单文件 HTML（`⌘⇧E`，图片内联）、Word（.docx）、**长图**（PNG，1500 像素宽，发群里、发朋友圈用；很长的文档自动分成几张，切在段落的边界上，每张末尾带「来自 iML 编辑器」的角标）
+- **导出**：PDF（`⌘P`，选好存哪就直接生成分页的 A4 文档；Windows 上走 WebView2 的打印面板，在里面选「另存为 PDF」）、单文件 HTML（`⌘⇧E`，图片内联）、Word（.docx）、**长图**（PNG，1500 像素宽，发群里、发朋友圈用；很长的文档自动分成几张，切在段落的边界上，每张末尾带「来自 iML 编辑器」的角标）
 - **视图**：大纲、专注模式（`⌘⇧.`）、正文字体 / 字号 / 行距 / 页宽、亮色 / 深色 / 护眼、拼写检查开关
 - 在别处被改过的文件：没改动的标签页静默跟随磁盘，有未保存修改的用橙点提示
 
@@ -52,14 +52,16 @@
 
 ## 为什么这么小
 
-外壳是 [Tauri 2](https://tauri.app)：界面跑在系统自带的 WebView 里（macOS 的 WebKit、Windows 的 WebView2），不再自己带一个 Chromium。macOS 的安装包 5 MB、装好 7 MB；换壳之前的 Electron 版是 80 ~ 90 MB。
+外壳是 [Tauri 2](https://tauri.app)：界面跑在系统自带的 WebView 里（macOS 的 WebKit、Windows 的 WebView2），不再自己带一个 Chromium。macOS 的安装包不到 4 MB、装好 6 MB；换壳之前的 Electron 版是 80 ~ 90 MB。
+
+体积是盯着的：同一份东西不带两遍（公式字体界面要用一份 woff2，导出时就读那一份，不再往 JS 里内联一份 base64）；图标不带只有在访达里放到最大才用得上的 1024 像素那一层；KaTeX 的 woff / ttf 老格式不进包。这几条都写成了测试（[packaging.test.ts](electron/packaging.test.ts)），谁不小心改回去，`npm run check` 会拦下来。
 
 界面代码一行没为此重写：它只认 `window.api` 这一个接口。Electron 壳里由 [preload.ts](electron/preload.ts) 提供，Tauri 壳里由 [tauriApi.ts](src/platform/tauriApi.ts) 提供同样的形状，背后是 [src-tauri/src/lib.rs](src-tauri/src/lib.rs) 里二十来个 Rust 命令——只做读写文件、监听文件夹、本地图片协议、打印这类系统调用。文件名怎么起、网页标题怎么解析、哪个安装包是这台电脑的，仍然是那份带测试的 TypeScript，两个壳共用。
 
 系统 WebView 和 Chromium 有两处不一样，都已经处理：
 
 - **不能把画布编码成 WebP**（Safari 内核）：粘贴的图片发现编不出来时，交给 Rust 去压，效果一样（实测 2.2 MB → 464 KB）。
-- **没有「直接存成 PDF」的接口**：导出 PDF 改走系统的打印面板，分页和页边距由它管。
+- **没有「直接存成 PDF」的接口**：macOS 上用一小段原生代码调系统的打印引擎（`NSPrintOperation`，不弹面板，直接存成分页的 A4 PDF，见 [lib.rs](src-tauri/src/lib.rs) 里的 `mac_pdf`）；Windows 上走 WebView2 的打印面板（自带预览）。公式要用的 KaTeX 字体必须在打印之前加载好——WebKit 打印时是挂起资源加载的，字体等不来，整份 PDF 会是空白页。
 - **没有「截一个隐藏窗口」的接口**：长图不靠外壳截屏，在页面里自己画——把导出用的 HTML 包进 SVG 画到画布上（见 [exportImage.ts](src/utils/exportImage.ts) 开头的说明：图片为什么由这边直接画、每一段为什么要拿自己的第一个块当锚点）。Electron 壳用的也是这一份，两边出的图一样。
 
 Electron 壳还留在仓库里当退路（`npm run dev`、`npm run build:mac`），两个壳打开同一份文档、敲同一个字，保存出来的文件逐字节相同。
@@ -79,7 +81,7 @@ npm run tauri:build  # 出安装包（当前平台），在 src-tauri/target/rel
 
 冒烟钩子（只在调试构建里生效）：`IML_SMOKE_OPEN=/path/to.md` 启动时打开一个文件；`IML_SMOKE_EXPORT_DIR=/some/dir` 导出时不弹保存对话框、直接存进这个目录；`IML_SMOKE_SCRIPT_FILE=/path/to.js` 页面起来 6 秒后在里面执行这段脚本——系统 WebView 没有 CDP，无人值守的检查靠它把结果写到文件里。Electron 壳的钩子（`IML_SMOKE_USERDATA`、`IML_SMOKE_OFFSCREEN=1`，可用 CDP 发真实的键盘事件、截图）照旧。
 
-图标的源文件是 [assets/lite/icon.svg](assets/lite/icon.svg)；改完渲染成 1024 的 PNG，`npx tauri icon assets/lite/icon-1024.png -o src-tauri/icons` 生成全套，两个壳共用。
+图标的源文件是 [assets/lite/icon.svg](assets/lite/icon.svg)；改完渲染成 1024 的 PNG，`npx tauri icon assets/lite/icon-1024.png -o src-tauri/icons` 生成全套（多出来的 `android/`、`ios/` 两个目录删掉），再跑一次 `node scripts/trim-icns.mjs` 去掉 icns 里 1024 像素那一层（一张就 260 KB，只有在访达里把图标放到最大才用得上），两个壳共用。
 
 ## 发版
 

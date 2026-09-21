@@ -11,6 +11,14 @@
     <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
       <feDropShadow dx="0" dy="14" stdDeviation="20" flood-color="#1B1464" flood-opacity="0.30"/>
     </filter>
+    <!-- 角标用绿色：和紫色的 M↓ 是一对撞色，缩小之后那一角仍然一眼看得见；渐变垂直于文字方向，四个字母底色一样深 -->
+    <linearGradient id="badge" x1="1" y1="0" x2="0.5" y2="0.5">
+      <stop offset="0" stop-color="#2FCB8A"/>
+      <stop offset="1" stop-color="#0A9160"/>
+    </linearGradient>
+    <clipPath id="tile">
+      <rect x="100" y="100" width="824" height="824" rx="186"/>
+    </clipPath>
   </defs>
   <!-- 和「iML 笔记」同一个圆角方块，颜色反过来：那边是紫底白字，这边是白纸紫字 -->
   <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#paper)" filter="url(#shadow)"/>
@@ -18,6 +26,11 @@
   <!-- Markdown 标记：M 和向下的箭头 -->
   <g transform="translate(116 232) scale(3.68)" fill="url(#ink)">
     <path d="M30 98V30h20l20 25 20-25h20v68H90V59L70 84 50 59v39zm125 0l-30-33h20V30h20v35h20z"/>
+  </g>
+  <!-- 右上角的 LITE 角标：压在圆角里的一条斜带，缩到 32 像素时字看不清，但那一角绿色还在，和「iML 笔记」分得开 -->
+  <g clip-path="url(#tile)">
+    <path d="M594 100H924V430z" fill="url(#badge)"/>
+    <text transform="translate(808 216) rotate(45)" x="0" y="30" text-anchor="middle" font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" font-size="84" font-weight="800" letter-spacing="6" fill="#FFFFFF">LITE</text>
   </g>
   <rect x="226" y="672" width="572" height="5" rx="2.5" fill="#CDD0F6"/>
   <text x="512" y="800" text-anchor="middle" font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" font-size="112" font-weight="800" letter-spacing="6" fill="url(#ink)">iML</text>

@@ -98,4 +98,18 @@ describe('安装包体积', () => {
     const cargo = fs.readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8');
     for (const line of ['opt-level = "s"', 'lto = true', 'strip = true', 'panic = "abort"']) expect(cargo).toContain(line);
   });
+
+  it('轻量：同一份东西不带两遍——公式字体不内联进 JS（包里已有 woff2）；macOS 图标不带 1024 那一层', () => {
+    // 字体：导出时才从包里读（?url），写回 ?inline 的话安装包里会多出二十个 base64 的 JS 块，约 260 KB
+    const source = fs.readFileSync(path.join(root, 'src/utils/exportImage.ts'), 'utf8');
+    expect(source).toMatch(/katex\/dist\/fonts\/\*\.woff2', \{ query: '\?url'/);
+    expect(source).not.toMatch(/woff2', \{ query: '\?inline'/);
+    // 图标：重新跑过 `npx tauri icon` 之后要再跑一次 scripts/trim-icns.mjs
+    const icns = fs.readFileSync(path.join(root, 'src-tauri/icons/icon.icns'));
+    const types: string[] = [];
+    for (let at = 8; at + 8 <= icns.length; at += icns.readUInt32BE(at + 4)) types.push(icns.toString('latin1', at, at + 4));
+    expect(types).toContain('ic09'); // 512 的那层得在
+    expect(types).not.toContain('ic10');
+    expect(icns.length).toBeLessThan(260 * 1024);
+  });
 });
