@@ -1,7 +1,6 @@
-# 「iML 编辑器」（lite 分支）的发版流水线：打 lite-v* 标签时构建 macOS（arm64 / x64）与 Windows 安装包，发布到同名 Release。
-# 和「iML 笔记」（main 分支，v* 标签）共用一个仓库，两条规矩：
-#   ① 标签必须带 lite- 前缀 —— 应用里的检查更新靠它认出哪些版本是自己的；
-#   ② 发布时 make_latest: false —— 笔记那边查的是 /releases/latest，不能被这边的版本顶掉。
+# 「iML 编辑器」的发版流水线：打 lite-v* 标签时构建 macOS（arm64 / x64）与 Windows 安装包，发布到同名 Release。
+# 标签沿用 lite-v 前缀：拆成独立仓库之前和「iML 笔记」同仓库时靠它区分，应用里的检查更新按这个前缀认版本，老版本都是它。
+# make_latest 仍是 false：拆仓库前为了不顶掉笔记那边的 /releases/latest；现在单独仓库了，想让 Releases 页显示「Latest」徽章可以改成 true。
 # 也可在 Actions 页手动触发（填标签名）。
 name: Release (iML 编辑器)
 

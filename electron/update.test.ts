@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { pickInstaller, describeRelease, platformLabel, pickLatestRelease } from './update';
 
-const asset = (name: string, size = 1) => ({ name, browser_download_url: `https://github.com/imoling/iml-markdown-editor/releases/download/v1/${name}`, size });
+const asset = (name: string, size = 1) => ({ name, browser_download_url: `https://github.com/imoling/iml-editor-lite/releases/download/v1/${name}`, size });
 
 // 26.2.0 实际发布的文件：Windows 只有一个不分架构的安装包
 const V262 = [asset('iML.Markdown.Editor-26.2.0-arm64.dmg'), asset('iML.Markdown.Editor-26.2.0-x64.dmg'), asset('iML.Markdown.Editor.Setup.26.2.0.exe')];

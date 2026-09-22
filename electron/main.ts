@@ -7,7 +7,7 @@ import { registerAssetScheme, handleAssetProtocol, fetchPageTitle, fetchImageByt
 
 /** 菜单栏、窗口标题上的名字（打包用的名字在 package.json 的 build.productName，两处保持一致） */
 const APP_NAME = 'iML 编辑器';
-/** 本应用在 GitHub Releases 里的标签前缀：和「iML 笔记」共用一个仓库，靠它分清哪些版本是自己的 */
+/** 本应用在 GitHub Releases 里的标签前缀：拆成独立仓库之前和「iML 笔记」共用一个仓库靠它区分，老版本都是这个前缀，沿用 */
 const RELEASE_TAG_PREFIX = 'lite-v';
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -469,10 +469,10 @@ app.whenReady().then(() => {
 
   ipcMain.handle('open-url', async (_event, url: string) => { shell.openExternal(url); });
   
-  // App Update Check IPC。和「iML 笔记」共用一个仓库，不能用 /releases/latest（那是笔记的），翻最近的发布里带自己前缀的
+  // App Update Check IPC。翻最近的发布里带自己前缀的（不用 /releases/latest：老版本和「iML 笔记」同仓库时就是这么认的，保持一致）
   ipcMain.handle('app:checkUpdates', async () => {
     try {
-      const response = await fetch('https://api.github.com/repos/imoling/iml-markdown-editor/releases?per_page=40', {
+      const response = await fetch('https://api.github.com/repos/imoling/iml-editor-lite/releases?per_page=40', {
         headers: {
           'Accept': 'application/vnd.github.v3+json',
           'User-Agent': 'iML-Editor'

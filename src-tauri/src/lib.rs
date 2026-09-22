@@ -25,8 +25,8 @@ use tauri::{
 use tauri_plugin_opener::OpenerExt;
 
 const DOC_EXTS: [&str; 5] = ["md", "markdown", "mdown", "mkd", "txt"];
-/// 和「iML 笔记」共用一个仓库：翻最近的发布，由前端按 lite-v 前缀认出自己的版本
-const RELEASES_API: &str = "https://api.github.com/repos/imoling/iml-markdown-editor/releases?per_page=40";
+/// 翻最近的发布，由前端按 lite-v 前缀认出自己的版本（拆成独立仓库之前就是这个前缀，沿用）
+const RELEASES_API: &str = "https://api.github.com/repos/imoling/iml-editor-lite/releases?per_page=40";
 
 #[derive(Default)]
 struct AppState {

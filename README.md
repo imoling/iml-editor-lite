@@ -2,9 +2,9 @@
 
 纯粹的 Markdown 编辑器：打开一个 `.md`，写，保存。没有笔记库，没有 AI，没有后台进程。安装包不到 4 MB。
 
-> 这是 `lite` 分支，[iML Markdown Editor](https://github.com/imoling/iml-markdown-editor)（即「iML 笔记」，`main` 分支）的轻量版。两者共用同一个编辑内核，可以装在同一台电脑上：要笔记库、双向链接、全库搜索、本机智能（转写、问你的笔记），用「iML 笔记」；只想改一份文档，用这个。
+> 这是 [iML Markdown Editor](https://github.com/imoling/iml-markdown-editor)（即「iML 笔记」）的轻量版，单独一个仓库。两者共用同一个编辑内核，可以装在同一台电脑上：要笔记库、双向链接、全库搜索、本机智能（转写、问你的笔记），用「iML 笔记」；只想改一份文档，用这个。
 
-![富文本模式：属性卡片、提示块、表格、任务列表](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@lite/screenshots/lite-富文本.png)
+![富文本模式：属性卡片、提示块、表格、任务列表](https://cdn.jsdelivr.net/gh/imoling/iml-editor-lite@main/screenshots/lite-富文本.png)
 
 ---
 
@@ -21,7 +21,7 @@
 - **视图**：大纲、专注模式（`⌘⇧.`）、正文字体 / 字号 / 行距 / 页宽、亮色 / 深色 / 护眼、拼写检查开关
 - 在别处被改过的文件：没改动的标签页静默跟随磁盘，有未保存修改的用橙点提示
 
-![源码模式：左侧 CodeMirror，右侧实时预览](https://cdn.jsdelivr.net/gh/imoling/iml-markdown-editor@lite/screenshots/lite-源码.png)
+![源码模式：左侧 CodeMirror，右侧实时预览](https://cdn.jsdelivr.net/gh/imoling/iml-editor-lite@main/screenshots/lite-源码.png)
 
 ## 和记事本一样的三条规矩
 
@@ -46,7 +46,7 @@
 | Windows（绝大多数电脑选这个） | `iML-Editor-Lite-Setup-26.4.0-x64.exe` |
 | Windows on ARM（骁龙本等） | `iML-Editor-Lite-Setup-26.4.0-arm64.exe` |
 
-到 [Releases](https://github.com/imoling/iml-markdown-editor/releases) 里找标题以「iML 编辑器」开头的版本（标签是 `lite-v…`；`v…` 开头的是主版本「iML 笔记」）。已经装了的，应用会在发现新版本时提醒一次，并直接给出这台电脑该下的安装包。
+到 [Releases](https://github.com/imoling/iml-editor-lite/releases) 下载。已经装了的，应用会在发现新版本时提醒一次，并直接给出这台电脑该下的安装包。
 
 没有做 Apple 公证。macOS 首次打开若被拦下：系统设置 → 隐私与安全性 → 拉到底点「仍要打开」。Windows 需要 WebView2（Windows 11 自带；Windows 10 没有的话安装程序会帮你装）。
 
@@ -85,11 +85,11 @@ npm run tauri:build  # 出安装包（当前平台），在 src-tauri/target/rel
 
 ## 发版
 
-打 `lite-v*` 标签（如 `lite-v26.4.0`）触发 GitHub Actions 构建 Tauri 安装包（macOS arm64 / x64、Windows x64 / arm64）并发布，发布说明放 `docs/release-notes-lite-<版本>.md`。和「iML 笔记」共用一个仓库，所以有两条规矩，都已经写在流水线里：标签必须带 `lite-` 前缀（应用里的检查更新靠它认出自己的版本）；发布时不设为「最新版本」（笔记那边查的是 `/releases/latest`）。
+打 `lite-v*` 标签（如 `lite-v26.4.0`）触发 GitHub Actions 构建 Tauri 安装包（macOS arm64 / x64、Windows x64 / arm64）并发布，发布说明放 `docs/release-notes-lite-<版本>.md`。标签沿用 `lite-v` 前缀：拆成独立仓库之前和「iML 笔记」同仓库时靠它区分，应用里的检查更新也按这个前缀认版本，老版本都是它。
 
-## 从 main 同步内核修复
+## 从「iML 笔记」同步内核修复
 
-这个分支只在挂载点上拔线（[App.tsx](src/App.tsx)、[appStore.ts](src/stores/appStore.ts)、侧边栏、菜单、[main.ts](electron/main.ts)、[preload.ts](electron/preload.ts)），外加一层 Tauri 壳（`src-tauri/`、`src/platform/`），没有重构编辑内核：[markdown.ts](src/utils/markdown.ts)、[sourceMap.ts](src/utils/sourceMap.ts)、[incrementalMarkdown.ts](src/utils/incrementalMarkdown.ts)、转义与净化，以及 `src/extensions/` 下保留的扩展，与 `main` 逐字相同。扩展里只有一处例外：[WikiEmbed.ts](src/extensions/WikiEmbed.ts) 去掉了要读别的笔记的节点视图；另外删了三个只服务于笔记库的扩展（`[[` 补全、`#标签` 高亮、时间戳链接）。`main` 上修了内核的问题，`git cherry-pick` 过来即可；碰到上面那几个挂载点文件的提交，手工摘取。
+这个仓库是从「iML 笔记」的仓库拆出来的，历史相连。只在挂载点上拔线（[App.tsx](src/App.tsx)、[appStore.ts](src/stores/appStore.ts)、侧边栏、菜单、[main.ts](electron/main.ts)、[preload.ts](electron/preload.ts)），外加一层 Tauri 壳（`src-tauri/`、`src/platform/`），没有重构编辑内核：[markdown.ts](src/utils/markdown.ts)、[sourceMap.ts](src/utils/sourceMap.ts)、[incrementalMarkdown.ts](src/utils/incrementalMarkdown.ts)、转义与净化，以及 `src/extensions/` 下保留的扩展，与那边逐字相同。扩展里只有一处例外：[WikiEmbed.ts](src/extensions/WikiEmbed.ts) 去掉了要读别的笔记的节点视图；另外删了三个只服务于笔记库的扩展（`[[` 补全、`#标签` 高亮、时间戳链接）。那边修了内核的问题，加上 remote 之后 `git fetch full && git cherry-pick <提交号>` 即可（`git remote add full https://github.com/imoling/iml-markdown-editor.git`）；碰到上面那几个挂载点文件的提交，手工摘取。反过来，这里修了内核的问题也这样搬回去。
 
 ## 技术栈
 

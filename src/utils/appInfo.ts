@@ -5,5 +5,5 @@
  */
 export const APP_NAME = 'iML 编辑器';
 export const APP_TAGLINE = '纯粹的 Markdown 编辑器';
-export const REPO_URL = 'https://github.com/imoling/iml-markdown-editor';
+export const REPO_URL = 'https://github.com/imoling/iml-editor-lite';
 export const RELEASES_URL = `${REPO_URL}/releases`;
