@@ -8,11 +8,21 @@ export function exportCss(root = 'body'): string {
   return `
   ${root} { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 40px; color: #333; line-height: 1.7; max-width: 860px; margin: 0 auto; }
   img { max-width: 100%; border-radius: 8px; margin: 10px 0; }
-  pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+  /* 代码块跟编辑器一样换行：编辑器那边靠的是 Tiptap 注入的 .ProseMirror pre { white-space: pre-wrap }，这套样式里得自己写。
+     纸上没有横向滚动条，不换行的长行在 PDF、长图里会被直接裁掉（issue #2） */
+  pre { background: #f6f8fa; padding: 16px; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
   code { font-family: 'Menlo', 'Monaco', monospace; font-size: 0.9em; }
-  table { border-collapse: collapse; width: 100%; margin: 20px 0; }
-  th, td { border: 1px solid #ddd; padding: 10px 12px; text-align: left; }
-  th { background-color: #f8f9fa; }
+  /* 表格照编辑器的样子：固定布局各列平分（按内容分宽的话，两个字的表头会被挤成竖排），只画内部分隔线，表头底线粗一点，隔行浅底。
+     圆角画在四个角的单元格上，不用 overflow: hidden——打印分页时那会裁掉内容。
+     斑马纹：编辑器里表头算第 1 行、偶数行有底色；导出的表头在 thead 里，对应 tbody 的奇数行 */
+  table { border-collapse: separate; border-spacing: 0; table-layout: fixed; width: 100%; margin: 20px 0; border: 1px solid #e5e5ea; border-radius: 8px; }
+  th, td { border-bottom: 1px solid #e5e5ea; border-right: 1px solid #e5e5ea; padding: 10px 14px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+  th { background-color: #f8f9fa; font-weight: 600; border-bottom-width: 2px; }
+  th:last-child, td:last-child { border-right: none; }
+  tbody > tr:last-child > td { border-bottom: none; }
+  tbody > tr:nth-child(odd) { background-color: rgba(0, 0, 0, 0.02); }
+  thead > tr:first-child > th:first-child { border-top-left-radius: 7px; } thead > tr:first-child > th:last-child { border-top-right-radius: 7px; }
+  tbody > tr:last-child > td:first-child { border-bottom-left-radius: 7px; } tbody > tr:last-child > td:last-child { border-bottom-right-radius: 7px; }
   h1, h2, h3 { color: #111; margin-top: 1.5em; }
   blockquote { margin: 1em 0; padding: 2px 16px; border-left: 3px solid #d0d7de; color: #57606a; }
   mark { background: #fff3a3; padding: 0 2px; border-radius: 2px; }
