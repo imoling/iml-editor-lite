@@ -1750,7 +1750,7 @@ dependencies = [
 
 [[package]]
 name = "iml-editor"
-version = "26.4.0"
+version = "26.4.1"
 dependencies = [
  "image",
  "native-tls",

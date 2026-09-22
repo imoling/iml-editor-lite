@@ -1,6 +1,6 @@
 [package]
 name = "iml-editor"
-version = "26.4.0"
+version = "26.4.1"
 description = "iML 编辑器：纯粹的 Markdown 编辑器"
 authors = ["imoling"]
 edition = "2021"

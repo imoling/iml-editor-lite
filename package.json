@@ -1,6 +1,6 @@
 {
   "name": "iml-markdown-editor",
-  "version": "26.4.0",
+  "version": "26.4.1",
   "description": "纯粹的 Markdown 编辑器：打开、写、保存。富文本 / 源码双模，原样保存，导出 PDF / HTML / Word。",
   "main": "dist-electron/main.js",
   "scripts": {
