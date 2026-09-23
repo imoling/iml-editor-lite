@@ -2,7 +2,10 @@
 
 纯粹的 Markdown 编辑器：打开一个 `.md`，写，保存。没有笔记库，没有 AI，没有后台进程。安装包不到 4 MB。
 
-> 这是 [iML Markdown Editor](https://github.com/imoling/iml-markdown-editor)（即「iML 笔记」）的轻量版，单独一个仓库。两者共用同一个编辑内核，可以装在同一台电脑上：要笔记库、双向链接、全库搜索、本机智能（转写、问你的笔记），用「iML 笔记」；只想改一份文档，用这个。
+> [!TIP]
+> **要笔记库和 AI？** 看完整版 **[iML Markdown Editor](https://github.com/imoling/iml-markdown-editor)**：
+> 笔记库、双向链接、全库搜索，以及全在本机跑的 AI —— 写作助手、问你的笔记、实时转写、本机生图，笔记不出门。
+> 两者共用同一个编辑内核，可以装在同一台电脑上：只想改一份文档，用这个；要管一整个笔记库，用完整版。
 
 ![富文本模式：属性卡片、提示块、表格、任务列表](https://cdn.jsdelivr.net/gh/imoling/iml-editor-lite@main/screenshots/lite-富文本.png)
 
