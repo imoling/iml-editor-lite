@@ -1,4 +1,4 @@
-/** 从一段 HTML 里读出网页标题、判断编码。纯函数：Electron 主进程和 Tauri 壳的前端适配层共用这一份 */
+/** 从一段 HTML 里读出网页标题、判断编码。纯函数 */
 
 const decodeEntities = (s: string) =>
   s.replace(/&#(\d+);/g, (_m, d) => String.fromCodePoint(Number(d)))

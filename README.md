@@ -57,17 +57,15 @@
 
 外壳是 [Tauri 2](https://tauri.app)：界面跑在系统自带的 WebView 里（macOS 的 WebKit、Windows 的 WebView2），不再自己带一个 Chromium。macOS 的安装包不到 4 MB、装好 6 MB；换壳之前的 Electron 版是 80 ~ 90 MB。
 
-体积是盯着的：同一份东西不带两遍（公式字体界面要用一份 woff2，导出时就读那一份，不再往 JS 里内联一份 base64）；图标不带只有在访达里放到最大才用得上的 1024 像素那一层；KaTeX 的 woff / ttf 老格式不进包。这几条都写成了测试（[packaging.test.ts](electron/packaging.test.ts)），谁不小心改回去，`npm run check` 会拦下来。
+体积是盯着的：同一份东西不带两遍（公式字体界面要用一份 woff2，导出时就读那一份，不再往 JS 里内联一份 base64）；图标不带只有在访达里放到最大才用得上的 1024 像素那一层；KaTeX 的 woff / ttf 老格式不进包。这几条都写成了测试（[packaging.test.ts](src/test/packaging.test.ts)），谁不小心改回去，`npm run check` 会拦下来。
 
-界面代码一行没为此重写：它只认 `window.api` 这一个接口。Electron 壳里由 [preload.ts](electron/preload.ts) 提供，Tauri 壳里由 [tauriApi.ts](src/platform/tauriApi.ts) 提供同样的形状，背后是 [src-tauri/src/lib.rs](src-tauri/src/lib.rs) 里二十来个 Rust 命令——只做读写文件、监听文件夹、本地图片协议、打印这类系统调用。文件名怎么起、网页标题怎么解析、哪个安装包是这台电脑的，仍然是那份带测试的 TypeScript，两个壳共用。
+界面代码一行没为此重写：它只认 `window.api` 这一个接口，由 [tauriApi.ts](src/platform/tauriApi.ts) 提供（形状和「iML 笔记」的 Electron 版一样），背后是 [src-tauri/src/lib.rs](src-tauri/src/lib.rs) 里二十来个 Rust 命令——只做读写文件、监听文件夹、本地图片协议、打印这类系统调用。文件名怎么起、网页标题怎么解析、哪个安装包是这台电脑的，仍然是带测试的 TypeScript（[src/shared/](src/shared/)）。
 
 系统 WebView 和 Chromium 有两处不一样，都已经处理：
 
 - **不能把画布编码成 WebP**（Safari 内核）：粘贴的图片发现编不出来时，交给 Rust 去压，效果一样（实测 2.2 MB → 464 KB）。
 - **没有「直接存成 PDF」的接口**：macOS 上用一小段原生代码调系统的打印引擎（`NSPrintOperation`，不弹面板，直接存成分页的 A4 PDF，见 [lib.rs](src-tauri/src/lib.rs) 里的 `mac_pdf`）；Windows 上走 WebView2 的打印面板（自带预览）。公式要用的 KaTeX 字体必须在打印之前加载好——WebKit 打印时是挂起资源加载的，字体等不来，整份 PDF 会是空白页。
-- **没有「截一个隐藏窗口」的接口**：长图不靠外壳截屏，在页面里自己画——把导出用的 HTML 包进 SVG 画到画布上（见 [exportImage.ts](src/utils/exportImage.ts) 开头的说明：图片为什么由这边直接画、每一段为什么要拿自己的第一个块当锚点）。Electron 壳用的也是这一份，两边出的图一样。
-
-Electron 壳还留在仓库里当退路（`npm run dev`、`npm run build:mac`），两个壳打开同一份文档、敲同一个字，保存出来的文件逐字节相同。
+- **没有「截一个隐藏窗口」的接口**：长图不靠外壳截屏，在页面里自己画——把导出用的 HTML 包进 SVG 画到画布上（见 [exportImage.ts](src/utils/exportImage.ts) 开头的说明：图片为什么由这边直接画、每一段为什么要拿自己的第一个块当锚点）。
 
 ## 本地运行
 
@@ -82,9 +80,9 @@ npm run tauri:build  # 出安装包（当前平台），在 src-tauri/target/rel
 
 `src-tauri/target/` 是 Rust 的编译缓存，会长到几个 G，不进仓库；嫌占地方就 `cargo clean`。国内网络直连 crates.io 很慢，在 `~/.cargo/config.toml` 里换成镜像（如 rsproxy.cn）。
 
-冒烟钩子（只在调试构建里生效）：`IML_SMOKE_OPEN=/path/to.md` 启动时打开一个文件；`IML_SMOKE_EXPORT_DIR=/some/dir` 导出时不弹保存对话框、直接存进这个目录；`IML_SMOKE_SCRIPT_FILE=/path/to.js` 页面起来 6 秒后在里面执行这段脚本——系统 WebView 没有 CDP，无人值守的检查靠它把结果写到文件里。Electron 壳的钩子（`IML_SMOKE_USERDATA`、`IML_SMOKE_OFFSCREEN=1`，可用 CDP 发真实的键盘事件、截图）照旧。
+冒烟钩子（只在调试构建里生效）：`IML_SMOKE_OPEN=/path/to.md` 启动时打开一个文件；`IML_SMOKE_EXPORT_DIR=/some/dir` 导出时不弹保存对话框、直接存进这个目录；`IML_SMOKE_SCRIPT_FILE=/path/to.js` 页面起来 6 秒后在里面执行这段脚本——系统 WebView 没有 CDP，无人值守的检查靠它把结果写到文件里。
 
-图标的源文件是 [assets/lite/icon.svg](assets/lite/icon.svg)；改完渲染成 1024 的 PNG，`npx tauri icon assets/lite/icon-1024.png -o src-tauri/icons` 生成全套（多出来的 `android/`、`ios/` 两个目录删掉），再跑一次 `node scripts/trim-icns.mjs` 去掉 icns 里 1024 像素那一层（一张就 260 KB，只有在访达里把图标放到最大才用得上），两个壳共用。
+图标的源文件是 [assets/lite/icon.svg](assets/lite/icon.svg)；改完渲染成 1024 的 PNG，`npx tauri icon assets/lite/icon-1024.png -o src-tauri/icons` 生成全套（多出来的 `android/`、`ios/` 两个目录删掉），再跑一次 `node scripts/trim-icns.mjs` 去掉 icns 里 1024 像素那一层（一张就 260 KB，只有在访达里把图标放到最大才用得上）。
 
 ## 发版
 
@@ -92,11 +90,11 @@ npm run tauri:build  # 出安装包（当前平台），在 src-tauri/target/rel
 
 ## 从「iML 笔记」同步内核修复
 
-这个仓库是从「iML 笔记」的仓库拆出来的，历史相连。只在挂载点上拔线（[App.tsx](src/App.tsx)、[appStore.ts](src/stores/appStore.ts)、侧边栏、菜单、[main.ts](electron/main.ts)、[preload.ts](electron/preload.ts)），外加一层 Tauri 壳（`src-tauri/`、`src/platform/`），没有重构编辑内核：[markdown.ts](src/utils/markdown.ts)、[sourceMap.ts](src/utils/sourceMap.ts)、[incrementalMarkdown.ts](src/utils/incrementalMarkdown.ts)、转义与净化，以及 `src/extensions/` 下保留的扩展，与那边逐字相同。扩展里只有一处例外：[WikiEmbed.ts](src/extensions/WikiEmbed.ts) 去掉了要读别的笔记的节点视图；另外删了三个只服务于笔记库的扩展（`[[` 补全、`#标签` 高亮、时间戳链接）。那边修了内核的问题，加上 remote 之后 `git fetch full && git cherry-pick <提交号>` 即可（`git remote add full https://github.com/imoling/iml-markdown-editor.git`）；碰到上面那几个挂载点文件的提交，手工摘取。反过来，这里修了内核的问题也这样搬回去。
+这个仓库是从「iML 笔记」的仓库拆出来的，历史相连。只在挂载点上拔线（[App.tsx](src/App.tsx)、[appStore.ts](src/stores/appStore.ts)、侧边栏、菜单），外壳换成了 Tauri（`src-tauri/`、`src/platform/`），Electron 壳已经删掉；没有重构编辑内核：[markdown.ts](src/utils/markdown.ts)、[sourceMap.ts](src/utils/sourceMap.ts)、[incrementalMarkdown.ts](src/utils/incrementalMarkdown.ts)、转义与净化，以及 `src/extensions/` 下保留的扩展，与那边逐字相同。扩展里只有一处例外：[WikiEmbed.ts](src/extensions/WikiEmbed.ts) 去掉了要读别的笔记的节点视图；另外删了三个只服务于笔记库的扩展（`[[` 补全、`#标签` 高亮、时间戳链接）。那边修了内核的问题，加上 remote 之后 `git fetch full && git cherry-pick <提交号>` 即可（`git remote add full https://github.com/imoling/iml-markdown-editor.git`）；碰到上面那几个挂载点文件的提交，手工摘取。那边的 `electron/shared/` 在这里是 `src/shared/`，cherry-pick 靠 git 的改名识别对得上，对不上就手工改路径。反过来，这里修了内核的问题也这样搬回去。
 
 ## 技术栈
 
-React 19 + Vite 7 + TypeScript 5.9 · Tauri 2（Rust；Electron 33 作为退路保留）· Zustand 5 · Tiptap 2 / CodeMirror 6 · marked + turndown · Mermaid 11、KaTeX，预览与 SVG 经 DOMPurify 净化 · Vitest + ESLint
+React 19 + Vite 7 + TypeScript 5.9 · Tauri 2（Rust）· Zustand 5 · Tiptap 2 / CodeMirror 6 · marked + turndown · Mermaid 11、KaTeX，预览与 SVG 经 DOMPurify 净化 · Vitest + ESLint
 
 ## 许可证
 

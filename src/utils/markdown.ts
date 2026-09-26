@@ -9,7 +9,7 @@ import { escapeMarkdown, MID_LINE_MARK, LINE_START_SENSITIVE } from './markdownE
 import katex from 'katex';
 import {
   splitFrontmatter, parseFrontmatter, matchTagAt, calloutKind, calloutLabel, CALLOUT_HEAD_RE,
-} from '../../electron/shared/noteMeta';
+} from '../shared/noteMeta';
 
 
 const escapeHtml = (s: string) =>

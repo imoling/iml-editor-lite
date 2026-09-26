@@ -1,8 +1,8 @@
 //! iML 编辑器的 Tauri 壳。
 //!
 //! 这一层只做「界面自己做不了的事」：读写文件、监听文件夹、系统对话框之外的系统调用、本地图片协议、打印。
-//! 逻辑（文件名怎么起、网页标题怎么解析、哪个安装包是这台电脑的）都留在前端的 TypeScript 里——那边有测试，
-//! Electron 壳用的也是同一份。前端通过 `src/platform/tauriApi.ts` 把这些命令包成和 Electron preload 一样的 `window.api`。
+//! 逻辑（文件名怎么起、网页标题怎么解析、哪个安装包是这台电脑的）都留在前端的 TypeScript 里（`src/shared/`），那边有测试。
+//! 前端通过 `src/platform/tauriApi.ts` 把这些命令包成 `window.api`。
 
 use std::{
     collections::HashSet,

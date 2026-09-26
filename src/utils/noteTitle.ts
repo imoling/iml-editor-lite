@@ -1,4 +1,4 @@
-import { splitFrontmatter } from '../../electron/shared/noteMeta';
+import { splitFrontmatter } from '../shared/noteMeta';
 
 const MAX_TITLE_LENGTH = 30;
 

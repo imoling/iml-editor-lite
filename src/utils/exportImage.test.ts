@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { blocksFor, tileSvg, planLongImage, sniffImageType, inlineFontFaces, katexFontKey, readBundledFile, longImageCss, IMAGE_CSS_WIDTH, type Block } from './exportImage';
-import { maxImageHeight } from '../../electron/shared/imageTiles';
+import { maxImageHeight } from '../shared/imageTiles';
 
 const block = (top: number, bottom: number, name: string): Block => ({ top, bottom, xml: `<p>${name}</p>` });
 

@@ -5,7 +5,7 @@ vi.mock('mermaid', () => ({
   default: { initialize: vi.fn(), render: vi.fn(async () => ({ svg: '<svg></svg>' })), run: vi.fn(), parse: vi.fn() },
 }));
 
-/** 内存文件系统：测试 store 的文件相关逻辑时用它顶替 Electron 的 IPC 桥 */
+/** 内存文件系统：测试 store 的文件相关逻辑时用它顶替 window.api 背后的壳 */
 export function createMockApi(initialFiles: Record<string, string> = {}) {
   const files = new Map(Object.entries(initialFiles));
   const dirs = new Set<string>();

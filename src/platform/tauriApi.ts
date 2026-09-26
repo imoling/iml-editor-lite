@@ -1,23 +1,23 @@
 /**
- * Tauri 壳的前端适配层：把 Rust 那边的命令（src-tauri/src/lib.rs）包成和 Electron preload（electron/preload.ts）
- * 一模一样的 `window.api`。界面代码只认 `window.api`，不知道外面套的是哪个壳。
+ * Tauri 壳的前端适配层：把 Rust 那边的命令（src-tauri/src/lib.rs）包成 `window.api`。界面代码只认 `window.api`，
+ * 形状沿用「iML 笔记」那边 Electron preload 的写法，两边的界面代码因此可以互相搬。
  *
  * 分工：Rust 只做读写文件这类系统调用；文件名怎么起、网页标题怎么解析、哪个安装包是这台电脑的，
- * 用的是和 Electron 主进程同一份 TypeScript（electron/shared、electron/update.ts），那些都有测试。
+ * 在 TypeScript 这边（src/shared/），那些都有测试。
  */
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
-import { assetFileName } from '../../electron/shared/assetNames';
-import { extractHtmlTitle, detectCharset } from '../../electron/shared/pageTitle';
-import { exportCss, exportDocument } from '../../electron/shared/exportDoc';
-import { describeRelease, pickLatestRelease } from '../../electron/update';
-import { numberedPath } from '../../electron/shared/imageTiles';
+import { assetFileName } from '../shared/assetNames';
+import { extractHtmlTitle, detectCharset } from '../shared/pageTitle';
+import { exportCss, exportDocument } from '../shared/exportDoc';
+import { describeRelease, pickLatestRelease } from '../shared/update';
+import { numberedPath } from '../shared/imageTiles';
 
 declare const __APP_VERSION__: string;
 
-/** 本应用在 GitHub Releases 里的标签前缀（同 electron/main.ts） */
+/** 本应用在 GitHub Releases 里的标签前缀 */
 const RELEASE_TAG_PREFIX = 'lite-v';
 const DOC_EXT_RE = /\.(md|markdown|mdown|mkd|txt)$/i;
 

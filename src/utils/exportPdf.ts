@@ -35,7 +35,7 @@ export const exportActiveTabToPdf = exclusive(async () => {
   const tab = tabs.find((t) => t.id === activeTabId);
   if (!tab) return;
   const { notify } = useAppStore.getState();
-  // Tauri 壳在 macOS 上：先问存哪，再直接存成 PDF（和 Electron 壳一样的体验，不弹打印面板）
+  // Tauri 壳在 macOS 上：先问存哪，再直接存成 PDF（不弹打印面板）
   if (window.api.export.pdfTo) {
     const target = await window.api.export.askPath(tab.title, 'PDF 文档', 'pdf');
     if (!target) return;

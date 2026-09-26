@@ -22,5 +22,5 @@ export default defineConfig({
   build: {
     outDir: 'dist',
   },
-  base: './', // Electron 从 file:// 加载，必须是相对路径；Tauri 两种都行
+  base: './',
 });

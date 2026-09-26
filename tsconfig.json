@@ -21,10 +21,6 @@
     "jsx": "react-jsx"
   },
   "include": [
-    "src",
-    "electron"
-  ],
-  "exclude": [
-    "electron/**/*.test.ts"
+    "src"
   ]
 }

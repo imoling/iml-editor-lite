@@ -26,7 +26,7 @@ if (!hasCargo()) {
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'node_modules', '@tauri-apps', 'cli', 'tauri.js');
 if (!existsSync(cli)) {
-  console.error('\n找不到 Tauri CLI：先执行 npm install（从 main 分支切过来之后也要装一次，两边的依赖不一样）。\n');
+  console.error('\n找不到 Tauri CLI：先执行 npm install。\n');
   process.exit(1);
 }
 

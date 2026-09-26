@@ -2,7 +2,7 @@
  * 导出长图（PNG）：发群里、发朋友圈用。
  *
  * 不靠外壳截屏（Tauri 的系统 WebView 没有那个接口），全在页面里完成：把导出用的 HTML 包进 SVG 的 <foreignObject>，
- * 当成一张图片画到画布上。Electron 壳和 Tauri 壳走的是同一份代码，出来的图一样。
+ * 当成一张图片画到画布上。和「iML 笔记」走的是同一份代码，出来的图一样。
  *
  * 四条硬约束决定了下面的写法：
  * ① SVG 当图片用时不会去加载任何外部资源 → 公式要用的 KaTeX 样式和字体得内联进去；
@@ -11,9 +11,9 @@
  * ③ 画布有大小上限，太长的文档得分成几张 → 在段落 / 列表项 / 表格行的底边切，别把一行字切成两半；
  * ④ 一次光栅化太高的 SVG 很吃内存 → 每张图再按 4000 个 CSS 像素一段一段画上去。
  */
-import { exportCss } from '../../electron/shared/exportDoc';
-import { planRanges, planTiles, maxImageHeight, type Range } from '../../electron/shared/imageTiles';
-import { BRAND_CSS, brandFooterHtml, brandBand } from '../../electron/shared/imageBrand';
+import { exportCss } from '../shared/exportDoc';
+import { planRanges, planTiles, maxImageHeight, type Range } from '../shared/imageTiles';
+import { BRAND_CSS, brandFooterHtml, brandBand } from '../shared/imageBrand';
 import { resolveAssetUrl } from './assetUrl';
 // 角标的小图标只有几 KB，构建时内联成 data: 地址
 import logoData from '../assets/logo-64.png?inline';

@@ -18,7 +18,7 @@ import { slashMenuRegistry, SlashItem } from '../../extensions/SlashCommand';
 import type { SuggestionProps } from '@tiptap/suggestion';
 import { storeImageFile, persistDataUrl } from '../../utils/pasteImage';
 import { isSingleUrl } from '../../utils/pasteText';
-import { normalizeHeading } from '../../../electron/shared/wikiLink';
+import { normalizeHeading } from '../../shared/wikiLink';
 import { extractHeadings } from '../../utils/outline';
 import { jumpToFootnote } from '../../extensions/FootnoteLinks';
 import '../styles/editor.css';

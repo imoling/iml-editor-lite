@@ -15,7 +15,7 @@ import { createTauriApi } from './tauriApi';
 
 beforeEach(() => { invoke.mockReset(); listen.mockClear(); openDialog.mockReset(); saveDialog.mockReset(); });
 
-/** 界面只认 window.api 这一个形状：Tauri 壳的适配层要和 Electron 的 preload 给出同样的返回值 */
+/** 界面只认 window.api 这一个形状：适配层的返回值要和「iML 笔记」那边 Electron preload 的一样，界面代码才能互相搬 */
 describe('Tauri 壳的适配层', () => {
   it('打开对话框：参数是 Electron 的写法，返回值一律是数组或 null', async () => {
     const api = createTauriApi();

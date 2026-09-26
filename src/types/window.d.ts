@@ -1,7 +1,7 @@
 export {};
 
-import type { UpdateInfo } from '../../electron/update';
-export type { UpdateInfo } from '../../electron/update';
+import type { UpdateInfo } from '../shared/update';
+export type { UpdateInfo } from '../shared/update';
 
 declare global {
   interface Window {
@@ -68,7 +68,7 @@ declare global {
         revertSettings: () => void;
       };
       appVersion: string;
-      /** 只有 Tauri 壳有：本地图片地址的前缀（各平台写法不同）。Electron 壳用固定的 iml-asset://local/ */
+      /** 本地图片地址的前缀（各平台写法不同）；测试里没有，退回 iml-asset://local/ */
       assetBase?: string;
       /** 只有 Tauri 壳有：系统 WebView 的画布编不出 WebP 时，把原图交给壳去压 */
       image?: { toWebp: (bytes: ArrayBuffer, maxWidth: number, maxHeight: number, quality: number) => Promise<ArrayBuffer | null> };

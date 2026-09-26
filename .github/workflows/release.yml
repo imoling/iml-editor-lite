@@ -43,11 +43,7 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
-        env:
-          # 这里只构建 Tauri 壳；Electron 只在类型检查时用到它的类型声明，不必下载它一百多 MB 的运行时
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: npm run check
-      # 壳是 Tauri（src-tauri/）：安装包几 MB。Electron 的构建脚本（build:mac / build:win）还留着当退路，这里不用
       - run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
       # macOS：Tauri 只出 .app，dmg 在这里自己打。
       # 它自带的 bundle_dmg.sh 在 GitHub 的 macOS 机器上时好时坏（hdiutil 报 Resource busy，几秒就退出，第一次发版就栽在这儿）；

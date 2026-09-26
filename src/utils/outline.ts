@@ -1,5 +1,5 @@
 import { HeadingNode } from '../stores/appStore';
-import { splitFrontmatter } from '../../electron/shared/noteMeta';
+import { splitFrontmatter } from '../shared/noteMeta';
 
 export function extractHeadings(markdown: string): HeadingNode[] {
   const headings: HeadingNode[] = [];

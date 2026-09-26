@@ -1,5 +1,5 @@
 import { Node, mergeAttributes, InputRule } from '@tiptap/core';
-import { calloutKind, calloutLabel, CALLOUT_LABELS, type CalloutKind } from '../../electron/shared/noteMeta';
+import { calloutKind, calloutLabel, CALLOUT_LABELS, type CalloutKind } from '../shared/noteMeta';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {

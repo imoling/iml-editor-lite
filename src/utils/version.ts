@@ -1,6 +1,6 @@
 /**
  * 版本号采用「年份 + 小版本」方案（类似 Apple：26.1、26.2 …）。
- * npm / electron-builder 要求三段式，所以 package.json 里写 26.1.0，界面上展示时省略末尾的 .0。
+ * npm 和 Cargo 要求三段式，所以 package.json 里写 26.1.0，界面上展示时省略末尾的 .0。
  */
 export function formatVersion(v: string | undefined | null): string {
   if (!v) return '';

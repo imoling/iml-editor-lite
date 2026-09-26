@@ -2,10 +2,10 @@ import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'dist-electron/**', 'release/**', 'node_modules/**', 'ipad/**', 'docs/**', 'src-tauri/target/**', 'src-tauri/gen/**', '*.config.*'] },
+  { ignores: ['dist/**', 'release/**', 'node_modules/**', 'docs/**', 'src-tauri/target/**', 'src-tauri/gen/**', '*.config.*'] },
   ...tseslint.configs.recommended,
   {
-    files: ['src/**/*.{ts,tsx}', 'electron/**/*.ts'],
+    files: ['src/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
     rules: {
       'react-hooks/rules-of-hooks': 'error',

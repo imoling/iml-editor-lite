@@ -1,8 +1,8 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import { Plugin, PluginKey, NodeSelection, Selection } from '@tiptap/pm/state';
 import { encodeRaw, decodeRaw } from '../utils/markdown';
-import { buildFrontmatterBlock, frontmatterYaml } from '../../electron/shared/noteMeta';
-import { readProps, setProp, removeProp, renameProp, isValidPropKey, PropField, PropKind } from '../../electron/shared/frontmatterEdit';
+import { buildFrontmatterBlock, frontmatterYaml } from '../shared/noteMeta';
+import { readProps, setProp, removeProp, renameProp, isValidPropKey, PropField, PropKind } from '../shared/frontmatterEdit';
 import { createSourceNodeView } from './sourceNodeView';
 
 const COLLAPSE_KEY = 'iml_frontmatter_collapsed';

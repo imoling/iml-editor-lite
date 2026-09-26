@@ -1,4 +1,4 @@
-/** 粘贴 / 拖入的图片落盘时用什么名字。纯函数，不依赖 Node：Electron 主进程和 Tauri 壳的前端适配层共用这一份 */
+/** 粘贴 / 拖入的图片落盘时用什么名字。纯函数，不依赖 Node */
 
 const pad = (n: number) => String(n).padStart(2, '0');
 

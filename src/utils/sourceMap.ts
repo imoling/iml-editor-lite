@@ -2,7 +2,7 @@ import type { Editor } from '@tiptap/core';
 import { Selection, EditorState } from '@tiptap/pm/state';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import { lexTopLevel, markdownToHtml } from './markdown';
-import { splitFrontmatter } from '../../electron/shared/noteMeta';
+import { splitFrontmatter } from '../shared/noteMeta';
 
 /**
  * 原文对照表：保存时，没被编辑过的块直接写回它在文件里的原文。
