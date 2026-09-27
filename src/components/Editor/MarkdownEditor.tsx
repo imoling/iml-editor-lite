@@ -184,7 +184,8 @@ export const MarkdownEditor: React.FC = () => {
             });
             return true;
           }
-          return false;
+          // 别的文件（.md、文件夹）不往正文里塞内容——CodeMirror 默认会把文本文件的内容插进来；由 window 上的处理打开它们（utils/dropFiles.ts）
+          return !!file;
         },
         paste(event, view) {
           const clipboard = event.clipboardData;

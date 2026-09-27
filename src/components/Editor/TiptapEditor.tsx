@@ -244,6 +244,8 @@ export const TiptapEditor: React.FC = () => {
              });
              return true;
           }
+          // 别的文件（.md、文件夹）不往正文里塞内容；由 window 上的处理打开它们（utils/dropFiles.ts）
+          return true;
         }
         return false;
       },

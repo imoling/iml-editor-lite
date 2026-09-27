@@ -321,6 +321,7 @@ export function createTauriApi(): WindowApi {
       },
       openSettings: () => emitLocal('dialog:open', 'settings'),
       consumePendingOpenFiles: () => invoke<string[]>('consume_pending_open_files'),
+      droppedPaths: () => invoke<{ path: string; isDirectory: boolean }[]>('dropped_paths'),
       clearSession: () => emitLocal('session:clear'),
       previewSettings: (settings) => emitLocal('settings:preview', settings),
       revertSettings: () => emitLocal('settings:revert'),

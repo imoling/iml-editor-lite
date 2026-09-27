@@ -64,6 +64,7 @@ export function createMockApi(initialFiles: Record<string, string> = {}) {
       saveSettings: vi.fn(async () => ({ success: true })),
       openSettings: vi.fn(), previewSettings: vi.fn(), revertSettings: vi.fn(),
       consumePendingOpenFiles: vi.fn(async () => []),
+      droppedPaths: vi.fn(async () => []),
       clearSession: vi.fn(),
     },
     appVersion: '26.1.0',

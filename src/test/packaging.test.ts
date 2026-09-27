@@ -20,7 +20,8 @@ describe('安装包', () => {
   });
 
   it('三个平台的窗口都关掉系统的拖放接管', () => {
-    // 系统 WebView 默认自己接管文件拖放，页面收不到 drop 事件——往编辑器里拖图片就没反应了。
+    // 系统 WebView 默认自己接管文件拖放，页面收不到 drop 事件——往编辑器里拖图片、拖文字就都没反应了。
+    // 拖 .md 进来打开靠的是页面收到 drop 后再向壳问路径（lib.rs 的 dropped_paths），不用开这个。
     // 平台配置是整段覆盖 windows 数组的，每一份都得写
     for (const name of ['tauri.conf.json', 'tauri.macos.conf.json', 'tauri.windows.conf.json']) {
       for (const win of conf(name).app.windows) expect(win.dragDropEnabled).toBe(false);

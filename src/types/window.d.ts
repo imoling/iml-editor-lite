@@ -63,6 +63,8 @@ declare global {
         saveSettings: (settings: any) => Promise<{ success: boolean; error?: string }>;
         openSettings: () => void;
         consumePendingOpenFiles: () => Promise<string[]>;
+        /** 刚拖进窗口的文件在磁盘上的路径（页面自己只拿得到文件名）；紧跟着 drop 事件问一次 */
+        droppedPaths: () => Promise<{ path: string; isDirectory: boolean }[]>;
         clearSession: () => void;
         previewSettings: (settings: any) => void;
         revertSettings: () => void;

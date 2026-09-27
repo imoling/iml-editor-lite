@@ -12,6 +12,7 @@ import { ConfirmDialog } from './components/ConfirmDialog';
 import { exportActiveTabToPdf, exportActiveTabToHtml, exportActiveTabToDocx, exportActiveTabToImage } from './utils/exportPdf';
 import { formatVersion, isNewerVersion } from './utils/version';
 import { APP_NAME, RELEASES_URL } from './utils/appInfo';
+import { installFileDrop } from './utils/dropFiles';
 import './styles/layout.css';
 
 /**
@@ -254,6 +255,9 @@ const App: React.FC = () => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [dialog, closeDialog]);
+
+  // 拖进窗口的文件：文档打开成标签页，文件夹打开到侧边栏（图片由编辑器自己接）
+  useEffect(() => installFileDrop(), []);
 
   // 监听主进程发来的 open-file（macOS 双击或"打开方式"）
   useEffect(() => {
