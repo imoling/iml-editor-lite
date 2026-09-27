@@ -32,6 +32,18 @@ describe('检查更新：挑出这台电脑该下的安装包', () => {
     expect(pickInstaller(V263, 'linux', 'x64')).toBeNull();
   });
 
+  it('Windows 的绿色版给绿色版，安装版给安装包；那一版没发绿色版就退回安装包', () => {
+    const v2643 = [asset('iML-Editor-Lite-26.4.3-arm64.dmg'), asset('iML-Editor-Lite-Setup-26.4.3-x64.exe'), asset('iML-Editor-Lite-Setup-26.4.3-arm64.exe'), asset('iML-Editor-Lite-Portable-26.4.3-x64.zip'), asset('iML-Editor-Lite-Portable-26.4.3-arm64.zip')];
+    expect(pickInstaller(v2643, 'win32', 'x64', true)?.name).toBe('iML-Editor-Lite-Portable-26.4.3-x64.zip');
+    expect(pickInstaller(v2643, 'win32', 'arm64', true)?.name).toBe('iML-Editor-Lite-Portable-26.4.3-arm64.zip');
+    expect(pickInstaller(v2643, 'win32', 'x64')?.name).toBe('iML-Editor-Lite-Setup-26.4.3-x64.exe');
+    expect(pickInstaller(V263, 'win32', 'x64', true)?.name).toBe('iML.Markdown.Editor-Setup-26.3.0-x64.exe');
+    // macOS 没有绿色版这回事
+    expect(pickInstaller(v2643, 'darwin', 'arm64', true)?.name).toBe('iML-Editor-Lite-26.4.3-arm64.dmg');
+    expect(describeRelease({ tag_name: 'lite-v26.4.3', assets: v2643 }, 'win32', 'x64', 'lite-v', true).download).toMatchObject({ name: 'iML-Editor-Lite-Portable-26.4.3-x64.zip', portable: true });
+    expect(describeRelease({ tag_name: 'lite-v26.4.3', assets: v2643 }, 'win32', 'x64', 'lite-v').download).toMatchObject({ name: 'iML-Editor-Lite-Setup-26.4.3-x64.exe', portable: false });
+  });
+
   it('GitHub 的响应 → 界面用的信息；响应缺胳膊少腿也不炸', () => {
     const info = describeRelease({ tag_name: 'v26.3.0', html_url: 'https://github.com/x/releases/tag/v26.3.0', body: '## 26.3.0 — 标题', assets: [...V263.map((a) => ({ ...a, size: 82_000_000 })), { name: 1 }] }, 'darwin', 'arm64');
     expect(info).toMatchObject({ success: true, latestVersion: '26.3.0', notes: '## 26.3.0 — 标题' });

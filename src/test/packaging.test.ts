@@ -28,6 +28,40 @@ describe('安装包', () => {
     }
   });
 
+  it('拖进来的文件的路径：Windows 只用 WebView2 公开的接口，不去换它的拖放接收器', () => {
+    // 26.4.2 换过：接收器在 WebView2 自己的进程里，读到的指针在这边用不了，一启动就崩（#5）
+    const lib = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
+    for (const banned of ['OleDropTargetInterface', 'RegisterDragDrop', 'RevokeDragDrop', 'from_raw_borrowed']) expect(lib).not.toContain(banned);
+    expect(lib).toContain('AdditionalObjects');
+    // 页面交文件时带的消息，两边得是同一个前缀
+    const api = fs.readFileSync(path.join(root, 'src/platform/tauriApi.ts'), 'utf8');
+    const prefix = /const PREFIX: &str = "([^"]+)"/.exec(lib)?.[1];
+    expect(prefix).toBeTruthy();
+    expect(api).toContain(`const DROP_MESSAGE = '${prefix}'`);
+  });
+
+  it('发版前真的把应用跑起来：起不来就不发', () => {
+    const workflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
+    const steps = workflow.split(/\n {6}- /);
+    const at = (needle: string) => steps.findIndex((s) => s.includes(needle));
+    for (const name of ['name: Launch check (Windows)', 'name: Launch check (macOS)']) {
+      expect(at(name)).toBeGreaterThan(at('npx tauri build'));
+      expect(at(name)).toBeLessThan(at('actions/upload-artifact'));
+    }
+    // 发布那一步排在构建后面：构建里任何一步不过，都到不了发布
+    expect(workflow).toMatch(/release:\n\s+name: Publish release\n\s+needs: build/);
+  });
+
+  it('Windows 除了安装包还有绿色版：压缩包里就是那个 exe，和安装包一起发', () => {
+    const workflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
+    expect(workflow).toContain('release/iML-Editor-Lite-Portable-${VERSION}-${{ matrix.arch }}.zip');
+    expect(workflow).toContain('release/*.zip');
+    expect(workflow).toContain('artifacts/*.zip');
+    // 应用靠旁边有没有安装程序留下的 uninstall.exe 认自己是哪一种
+    const lib = fs.readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8');
+    expect(lib).toMatch(/fn is_portable\(\)[^}]*uninstall\.exe/s);
+  });
+
   it('轻量版不登记链接协议，不申请设备权限；安装包的文件名是英文、带 Lite 和架构', () => {
     // 这个版本没有录音、没有 iml:// 唤起：多出来说明有东西从主版本漏过来了
     const base = conf('tauri.conf.json');

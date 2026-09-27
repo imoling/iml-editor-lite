@@ -451,123 +451,102 @@ mod mac_drag {
     }
 }
 
-/// Windows：WebView2 自己接收拖放、给页面发 HTML5 的 drop 事件，但从不把文件路径告诉页面。
-/// 在它的接收器外面套一层：记下经过的文件路径，其余原样转交——页面内的拖拽（拖图片、拖文字）一点不受影响
+/// Windows：WebView2 交给页面的文件对象带着路径，只是页面自己读不到。页面收到 drop 后把文件对象原样交回来
+/// （tauriApi.ts 的 droppedPaths），这边读出路径记下，等页面凭同一张票来取。
+/// 只用 WebView2 公开的接口。26.4.2 是去换它的拖放接收器：接收器在 WebView2 自己的进程里，
+/// 读到的指针在这边用不了，一启动就崩（#5）
 #[cfg(windows)]
 mod win_drag {
-    use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::PathBuf, sync::Mutex};
+    use std::{path::PathBuf, sync::Mutex};
 
-    use windows::{
-        core::{implement, w, Interface, Ref, Result, BOOL},
-        Win32::{
-            Foundation::{HWND, LPARAM, POINTL},
-            System::{
-                Com::{IDataObject, DVASPECT_CONTENT, FORMATETC, TYMED_HGLOBAL},
-                Ole::{IDropTarget, IDropTarget_Impl, RegisterDragDrop, ReleaseStgMedium, RevokeDragDrop, CF_HDROP, DROPEFFECT},
-                SystemServices::MODIFIERKEYS_FLAGS,
-            },
-            UI::{
-                Shell::{DragQueryFileW, HDROP},
-                WindowsAndMessaging::{EnumChildWindows, GetPropW},
-            },
-        },
+    use webview2_com::{
+        take_pwstr,
+        Microsoft::Web::WebView2::Win32::{ICoreWebView2File, ICoreWebView2WebMessageReceivedEventArgs, ICoreWebView2WebMessageReceivedEventArgs2},
+        WebMessageReceivedEventHandler,
     };
+    use windows::core::{Interface, Result, PWSTR};
 
-    /// 最近一次拖进窗口的文件；页面收到 drop 后来取
-    static LAST: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+    /// 页面交文件时带的消息：这个前缀，后面跟着这次拖放的票（tauriApi.ts 里是同一个前缀）
+    const PREFIX: &str = "iml-dropped-files:";
 
-    pub fn take() -> Vec<PathBuf> {
-        std::mem::take(&mut *LAST.lock().unwrap())
-    }
+    /// 最近一次交回来的：哪一次拖放（票）、各个文件的路径
+    static LAST: Mutex<Option<(String, Vec<PathBuf>)>> = Mutex::new(None);
 
-    fn remember(data: Option<&IDataObject>) {
-        if let Some(paths) = paths_of(data) {
-            *LAST.lock().unwrap() = paths;
+    /// 票对得上才给，给了就清掉
+    pub fn take(ticket: &str) -> Vec<PathBuf> {
+        let mut last = LAST.lock().unwrap();
+        match last.take() {
+            Some((held, paths)) if held == ticket => paths,
+            other => {
+                *last = other;
+                Vec::new()
+            }
         }
     }
 
-    /// 拖的不是文件（页面内拖文字）就是 None，不去动记着的那份
-    fn paths_of(data: Option<&IDataObject>) -> Option<Vec<PathBuf>> {
-        let data = data?;
-        let format = FORMATETC { cfFormat: CF_HDROP.0, ptd: std::ptr::null_mut(), dwAspect: DVASPECT_CONTENT.0, lindex: -1, tymed: TYMED_HGLOBAL.0 as u32 };
-        let mut medium = unsafe { data.GetData(&format) }.ok()?;
-        let hdrop = HDROP(unsafe { medium.u.hGlobal.0 });
-        let count = unsafe { DragQueryFileW(hdrop, u32::MAX, None) };
+    /// 不是页面交文件的那种消息就是 None（Tauri 自己的通信也从这里过）
+    fn read(args: &ICoreWebView2WebMessageReceivedEventArgs) -> Result<Option<(String, Vec<PathBuf>)>> {
+        let mut message = PWSTR::null();
+        unsafe { args.TryGetWebMessageAsString(&mut message)? };
+        let message = take_pwstr(message);
+        let Some(ticket) = message.strip_prefix(PREFIX) else { return Ok(None) };
+        let files = unsafe { args.cast::<ICoreWebView2WebMessageReceivedEventArgs2>()?.AdditionalObjects()? };
+        let mut count = 0u32;
+        unsafe { files.Count(&mut count)? };
         let mut paths = Vec::with_capacity(count as usize);
         for i in 0..count {
-            let len = unsafe { DragQueryFileW(hdrop, i, None) } as usize;
-            let mut buf = vec![0u16; len + 1];
-            unsafe { DragQueryFileW(hdrop, i, Some(&mut buf)) };
-            paths.push(PathBuf::from(OsString::from_wide(&buf[..len])));
+            let Ok(file) = unsafe { files.GetValueAtIndex(i) }.and_then(|f| f.cast::<ICoreWebView2File>()) else { continue };
+            let mut path = PWSTR::null();
+            if unsafe { file.Path(&mut path) }.is_ok() {
+                paths.push(PathBuf::from(take_pwstr(path)));
+            }
         }
-        unsafe { ReleaseStgMedium(&mut medium) };
-        Some(paths)
+        Ok(Some((ticket.to_string(), paths)))
     }
 
-    #[implement(IDropTarget)]
-    struct Chained {
-        inner: IDropTarget,
-    }
-
-    #[allow(non_snake_case)]
-    impl IDropTarget_Impl for Chained_Impl {
-        fn DragEnter(&self, data: Ref<'_, IDataObject>, keys: MODIFIERKEYS_FLAGS, pt: &POINTL, effect: *mut DROPEFFECT) -> Result<()> {
-            remember(data.as_ref());
-            unsafe { self.inner.DragEnter(data.as_ref(), keys, *pt, effect) }
-        }
-
-        fn DragOver(&self, keys: MODIFIERKEYS_FLAGS, pt: &POINTL, effect: *mut DROPEFFECT) -> Result<()> {
-            unsafe { self.inner.DragOver(keys, *pt, effect) }
-        }
-
-        fn DragLeave(&self) -> Result<()> {
-            unsafe { self.inner.DragLeave() }
-        }
-
-        fn Drop(&self, data: Ref<'_, IDataObject>, keys: MODIFIERKEYS_FLAGS, pt: &POINTL, effect: *mut DROPEFFECT) -> Result<()> {
-            remember(data.as_ref());
-            unsafe { self.inner.Drop(data.as_ref(), keys, *pt, effect) }
-        }
-    }
-
-    /// 给窗口里每一个登记了拖放接收器的子窗口（WebView2 的）套上一层。要在建窗口的那个线程上调用。
-    /// 哪一步不成就原样放着：拖放至多和以前一样，不会更坏
-    pub fn install(hwnd: HWND) {
-        unsafe extern "system" fn each(child: HWND, _: LPARAM) -> BOOL {
-            // OLE 把登记的接收器存在窗口的这个属性里（Wine 也按这个名字实现，够稳）
-            let prop = unsafe { GetPropW(child, w!("OleDropTargetInterface")) };
-            if prop.is_invalid() {
-                return true.into();
-            }
-            let raw = prop.0;
-            let Some(original) = (unsafe { IDropTarget::from_raw_borrowed(&raw) }) else { return true.into() };
-            let original = original.clone(); // 自己拿住一份：下面 Revoke 会放掉 OLE 手里的那一份
-            if unsafe { RevokeDragDrop(child) }.is_err() {
-                return true.into();
-            }
-            let chained: IDropTarget = Chained { inner: original.clone() }.into();
-            if unsafe { RegisterDragDrop(child, &chained) }.is_err() {
-                let _ = unsafe { RegisterDragDrop(child, &original) };
-            }
-            true.into()
-        }
-        let _ = unsafe { EnumChildWindows(Some(hwnd), Some(each), LPARAM(0)) };
+    /// 哪一步不成就算了：拖文件进来打不开时，界面会提示改用「打开」菜单
+    pub fn install(window: &tauri::WebviewWindow) {
+        let _ = window.with_webview(|webview| {
+            let Ok(core) = (unsafe { webview.controller().CoreWebView2() }) else { return };
+            let handler = WebMessageReceivedEventHandler::create(Box::new(|_, args| {
+                if let Some(Ok(Some(dropped))) = args.as_ref().map(read) {
+                    *LAST.lock().unwrap() = Some(dropped);
+                }
+                Ok(())
+            }));
+            let mut token = 0i64;
+            let _ = unsafe { core.add_WebMessageReceived(&handler, &mut token) };
+        });
     }
 }
 
-/// 刚拖进窗口的文件在磁盘上的路径。同步命令，跑在主线程上——macOS 读剪贴板正好要在主线程
+/// 刚拖进窗口的文件在磁盘上的路径。同步命令，跑在主线程上——macOS 读剪贴板正好要在主线程。
+/// ticket 只有 Windows 用：页面交文件对象时带的那张票
 #[tauri::command]
-fn dropped_paths() -> Vec<DroppedPath> {
+fn dropped_paths(ticket: Option<String>) -> Vec<DroppedPath> {
     #[cfg(target_os = "macos")]
     let paths = unsafe { mac_drag::paths() };
     #[cfg(windows)]
-    let paths = win_drag::take();
+    let paths = win_drag::take(ticket.as_deref().unwrap_or_default());
     #[cfg(not(any(target_os = "macos", windows)))]
     let paths: Vec<PathBuf> = Vec::new();
+    #[cfg(not(windows))]
+    let _ = ticket;
     paths
         .into_iter()
         .map(|p| DroppedPath { is_directory: p.is_dir(), path: p.to_string_lossy().into_owned() })
         .collect()
+}
+
+/// Windows 的绿色版（解压就用，没经过安装程序）：检查更新时给的也该是绿色版。
+/// 安装程序会在程序旁边放一个 uninstall.exe，没有就是绿色版
+#[tauri::command]
+fn is_portable() -> bool {
+    cfg!(windows)
+        && std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|dir| !dir.join("uninstall.exe").exists()))
+            .unwrap_or(false)
 }
 
 // ── 设置 ─────────────────────────────────────────────────────────────────────
@@ -1008,6 +987,7 @@ pub fn run() {
             open_external,
             consume_pending_open_files,
             dropped_paths,
+            is_portable,
             smoke_export_dir,
             settings_get,
             settings_save,
@@ -1049,12 +1029,10 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             setup_menu(app)?;
 
-            // Windows：拖进窗口的文件，页面只拿得到名字；给 WebView2 的拖放接收器套一层，路径由这边记着
+            // Windows：拖进窗口的文件，页面只拿得到名字；页面把文件对象交回来，路径由这边读
             #[cfg(windows)]
             if let Some(window) = app.get_webview_window("main") {
-                if let Ok(hwnd) = window.hwnd() {
-                    win_drag::install(hwnd);
-                }
+                win_drag::install(&window);
             }
             Ok(())
         })

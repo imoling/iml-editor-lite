@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
 
 const invoke = vi.fn();
 const listen = vi.fn(async () => () => {});
@@ -76,6 +76,60 @@ describe('Tauri 壳的适配层', () => {
     expect(await api.app.checkUpdates()).toEqual({ success: false, error: '未发现任何发布版本' });
     invoke.mockRejectedValueOnce('offline');
     expect(await api.app.checkUpdates()).toMatchObject({ success: false });
+  });
+
+  it('检查更新：Windows 的绿色版拿到的是绿色版', async () => {
+    const ua = vi.spyOn(navigator, 'userAgent', 'get');
+    ua.mockReturnValue('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/124.0');
+    const api = createTauriApi();
+    const releases = JSON.stringify([{ tag_name: 'lite-v26.4.3', assets: [
+      { name: 'iML-Editor-Lite-Setup-26.4.3-x64.exe', browser_download_url: 'https://example.com/a.exe', size: 9 },
+      { name: 'iML-Editor-Lite-Portable-26.4.3-x64.zip', browser_download_url: 'https://example.com/a.zip', size: 9 },
+    ] }]);
+    invoke.mockImplementation(async (cmd: string) => (cmd === 'fetch_releases' ? releases : cmd === 'is_portable'));
+    expect((await api.app.checkUpdates()).download).toMatchObject({ name: 'iML-Editor-Lite-Portable-26.4.3-x64.zip', portable: true });
+    invoke.mockImplementation(async (cmd: string) => (cmd === 'fetch_releases' ? releases : false));
+    expect((await api.app.checkUpdates()).download).toMatchObject({ name: 'iML-Editor-Lite-Setup-26.4.3-x64.exe', portable: false });
+    ua.mockRestore();
+  });
+
+  describe('拖进窗口的文件的路径', () => {
+    const files = [new File(['x'], 'a.md')];
+    const paths = [{ path: 'C:\\docs\\a.md', isDirectory: false }];
+    const post = vi.fn();
+    afterEach(() => { delete (window as any).chrome; post.mockReset(); vi.useRealTimers(); });
+
+    it('macOS：壳自己读得到，直接问', async () => {
+      invoke.mockResolvedValueOnce(paths);
+      expect(await createTauriApi().app.droppedPaths(files)).toEqual(paths);
+      expect(invoke.mock.calls).toEqual([['dropped_paths']]);
+    });
+
+    it('Windows：先把文件对象交给壳，再凭同一张票取路径；壳还没收到就稍等再取', async () => {
+      (window as any).chrome = { webview: { postMessageWithAdditionalObjects: post } };
+      invoke.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(paths);
+      expect(await createTauriApi().app.droppedPaths(files)).toEqual(paths);
+      const [message, handed] = post.mock.calls[0];
+      expect(handed).toBe(files);
+      const ticket = /^iml-dropped-files:(.+)$/.exec(message)?.[1];
+      expect(ticket).toBeTruthy();
+      expect(invoke.mock.calls).toEqual(Array(3).fill(['dropped_paths', { ticket }]));
+    });
+
+    it('Windows：一直取不到就作罢，不会没完没了地问；交不出去也不往外抛', async () => {
+      vi.useFakeTimers();
+      (window as any).chrome = { webview: { postMessageWithAdditionalObjects: post } };
+      invoke.mockResolvedValue([]);
+      const pending = createTauriApi().app.droppedPaths(files);
+      await vi.runAllTimersAsync();
+      expect(await pending).toEqual([]);
+      expect(invoke).toHaveBeenCalledTimes(10);
+
+      invoke.mockClear();
+      post.mockImplementation(() => { throw new Error('not supported'); });
+      expect(await createTauriApi().app.droppedPaths(files)).toEqual([]);
+      expect(invoke).not.toHaveBeenCalled();
+    });
   });
 
   it('事件：Rust 发来的和界面自己发的，落到同一个监听上；保存设置后广播 settings:changed', async () => {

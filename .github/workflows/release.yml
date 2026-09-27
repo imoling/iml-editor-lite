@@ -1,4 +1,4 @@
-# 「iML 编辑器」的发版流水线：打 lite-v* 标签时构建 macOS（arm64 / x64）与 Windows 安装包，发布到同名 Release。
+# 「iML 编辑器」的发版流水线：打 lite-v* 标签时构建 macOS（arm64 / x64）与 Windows 安装包、绿色版，发布到同名 Release。
 # 标签沿用 lite-v 前缀：拆成独立仓库之前和「iML 笔记」同仓库时靠它区分，应用里的检查更新按这个前缀认版本，老版本都是它。
 # make_latest 仍是 false：拆仓库前为了不顶掉笔记那边的 /releases/latest；现在单独仓库了，想让 Releases 页显示「Latest」徽章可以改成 true。
 # 也可在 Actions 页手动触发（填标签名）。
@@ -45,6 +45,35 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      # 真的把它跑起来：26.4.2 在 Windows 上一启动就崩（#5），而构建和测试全是绿的。
+      # 撑不过 15 秒、或者界面没起来，这一版就不发。只查能在这台机器上直接跑的架构
+      - name: Launch check (Windows)
+        if: matrix.name == 'Windows-x64'
+        shell: pwsh
+        run: |
+          # 界面跑在 WebView2 里：这台机器上没有就先装上，免得把「机器没装」当成「应用起不来」
+          $installed = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'HKCU:\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' |
+            Where-Object { (Get-ItemProperty -Path $_ -Name pv -ErrorAction SilentlyContinue).pv }
+          if (-not $installed) {
+            Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile "$env:RUNNER_TEMP/MicrosoftEdgeWebview2Setup.exe"
+            Start-Process -FilePath "$env:RUNNER_TEMP/MicrosoftEdgeWebview2Setup.exe" -ArgumentList '/silent', '/install' -Wait
+          }
+          $app = Start-Process -FilePath "src-tauri/target/${{ matrix.target }}/release/iml-editor.exe" -PassThru
+          Start-Sleep -Seconds 15
+          if ($app.HasExited) { throw "启动后 15 秒内退出了" }
+          $webview = Get-Process -Name msedgewebview2 -ErrorAction SilentlyContinue
+          Stop-Process -Id $app.Id -Force
+          if (-not $webview) { throw "进程还在，但界面（WebView2）没有起来" }
+      - name: Launch check (macOS)
+        if: matrix.name == 'macOS-arm64'
+        shell: bash
+        run: |
+          APP=$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' | head -1)
+          "$APP/Contents/MacOS/iml-editor" &
+          PID=$!
+          sleep 15
+          if ! kill -0 "$PID" 2>/dev/null; then echo "启动后 15 秒内退出了"; exit 1; fi
+          kill "$PID"
       # macOS：Tauri 只出 .app，dmg 在这里自己打。
       # 它自带的 bundle_dmg.sh 在 GitHub 的 macOS 机器上时好时坏（hdiutil 报 Resource busy，几秒就退出，第一次发版就栽在这儿）；
       # 自己打可以重试，文件名直接是英文，还能用 LZMA（ULMO，macOS 10.15 起都能开）——比默认的 zlib 小一成多
@@ -76,6 +105,17 @@ jobs:
           mkdir -p release
           find src-tauri/target/${{ matrix.target }}/release/bundle -name '*-setup.exe' -exec cp {} "release/iML-Editor-Lite-Setup-${VERSION}-${{ matrix.arch }}.exe" \;
           ls -la release
+      # Windows 的绿色版：不用安装，解压就用——压缩包里就是安装程序会装上的那个 exe。
+      # 应用靠旁边有没有 uninstall.exe 认自己是不是绿色版（lib.rs 的 is_portable），检查更新时给对应的那一种
+      - name: Pack portable
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          OUT="$PWD/release/iML-Editor-Lite-Portable-${VERSION}-${{ matrix.arch }}.zip"
+          cd "src-tauri/target/${{ matrix.target }}/release"
+          7z a -tzip -mx=9 "$OUT" iml-editor.exe
+          ls -la "$OUT"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
@@ -83,6 +123,7 @@ jobs:
           path: |
             release/*.dmg
             release/*.exe
+            release/*.zip
 
   release:
     name: Publish release
@@ -127,3 +168,4 @@ jobs:
           files: |
             artifacts/*.dmg
             artifacts/*.exe
+            artifacts/*.zip

@@ -490,13 +490,13 @@ const UpdateModal: React.FC = () => {
           <button onClick={close} className="btn btn-surface btn-sm">以后再说</button>
           {release?.download ? (
             <button onClick={() => open(release.download!.url)} className="btn btn-primary btn-sm update-card__download" title={release.download.name}>
-              <Download size={14} /> 下载 {release.download.label} 安装包{release.download.size ? ` · ${formatMB(release.download.size)}` : ''}
+              <Download size={14} /> 下载 {release.download.label} {release.download.portable ? '绿色版' : '安装包'}{release.download.size ? ` · ${formatMB(release.download.size)}` : ''}
             </button>
           ) : (
             <button onClick={() => open(releasePage)} className="btn btn-primary btn-sm update-card__download">前往下载</button>
           )}
         </div>
-        <p className="update-card__note">下载后退出应用、装上新的即可，文档和设置都不受影响。这个版本不会再主动弹出，「帮助」菜单上的红点会一直留到你更新。</p>
+        <p className="update-card__note">下载后退出应用、{release?.download?.portable ? '解压出来换掉旧的' : '装上新的'}即可，文档和设置都不受影响。这个版本不会再主动弹出，「帮助」菜单上的红点会一直留到你更新。</p>
       </div>
     </div>
   );

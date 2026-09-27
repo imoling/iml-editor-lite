@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { createMockApi } from '../test/setup';
 import { useAppStore } from '../stores/appStore';
 import { handleDroppedFiles, isFileDrag, matchPaths, openDropped } from './dropFiles';
@@ -46,7 +46,11 @@ describe('拖进窗口的文件', () => {
     const api = createMockApi({ '/lib/a.md': '# a' });
     (api.app as any).droppedPaths = async () => [];
     (window as any).api = api;
-    await handleDroppedFiles([file('a.md')]);
+    const asked = vi.spyOn(api.app, 'droppedPaths');
+    const files = [file('a.md')];
+    await handleDroppedFiles(files);
+    // Windows 要靠这些文件对象才读得到路径
+    expect(asked).toHaveBeenCalledWith(files);
     expect(useAppStore.getState().tabs).toEqual([]);
     expect(useAppStore.getState().notice?.text).toBe('打不开 a.md：拿不到它在磁盘上的位置，改用「打开」菜单');
   });

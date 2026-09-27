@@ -44,16 +44,20 @@
 
 ## 下载
 
-| 平台 | 安装包 |
+| 平台 | 文件 |
 |---|---|
-| macOS Apple Silicon（M 系列） | `iML-Editor-Lite-26.4.2-arm64.dmg` |
-| macOS Intel | `iML-Editor-Lite-26.4.2-x64.dmg` |
-| Windows（绝大多数电脑选这个） | `iML-Editor-Lite-Setup-26.4.2-x64.exe` |
-| Windows on ARM（骁龙本等） | `iML-Editor-Lite-Setup-26.4.2-arm64.exe` |
+| macOS Apple Silicon（M 系列） | `iML-Editor-Lite-26.4.3-arm64.dmg` |
+| macOS Intel | `iML-Editor-Lite-26.4.3-x64.dmg` |
+| Windows（绝大多数电脑选这个） | `iML-Editor-Lite-Setup-26.4.3-x64.exe` |
+| Windows on ARM（骁龙本等） | `iML-Editor-Lite-Setup-26.4.3-arm64.exe` |
+| Windows 绿色版 | `iML-Editor-Lite-Portable-26.4.3-x64.zip` |
+| Windows on ARM 绿色版 | `iML-Editor-Lite-Portable-26.4.3-arm64.zip` |
 
-到 [Releases](https://github.com/imoling/iml-editor-lite/releases) 下载。已经装了的，应用会在发现新版本时提醒一次，并直接给出这台电脑该下的安装包。
+到 [Releases](https://github.com/imoling/iml-editor-lite/releases) 下载。已经装了的，应用会在发现新版本时提醒一次，并直接给出这台电脑该下的那一个。
 
 没有做 Apple 公证。macOS 首次打开若被拦下：系统设置 → 隐私与安全性 → 拉到底点「仍要打开」。Windows 需要 WebView2（Windows 11 自带；Windows 10 没有的话安装程序会帮你装）。
+
+Windows 绿色版不用安装：解压出来，双击 `iml-editor.exe`。设置存在用户目录里，和安装版共用；它不会关联 `.md` 文件，也不会帮你装 WebView2。
 
 ## 为什么这么小
 
@@ -88,7 +92,7 @@ npm run tauri:build  # 出安装包（当前平台），在 src-tauri/target/rel
 
 ## 发版
 
-打 `lite-v*` 标签（如 `lite-v26.4.0`）触发 GitHub Actions 构建 Tauri 安装包（macOS arm64 / x64、Windows x64 / arm64）并发布，发布说明放 `docs/release-notes-lite-<版本>.md`。标签沿用 `lite-v` 前缀：拆成独立仓库之前和「iML 笔记」同仓库时靠它区分，应用里的检查更新也按这个前缀认版本，老版本都是它。
+打 `lite-v*` 标签（如 `lite-v26.4.0`）触发 GitHub Actions 构建 Tauri 安装包（macOS arm64 / x64、Windows x64 / arm64）和 Windows 绿色版，把应用实际启动一遍，然后发布，发布说明放 `docs/release-notes-lite-<版本>.md`。标签沿用 `lite-v` 前缀：拆成独立仓库之前和「iML 笔记」同仓库时靠它区分，应用里的检查更新也按这个前缀认版本，老版本都是它。
 
 ## 从「iML 笔记」同步内核修复
 

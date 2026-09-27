@@ -20,6 +20,13 @@ declare const __APP_VERSION__: string;
 /** 本应用在 GitHub Releases 里的标签前缀 */
 const RELEASE_TAG_PREFIX = 'lite-v';
 const DOC_EXT_RE = /\.(md|markdown|mdown|mkd|txt)$/i;
+/** Windows 上把拖进来的文件交给壳时带的消息：这个前缀，后面跟着这次拖放的票（lib.rs 里是同一个前缀） */
+const DROP_MESSAGE = 'iml-dropped-files:';
+/** Windows 上取拖进来的文件的路径：最多问几次、两次之间隔多久 */
+const DROP_ATTEMPTS = 10;
+const DROP_RETRY_MS = 50;
+
+type DroppedPath = { path: string; isDirectory: boolean };
 
 type Listener = (...args: any[]) => void;
 type WindowApi = Window['api'] & { assetBase: string; image: { toWebp: (bytes: ArrayBuffer, maxWidth: number, maxHeight: number, quality: number) => Promise<ArrayBuffer | null> } };
@@ -302,7 +309,9 @@ export function createTauriApi(): WindowApi {
         try {
           const release = pickLatestRelease(JSON.parse(await invoke<string>('fetch_releases')), RELEASE_TAG_PREFIX);
           if (!release) return { success: false, error: '未发现任何发布版本' };
-          return describeRelease(release, platform, arch, RELEASE_TAG_PREFIX);
+          // Windows 的绿色版：给的也该是绿色版，不是安装包
+          const portable = platform === 'win32' && await invoke<boolean>('is_portable').catch(() => false);
+          return describeRelease(release, platform, arch, RELEASE_TAG_PREFIX, portable);
         } catch (e) {
           console.error('Update check failed:', e);
           return { success: false, error: '无法连接到更新服务器，请检查网络设置' };
@@ -321,7 +330,26 @@ export function createTauriApi(): WindowApi {
       },
       openSettings: () => emitLocal('dialog:open', 'settings'),
       consumePendingOpenFiles: () => invoke<string[]>('consume_pending_open_files'),
-      droppedPaths: () => invoke<{ path: string; isDirectory: boolean }[]>('dropped_paths'),
+      droppedPaths: async (files) => {
+        // Windows：WebView2 的文件对象带着路径，页面读不到，原样交给壳去读（lib.rs 的 win_drag）。
+        // 没有这个接口的（macOS）不用交，壳自己读得到
+        const webview = (window as any).chrome?.webview;
+        if (!files.length || typeof webview?.postMessageWithAdditionalObjects !== 'function') return invoke<DroppedPath[]>('dropped_paths');
+        const ticket = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        try {
+          // Tauri 自己也在听这个口子，它认不出这条消息，会往控制台记一行错误，不碍事
+          webview.postMessageWithAdditionalObjects(`${DROP_MESSAGE}${ticket}`, files);
+        } catch {
+          return [];
+        }
+        // 交文件和取路径走的不是一条路，谁先到没有保证：没取到就稍等再取，最多等半秒
+        for (let attempt = 0; attempt < DROP_ATTEMPTS; attempt++) {
+          const paths = await invoke<DroppedPath[]>('dropped_paths', { ticket });
+          if (paths.length) return paths;
+          await new Promise((resolve) => setTimeout(resolve, DROP_RETRY_MS));
+        }
+        return [];
+      },
       clearSession: () => emitLocal('session:clear'),
       previewSettings: (settings) => emitLocal('settings:preview', settings),
       revertSettings: () => emitLocal('settings:revert'),

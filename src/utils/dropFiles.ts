@@ -3,7 +3,7 @@ import { useAppStore } from '../stores/appStore';
 /**
  * 拖进窗口的文件。
  * 页面收到的是 HTML5 的 drop 事件：只有文件名和内容，没有路径（WebView 从不告诉页面）。路径要再向壳问一次
- * （window.api.app.droppedPaths：macOS 读系统的拖放剪贴板，Windows 在 WebView2 的接收器外面记了一份），按名字对上。
+ * （window.api.app.droppedPaths：macOS 读系统的拖放剪贴板，Windows 把文件对象交回给壳去读），按名字对上。
  * 图片不归这里：两种模式的编辑器自己接，插到光标落点。
  */
 
@@ -44,7 +44,7 @@ export async function openDropped(items: DroppedPath[]): Promise<void> {
 
 /** 非图片的文件：向壳问路径、对上名字、打开。壳给不出路径（拖来的不是磁盘上的文件）就说一声 */
 export async function handleDroppedFiles(files: File[]): Promise<void> {
-  const matched = matchPaths(files, await window.api.app.droppedPaths());
+  const matched = matchPaths(files, await window.api.app.droppedPaths(files));
   if (matched.length === 0) {
     useAppStore.getState().notify(`打不开 ${files[0].name}：拿不到它在磁盘上的位置，改用「打开」菜单`);
     return;
