@@ -19,6 +19,7 @@ import type { SuggestionProps } from '@tiptap/suggestion';
 import { storeImageFile, persistDataUrl } from '../../utils/pasteImage';
 import { isSingleUrl } from '../../utils/pasteText';
 import { normalizeHeading } from '../../shared/wikiLink';
+import { openWikiLink } from '../../utils/wikiOpen';
 import { extractHeadings } from '../../utils/outline';
 import { jumpToFootnote } from '../../extensions/FootnoteLinks';
 import '../styles/editor.css';
@@ -139,6 +140,12 @@ export const TiptapEditor: React.FC = () => {
         // 点击脚注引用 [^1] → 跳到它的定义（按住 ⌘ / Ctrl 时照常落光标，方便改这几个字）
         const footnote = (event.target as HTMLElement).closest('[data-footnote-ref]');
         if (footnote && !event.metaKey && !event.ctrlKey && jumpToFootnote(_view, footnote.getAttribute('data-footnote-ref') || '')) return true;
+        // 点 [[链接]] → 打开它指的那篇文档（同样，按住 ⌘ / Ctrl 是选中它，好删好改）
+        const wiki = (event.target as HTMLElement).closest('[data-wiki-link]');
+        if (wiki && !event.metaKey && !event.ctrlKey) {
+          void openWikiLink(wiki.getAttribute('data-wiki-link') || '');
+          return true;
+        }
         return false;
       },
       handleDoubleClick: (view, pos, event) => {

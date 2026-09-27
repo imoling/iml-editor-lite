@@ -22,6 +22,7 @@ import { storeImageFile } from '../../utils/pasteImage';
 import { isSingleUrl, escapeLinkText, htmlWorthConverting } from '../../utils/pasteText';
 import { extractHeadings } from '../../utils/outline';
 import { loadMermaid } from '../../utils/mermaidLoader';
+import { openWikiLink } from '../../utils/wikiOpen';
 import '../styles/editor.css';
 
 export const MarkdownEditor: React.FC = () => {
@@ -362,6 +363,13 @@ export const MarkdownEditor: React.FC = () => {
               if (foot) {
                 e.preventDefault();
                 previewRef.current?.querySelector(`[id="${CSS.escape((foot.getAttribute('href') || '').slice(1))}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                return;
+              }
+              // [[链接]]：打开它指的那篇文档
+              const wiki = target.closest('[data-wiki-link]');
+              if (wiki) {
+                e.preventDefault();
+                void openWikiLink(wiki.getAttribute('data-wiki-link') || '');
                 return;
               }
               // 其它链接交给系统浏览器，别让预览面板自己跳走
