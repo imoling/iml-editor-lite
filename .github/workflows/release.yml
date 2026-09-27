@@ -59,12 +59,24 @@ jobs:
             Start-Process -FilePath "$env:RUNNER_TEMP/MicrosoftEdgeWebview2Setup.exe" -ArgumentList '/silent', '/install' -Wait
           }
           $exe = (Resolve-Path "src-tauri/target/${{ matrix.target }}/release/iml-editor.exe").Path
+          $started = Get-Date
           $app = Start-Process -FilePath $exe -PassThru
-          Start-Sleep -Seconds 15
-          if ($app.HasExited) { throw "启动后 15 秒内退出了" }
-          $webview = Get-Process -Name msedgewebview2 -ErrorAction SilentlyContinue
-          Stop-Process -Id $app.Id -Force
+          # 至少撑 15 秒；界面起得慢就多等一会儿，最多一分钟
+          $webview = $null
+          foreach ($second in 1..60) {
+            Start-Sleep -Seconds 1
+            if ($app.HasExited) { throw "启动后 $second 秒退出了" }
+            if (-not $webview) { $webview = Get-Process -Name msedgewebview2 -ErrorAction SilentlyContinue }
+            if ($webview -and $second -ge 15) { break }
+          }
+          Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
           if (-not $webview) { throw "进程还在，但界面（WebView2）没有起来" }
+          # 崩了但进程被系统的报错窗口拖着没退的情形：系统日志里会记一笔。日志里没有记录时这条命令会报错，当作没有
+          $crashes = try {
+            Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'Application Error'; StartTime = $started } -ErrorAction Stop |
+              Where-Object { $_.Message -match 'iml-editor\.exe' }
+          } catch { $null }
+          if ($crashes) { throw "启动后崩溃了：$(@($crashes)[0].Message)" }
       - name: Launch check (macOS)
         if: matrix.name == 'macOS-arm64'
         shell: bash

@@ -1,4 +1,4 @@
-## 26.4.3 — Windows 上能打开了，多了绿色版
+## 26.4.4 — Windows 上能打开了，多了绿色版
 
 26.4.2 在 Windows 上一打开就闪退（[#5](https://github.com/imoling/iml-editor-lite/issues/5)），这一版修好了，装了 26.4.2 的请更新。macOS 不受影响。另外 Windows 多了不用安装的绿色版（[#4](https://github.com/imoling/iml-editor-lite/issues/4)）。谢谢几位的反馈。
 
@@ -12,7 +12,7 @@
 
 ### Windows 有绿色版了
 
-下载 `iML-Editor-Lite-Portable-26.4.3-x64.zip`，解压出来双击 `iml-editor.exe` 就能用，不用安装。
+下载 `iML-Editor-Lite-Portable-26.4.4-x64.zip`，解压出来双击 `iml-editor.exe` 就能用，不用安装。
 
 - 设置存在用户目录里，和安装版共用；删掉解压出来的文件夹，设置还在。
 - 不会关联 `.md` 文件。想双击文档就打开，在文档的「打开方式」里选它。
@@ -23,11 +23,11 @@
 
 | 平台 | 文件 |
 |---|---|
-| macOS Apple Silicon（M 系列） | `iML-Editor-Lite-26.4.3-arm64.dmg` |
-| macOS Intel | `iML-Editor-Lite-26.4.3-x64.dmg` |
-| Windows（绝大多数电脑选这个） | `iML-Editor-Lite-Setup-26.4.3-x64.exe` |
-| Windows on ARM（骁龙本等） | `iML-Editor-Lite-Setup-26.4.3-arm64.exe` |
-| Windows 绿色版 | `iML-Editor-Lite-Portable-26.4.3-x64.zip` |
-| Windows on ARM 绿色版 | `iML-Editor-Lite-Portable-26.4.3-arm64.zip` |
+| macOS Apple Silicon（M 系列） | `iML-Editor-Lite-26.4.4-arm64.dmg` |
+| macOS Intel | `iML-Editor-Lite-26.4.4-x64.dmg` |
+| Windows（绝大多数电脑选这个） | `iML-Editor-Lite-Setup-26.4.4-x64.exe` |
+| Windows on ARM（骁龙本等） | `iML-Editor-Lite-Setup-26.4.4-arm64.exe` |
+| Windows 绿色版 | `iML-Editor-Lite-Portable-26.4.4-x64.zip` |
+| Windows on ARM 绿色版 | `iML-Editor-Lite-Portable-26.4.4-arm64.zip` |
 
 没有做 Apple 公证。macOS 首次打开若被拦下：系统设置 → 隐私与安全性 → 拉到底点「仍要打开」。Windows 需要 WebView2（Windows 11 自带；Windows 10 没有的话安装程序会帮你装）。
