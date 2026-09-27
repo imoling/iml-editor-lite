@@ -9,6 +9,8 @@ import path from 'path';
 const root = path.join(__dirname, '../..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const conf = (name: string) => JSON.parse(fs.readFileSync(path.join(root, 'src-tauri', name), 'utf8'));
+/** 按行对的时候用：Windows 上检出的文件是 CRLF 换行 */
+const lines = (file: string) => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
 
 describe('安装包', () => {
   it('和「iML 笔记」装在同一台电脑上互不干扰：应用标识不同；版本号只有 package.json 一处', () => {
@@ -41,7 +43,7 @@ describe('安装包', () => {
   });
 
   it('发版前真的把应用跑起来：起不来就不发', () => {
-    const workflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
+    const workflow = lines('.github/workflows/release.yml');
     const steps = workflow.split(/\n {6}- /);
     const at = (needle: string) => steps.findIndex((s) => s.includes(needle));
     for (const name of ['name: Launch check (Windows)', 'name: Launch check (macOS)']) {

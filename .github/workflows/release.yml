@@ -58,7 +58,8 @@ jobs:
             Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile "$env:RUNNER_TEMP/MicrosoftEdgeWebview2Setup.exe"
             Start-Process -FilePath "$env:RUNNER_TEMP/MicrosoftEdgeWebview2Setup.exe" -ArgumentList '/silent', '/install' -Wait
           }
-          $app = Start-Process -FilePath "src-tauri/target/${{ matrix.target }}/release/iml-editor.exe" -PassThru
+          $exe = (Resolve-Path "src-tauri/target/${{ matrix.target }}/release/iml-editor.exe").Path
+          $app = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 15
           if ($app.HasExited) { throw "启动后 15 秒内退出了" }
           $webview = Get-Process -Name msedgewebview2 -ErrorAction SilentlyContinue
