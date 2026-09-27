@@ -63,3 +63,6 @@ build_mac_final.log
 build_mac.log
 build_win_final.log
 build_win.log
+
+# Claude Code 的本机设置
+.claude/
