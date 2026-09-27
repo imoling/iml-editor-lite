@@ -104,6 +104,9 @@ export const THEME_PRESETS: ThemeConfig[] = [
   }
 ];
 
+export type ImageStorage = 'assets' | 'inline';
+export const normalizeImageStorage = (value: unknown): ImageStorage => (value === 'inline' ? 'inline' : 'assets');
+
 export interface NavigationRequest {
   heading?: HeadingNode;
   /** 跳到以 `^块ID` 结尾的那一段 */
@@ -227,6 +230,8 @@ export interface AppState {
   autoSave: boolean;
   /** 粘贴 / 拖入的图片压缩成 WebP 再存盘 */
   imageCompression: boolean;
+  /** 图片存在哪：文档旁的 assets/，还是写进文档里（整篇只有一个文件，好带走） */
+  imageStorage: ImageStorage;
   /** 粘贴网址时自动取网页标题 */
   fetchLinkTitle: boolean;
   spellcheck: boolean;
@@ -412,6 +417,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   startupBehavior: 'restore',
   autoSave: false,
   imageCompression: true,
+  imageStorage: 'assets',
   fetchLinkTitle: true,
   spellcheck: false,
   editorPrefs: DEFAULT_EDITOR_PREFS,
@@ -970,6 +976,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           startupBehavior: settings.startupBehavior === 'restore' ? 'restore' : 'blank',
           autoSave: !!settings.autoSave,
           imageCompression: settings.imageCompression ?? true,
+          imageStorage: normalizeImageStorage(settings.imageStorage),
           fetchLinkTitle: settings.fetchLinkTitle ?? true,
           spellcheck: !!settings.spellcheck,
           editorPrefs: normalizeEditorPrefs(settings.editorPrefs),
@@ -984,10 +991,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   saveSettings: async () => {
-    const { appearanceMode, startupBehavior, autoSave, theme, imageCompression, fetchLinkTitle, spellcheck, editorPrefs } = get();
+    const { appearanceMode, startupBehavior, autoSave, theme, imageCompression, imageStorage, fetchLinkTitle, spellcheck, editorPrefs } = get();
     await window.api.app.saveSettings({
       appearanceMode, startupBehavior, autoSave,
-      imageCompression, fetchLinkTitle, spellcheck, editorPrefs,
+      imageCompression, imageStorage, fetchLinkTitle, spellcheck, editorPrefs,
       themeId: theme?.id,
     });
   },

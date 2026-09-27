@@ -1066,3 +1066,6 @@ span > .source-node__input { display: inline-block; width: auto; min-width: 160p
    保存时原样写回；这里不解析、不筛选，样子上也别让人以为能点。（[[链接]] 能点：打开同名的文档，见 utils/wikiOpen.ts）
    放在文件末尾单独成段：主版本改上面那些规则时不会和这里冲突 */
 .tag-chip, .tag-chip:hover { padding: 0; border-radius: 0; background: none; color: inherit; font-size: inherit; cursor: text; }
+
+/* ── 源码模式：写进文档里的图片，那一长串折成一个小标签（见 Editor/dataUrlFold.ts）── */
+.cm-data-url-fold { padding: 0 5px; border-radius: 4px; background-color: var(--bg-hover-editor); color: var(--text-muted); font-size: 0.85em; white-space: nowrap; }

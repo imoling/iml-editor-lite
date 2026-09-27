@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { X, Moon, Sun, Monitor, Palette, Power, Save, Trash2, AlertTriangle, Coffee, Type, ImageDown, Link2, SpellCheck } from 'lucide-react';
-import { useAppStore, THEME_PRESETS, EDITOR_FONTS, PAGE_WIDTHS, DEFAULT_EDITOR_PREFS, normalizeEditorPrefs, applyEditorPrefs, type EditorPrefs } from '../../stores/appStore';
+import { X, Moon, Sun, Monitor, Palette, Power, Save, Trash2, AlertTriangle, Coffee, Type, ImageDown, FileImage, Link2, SpellCheck } from 'lucide-react';
+import { useAppStore, THEME_PRESETS, EDITOR_FONTS, PAGE_WIDTHS, DEFAULT_EDITOR_PREFS, normalizeEditorPrefs, applyEditorPrefs, normalizeImageStorage, type EditorPrefs, type ImageStorage } from '../../stores/appStore';
 
 type AppearanceMode = 'light' | 'dark' | 'system' | 'eye-protection';
+
+const IMAGE_STORAGES: { id: ImageStorage; label: string }[] = [
+  { id: 'assets', label: '文档旁的文件夹' },
+  { id: 'inline', label: '文档里' },
+];
 
 const APPEARANCE_OPTIONS: { id: AppearanceMode; name: string; icon: React.ComponentType<{ size?: number }> }[] = [
   { id: 'system', name: '系统', icon: Monitor },
@@ -30,6 +35,7 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
     themeId: 'indigo',
     editorPrefs: DEFAULT_EDITOR_PREFS as EditorPrefs,
     imageCompression: true,
+    imageStorage: 'assets' as ImageStorage,
     fetchLinkTitle: true,
     spellcheck: false,
   });
@@ -46,6 +52,7 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
         themeId: settings.themeId || 'indigo',
         editorPrefs: normalizeEditorPrefs(settings.editorPrefs),
         imageCompression: settings.imageCompression ?? true,
+        imageStorage: normalizeImageStorage(settings.imageStorage),
         fetchLinkTitle: settings.fetchLinkTitle ?? true,
         spellcheck: !!settings.spellcheck,
       });
@@ -191,6 +198,21 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
               <h3 className="settings-section-title">粘贴与输入</h3>
               <div className="settings-card">
                 {toggleRow('imageCompression', <ImageDown size={18} color="var(--text-muted)" />, '粘贴图片时压缩', '截图等大图转成 WebP 再存进文档旁的 assets/，体积通常小一半以上；动图、矢量图不动')}
+                <div className="settings-divider" />
+                <div className="settings-row">
+                  <div className="settings-row__label">
+                    <FileImage size={18} color="var(--text-muted)" />
+                    <div>
+                      <div className="settings-row__title">图片存放位置</div>
+                      <div className="settings-row__desc">写进文档后只有一个文件，但体积大三分之一</div>
+                    </div>
+                  </div>
+                  <div className="seg-switch">
+                    {IMAGE_STORAGES.map(({ id, label }) => (
+                      <button key={id} onClick={() => setLocal((s) => ({ ...s, imageStorage: id }))} className={`seg-switch__btn ${local.imageStorage === id ? 'seg-switch__btn--active' : ''}`}>{label}</button>
+                    ))}
+                  </div>
+                </div>
                 <div className="settings-divider" />
                 {toggleRow('fetchLinkTitle', <Link2 size={18} color="var(--text-muted)" />, '粘贴网址时取网页标题', '贴进来的只是一个网址时，访问它一次取标题，变成 [标题](网址)')}
                 <div className="settings-divider" />

@@ -23,6 +23,7 @@ import { isSingleUrl, escapeLinkText, htmlWorthConverting } from '../../utils/pa
 import { extractHeadings } from '../../utils/outline';
 import { loadMermaid } from '../../utils/mermaidLoader';
 import { openWikiLink } from '../../utils/wikiOpen';
+import { dataUrlFold } from './dataUrlFold';
 import '../styles/editor.css';
 
 export const MarkdownEditor: React.FC = () => {
@@ -162,6 +163,8 @@ export const MarkdownEditor: React.FC = () => {
     () => [
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       search(),
+      // 写进文档里的图片（一长串 base64）折成一个小标签
+      dataUrlFold,
       // ⌘D：选中下一处相同的文字（多光标一起改）。自带的搜索快捷键整体关掉了（查找由应用的面板接管），这一个单独接回来
       Prec.high(keymap.of([{ key: 'Mod-d', run: selectNextOccurrence, preventDefault: true }])),
       EditorView.updateListener.of((update) => {
