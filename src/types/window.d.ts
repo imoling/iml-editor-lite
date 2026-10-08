@@ -74,6 +74,8 @@ declare global {
       assetBase?: string;
       /** 只有 Tauri 壳有：系统 WebView 的画布编不出 WebP 时，把原图交给壳去压 */
       image?: { toWebp: (bytes: ArrayBuffer, maxWidth: number, maxHeight: number, quality: number) => Promise<ArrayBuffer | null> };
+      /** 系统剪贴板里的图片（PNG 字节）；没有图片给 null。测试里没有 */
+      clipboard?: { readImage: () => Promise<ArrayBuffer | null> };
     };
   }
 }

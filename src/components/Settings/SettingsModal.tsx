@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Moon, Sun, Monitor, Palette, Power, Save, Trash2, AlertTriangle, Coffee, Type, ImageDown, FileImage, Link2, SpellCheck } from 'lucide-react';
+import { X, Moon, Sun, Monitor, Palette, Power, Save, Trash2, AlertTriangle, Coffee, Type, ImageDown, FileImage, Link2, SpellCheck, Captions } from 'lucide-react';
 import { useAppStore, THEME_PRESETS, EDITOR_FONTS, PAGE_WIDTHS, DEFAULT_EDITOR_PREFS, normalizeEditorPrefs, applyEditorPrefs, normalizeImageStorage, type EditorPrefs, type ImageStorage } from '../../stores/appStore';
 
 type AppearanceMode = 'light' | 'dark' | 'system' | 'eye-protection';
@@ -38,6 +38,7 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
     imageStorage: 'assets' as ImageStorage,
     fetchLinkTitle: true,
     spellcheck: false,
+    showImageCaption: false,
   });
 
   // 从磁盘加载并预览
@@ -55,6 +56,7 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
         imageStorage: normalizeImageStorage(settings.imageStorage),
         fetchLinkTitle: settings.fetchLinkTitle ?? true,
         spellcheck: !!settings.spellcheck,
+        showImageCaption: !!settings.showImageCaption,
       });
       applyAppearance(settings.appearanceMode || 'light');
       setTheme(settings.themeId || 'indigo');
@@ -83,7 +85,7 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
     setLocal((s) => ({ ...s, editorPrefs }));
     applyEditorPrefs(editorPrefs);
   };
-  const toggleRow = (key: 'imageCompression' | 'fetchLinkTitle' | 'spellcheck', icon: React.ReactNode, title: string, desc: string) => (
+  const toggleRow = (key: 'imageCompression' | 'fetchLinkTitle' | 'spellcheck' | 'showImageCaption', icon: React.ReactNode, title: string, desc: string) => (
     <div className="settings-row">
       <div className="settings-row__label">
         {icon}
@@ -213,6 +215,8 @@ export const SettingsModal: React.FC<Props> = ({ onClose }) => {
                     ))}
                   </div>
                 </div>
+                <div className="settings-divider" />
+                {toggleRow('showImageCaption', <Captions size={18} color="var(--text-muted)" />, '图下显示图片描述', '没填描述的图不显示；只在富文本模式生效')}
                 <div className="settings-divider" />
                 {toggleRow('fetchLinkTitle', <Link2 size={18} color="var(--text-muted)" />, '粘贴网址时取网页标题', '贴进来的只是一个网址时，访问它一次取标题，变成 [标题](网址)')}
                 <div className="settings-divider" />

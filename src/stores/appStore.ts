@@ -235,6 +235,8 @@ export interface AppState {
   /** 粘贴网址时自动取网页标题 */
   fetchLinkTitle: boolean;
   spellcheck: boolean;
+  /** 富文本里在图片下面显示图片描述（Markdown 的替代文字）；默认关，图片描述不是图注 */
+  showImageCaption: boolean;
   editorPrefs: EditorPrefs;
 
   // File Management State
@@ -420,6 +422,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   imageStorage: 'assets',
   fetchLinkTitle: true,
   spellcheck: false,
+  showImageCaption: false,
   editorPrefs: DEFAULT_EDITOR_PREFS,
 
   setTabToClose: (id: string | null) => set({ tabToClose: id }),
@@ -979,6 +982,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           imageStorage: normalizeImageStorage(settings.imageStorage),
           fetchLinkTitle: settings.fetchLinkTitle ?? true,
           spellcheck: !!settings.spellcheck,
+          showImageCaption: !!settings.showImageCaption,
           editorPrefs: normalizeEditorPrefs(settings.editorPrefs),
         });
         applyEditorPrefs(get().editorPrefs);
@@ -991,10 +995,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   saveSettings: async () => {
-    const { appearanceMode, startupBehavior, autoSave, theme, imageCompression, imageStorage, fetchLinkTitle, spellcheck, editorPrefs } = get();
+    const { appearanceMode, startupBehavior, autoSave, theme, imageCompression, imageStorage, fetchLinkTitle, spellcheck, showImageCaption, editorPrefs } = get();
     await window.api.app.saveSettings({
       appearanceMode, startupBehavior, autoSave,
-      imageCompression, imageStorage, fetchLinkTitle, spellcheck, editorPrefs,
+      imageCompression, imageStorage, fetchLinkTitle, spellcheck, showImageCaption, editorPrefs,
       themeId: theme?.id,
     });
   },

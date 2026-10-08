@@ -1,6 +1,6 @@
 [package]
 name = "iml-editor"
-version = "26.4.4"
+version = "26.4.5"
 description = "iML 编辑器：纯粹的 Markdown 编辑器"
 authors = ["imoling"]
 edition = "2021"
@@ -31,6 +31,8 @@ percent-encoding = "2"
 # macOS 的系统 WebView 不能把画布编码成 WebP：粘贴图片的压缩在这边做
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 webp = { version = "0.3", default-features = false }
+# 「插入图片」里的「从剪贴板读取」：读系统剪贴板里的图
+arboard = "3"
 
 # macOS：直接把文档存成 PDF 要调 AppKit 的打印引擎。这两个库 Tauri 自己已经在用（同样的版本），不多带东西
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -1,12 +1,15 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import { Minus, Plus, ChevronUp } from 'lucide-react';
 
 const ZOOM_OPTIONS = [300, 200, 150, 125, 100, 75, 50, 25];
 const CJK_RE = /[一-龥぀-ヿ＀-￯ᄀ-ᇿ㄰-㆏ꓐ-꓿가-힯]/g;
+/** 写进文档里的图片是一长串 base64，不是字 */
+const DATA_URL_RE = /data:[a-z]+\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g;
 
 /** 中西文混排的字数：CJK 按字计，其余按空白分词 */
-function countWords(content: string) {
+export function countWords(text: string) {
+  const content = text.includes(';base64,') ? text.replace(DATA_URL_RE, '') : text;
   const cjkCount = content.match(CJK_RE)?.length ?? 0;
   const nonCjk = content.replace(CJK_RE, ' ').trim();
   const westernWords = nonCjk ? nonCjk.split(/\s+/).length : 0;
@@ -30,10 +33,12 @@ export const StatusBar: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showZoomMenu]);
 
-  if (!statusBarVisible) return null;
+  // 字数只在内容变了才重数：带着几 MB 图片的文档，每次重渲染都数一遍会拖慢打字（#10）
+  const content = activeTab?.content ?? null;
+  const stats = useMemo(() => (content === null ? null : countWords(content)), [content]);
+  const selectedWords = useMemo(() => (activeTab && selectionText.trim() ? countWords(selectionText).words : 0), [activeTab, selectionText]);
 
-  const stats = activeTab ? countWords(activeTab.content || '') : null;
-  const selectedWords = activeTab && selectionText.trim() ? countWords(selectionText).words : 0;
+  if (!statusBarVisible) return null;
 
   return (
     <footer className="statusbar">

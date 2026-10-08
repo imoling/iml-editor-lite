@@ -748,6 +748,21 @@ fn image_to_webp(request: IpcRequest<'_>) -> Result<IpcResponse, String> {
     Ok(IpcResponse::new(encoded.to_vec()))
 }
 
+/// 「插入图片」对话框里的「从剪贴板读取」：剪贴板里是图片就编成 PNG 交给前端；不是图片给空的
+#[tauri::command]
+fn clipboard_read_image() -> Result<IpcResponse, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(err)?;
+    let img = match clipboard.get_image() {
+        Ok(img) => img,
+        Err(arboard::Error::ContentNotAvailable) => return Ok(IpcResponse::new(Vec::new())),
+        Err(e) => return Err(e.to_string()),
+    };
+    let rgba = image::RgbaImage::from_raw(img.width as u32, img.height as u32, img.bytes.into_owned()).ok_or_else(|| "剪贴板里的图片数据不完整".to_string())?;
+    let mut out = std::io::Cursor::new(Vec::new());
+    rgba.write_to(&mut out, image::ImageFormat::Png).map_err(err)?;
+    Ok(IpcResponse::new(out.into_inner()))
+}
+
 // ── 本地图片协议 iml-asset:// ────────────────────────────────────────────────
 
 fn asset_mime(path: &Path) -> Option<&'static str> {
@@ -996,6 +1011,7 @@ pub fn run() {
             fetch_image,
             fetch_releases,
             image_to_webp,
+            clipboard_read_image,
         ])
         .setup(|app| {
             // Windows / Linux：双击 .md 启动时，路径在命令行参数里（macOS 走下面的 Opened 事件）

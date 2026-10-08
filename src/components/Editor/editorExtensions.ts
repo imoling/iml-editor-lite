@@ -29,6 +29,8 @@ import { InlineMath } from '../../extensions/InlineMath';
 import { Kbd, Subscript, Superscript, Highlight, SoftAwareHardBreak, NoteLink } from '../../extensions/InlineMarks';
 import { NoteImage } from '../../extensions/NoteImage';
 import { FocusMode } from '../../extensions/FocusMode';
+import { TrailingNode } from '../../extensions/TrailingNode';
+import { TableEnter } from '../../extensions/TableEnter';
 
 
 /** 富文本编辑器的全部扩展；测试里也用同一份，保证序列化结果与真实编辑器一致 */
@@ -50,6 +52,9 @@ export const editorExtensions = [
   RawInline,
   InlineMath,
   FocusMode,
+  // 文末永远留一个空段落；表格里回车下移、末行回车跳出（#9）
+  TrailingNode,
+  TableEnter,
   Kbd,
   Subscript,
   Superscript,

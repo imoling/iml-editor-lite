@@ -298,6 +298,16 @@ export function createTauriApi(): WindowApi {
       },
     },
 
+    clipboard: {
+      // 「插入图片」里的「从剪贴板读取」：壳读系统剪贴板，是图片就编成 PNG 给回来，不是给 null
+      readImage: async () => {
+        try {
+          const bytes = await invoke<ArrayBuffer>('clipboard_read_image');
+          return bytes && bytes.byteLength ? bytes : null;
+        } catch (e) { console.warn('[clipboard:readImage]', e); return null; }
+      },
+    },
+
     events: {
       on,
       send: (channel, ...args) => emitLocal(channel, ...args),

@@ -46,12 +46,12 @@
 
 | 平台 | 文件 |
 |---|---|
-| macOS Apple Silicon（M 系列） | `iML-Editor-Lite-26.4.4-arm64.dmg` |
-| macOS Intel | `iML-Editor-Lite-26.4.4-x64.dmg` |
-| Windows（绝大多数电脑选这个） | `iML-Editor-Lite-Setup-26.4.4-x64.exe` |
-| Windows on ARM（骁龙本等） | `iML-Editor-Lite-Setup-26.4.4-arm64.exe` |
-| Windows 绿色版 | `iML-Editor-Lite-Portable-26.4.4-x64.zip` |
-| Windows on ARM 绿色版 | `iML-Editor-Lite-Portable-26.4.4-arm64.zip` |
+| macOS Apple Silicon（M 系列） | `iML-Editor-Lite-26.4.5-arm64.dmg` |
+| macOS Intel | `iML-Editor-Lite-26.4.5-x64.dmg` |
+| Windows（绝大多数电脑选这个） | `iML-Editor-Lite-Setup-26.4.5-x64.exe` |
+| Windows on ARM（骁龙本等） | `iML-Editor-Lite-Setup-26.4.5-arm64.exe` |
+| Windows 绿色版 | `iML-Editor-Lite-Portable-26.4.5-x64.zip` |
+| Windows on ARM 绿色版 | `iML-Editor-Lite-Portable-26.4.5-arm64.zip` |
 
 到 [Releases](https://github.com/imoling/iml-editor-lite/releases) 下载。已经装了的，应用会在发现新版本时提醒一次，并直接给出这台电脑该下的那一个。
 
