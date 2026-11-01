@@ -815,6 +815,22 @@ fn clipboard_read_image() -> Result<IpcResponse, String> {
     Ok(IpcResponse::new(out.into_inner()))
 }
 
+/// 复制文档里的图片：前端已经转成 PNG，这边解开写进系统剪贴板，别的软件才贴得出来
+#[tauri::command]
+fn clipboard_write_image(request: IpcRequest<'_>) -> Result<(), String> {
+    let bytes = raw_body(&request)?;
+    let rgba = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png).map_err(err)?.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    let data = arboard::ImageData { width: width as usize, height: height as usize, bytes: rgba.into_raw().into() };
+    arboard::Clipboard::new().map_err(err)?.set_image(data).map_err(err)
+}
+
+/// 文字连图片一起复制：图片已经内嵌在 HTML 里，同时留一份纯文本
+#[tauri::command]
+fn clipboard_write_html(html: String, text: String) -> Result<(), String> {
+    arboard::Clipboard::new().map_err(err)?.set_html(html, Some(text)).map_err(err)
+}
+
 // ── 本地图片协议 iml-asset:// ────────────────────────────────────────────────
 
 fn asset_mime(path: &Path) -> Option<&'static str> {
@@ -1065,6 +1081,8 @@ pub fn run() {
             fetch_releases,
             image_to_webp,
             clipboard_read_image,
+            clipboard_write_image,
+            clipboard_write_html,
         ])
         .setup(|app| {
             // Windows / Linux：双击 .md 启动时，路径在命令行参数里（macOS 走下面的 Opened 事件）
@@ -1138,10 +1156,11 @@ mod tests {
         let file = dir.join("笔记.md");
         fs::write(&file, "1").unwrap();
         let (tx, rx) = mpsc::channel();
-        let _watcher = watch_files(&[file.to_string_lossy().into_owned()], tx).unwrap();
+        let watcher = watch_files(&[file.to_string_lossy().into_owned()], tx).unwrap();
         std::thread::sleep(Duration::from_millis(300));
         fs::write(&file, "2").unwrap();
         assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), file);
+        drop(watcher);
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1153,7 +1172,7 @@ mod tests {
         fs::write(&file, "1").unwrap();
         fs::write(&neighbour, "1").unwrap();
         let (tx, rx) = mpsc::channel();
-        let _watcher = watch_files(&[file.to_string_lossy().into_owned()], tx).unwrap();
+        let watcher = watch_files(&[file.to_string_lossy().into_owned()], tx).unwrap();
         std::thread::sleep(Duration::from_millis(300));
         fs::write(&neighbour, "2").unwrap();
         fs::write(dir.join("a.md.tmp"), "2").unwrap();
@@ -1162,6 +1181,7 @@ mod tests {
         while let Ok(path) = rx.recv_timeout(Duration::from_millis(500)) {
             assert_eq!(path, file);
         }
+        drop(watcher);
         fs::remove_dir_all(&dir).unwrap();
     }
 

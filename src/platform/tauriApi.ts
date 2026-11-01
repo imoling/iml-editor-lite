@@ -307,6 +307,8 @@ export function createTauriApi(): WindowApi {
           return bytes && bytes.byteLength ? bytes : null;
         } catch (e) { console.warn('[clipboard:readImage]', e); return null; }
       },
+      writeImage: (png) => invoke<void>('clipboard_write_image', png),
+      writeHtml: (html, text) => invoke<void>('clipboard_write_html', { html, text }),
     },
 
     events: {
