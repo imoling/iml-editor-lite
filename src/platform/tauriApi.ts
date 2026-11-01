@@ -274,6 +274,7 @@ export function createTauriApi(): WindowApi {
 
     folder: {
       watch: (dirPath) => invoke<boolean>('folder_watch', { path: dirPath }),
+      watchOpenFiles: (paths) => invoke<boolean>('open_files_watch', { paths }),
     },
 
     web: {

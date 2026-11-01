@@ -72,6 +72,12 @@ const App: React.FC = () => {
 
   const activeTab = tabs.find(t => t.id === activeTabId);
 
+  // 标签页开着哪些文件告诉主进程：单独打开的不在任何被监听的文件夹里
+  const openFileList = useAppStore((s) => s.tabs.filter((t) => !t.id.startsWith('new-')).map((t) => t.id).join('\n'));
+  useEffect(() => {
+    void window.api.folder.watchOpenFiles(openFileList ? openFileList.split('\n') : []);
+  }, [openFileList]);
+
   // 主窗口标题带上当前文档名，Dock / 调度中心里一眼能分清
   useEffect(() => {
     document.title = activeTab ? `${activeTab.title} — ${APP_NAME}` : APP_NAME;
@@ -300,7 +306,7 @@ const App: React.FC = () => {
     window.api.events.on('dialog:open', (id: DialogId) => openDialog(id));
   }, [openFileByPath, createNewFile, openFile, openDirectory, saveActiveFile, openDialog]);
 
-  // 窗口重新拿到焦点：打开着的文件在别处可能被改过了，都对一遍磁盘（没改过的标签页静默跟随，改过的用橙点提示）。
+  // 窗口重新拿到焦点：打开着的文件在别处可能被改过了，都对一遍磁盘（没改过的标签页静默跟随，改过的由用户决定）。
   // 单独打开的文件不在任何被监听的文件夹里，靠的就是这一下
   useEffect(() => {
     const onFocus = () => {

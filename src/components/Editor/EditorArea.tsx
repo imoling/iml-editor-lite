@@ -3,6 +3,7 @@ import { useAppStore } from '../../stores/appStore';
 import { TiptapEditor } from './TiptapEditor';
 import { MarkdownEditor } from './MarkdownEditor';
 import { FindReplacePanel } from './FindReplacePanel';
+import { ExternalChangeBar } from './ExternalChangeBar';
 
 export const EditorArea: React.FC = () => {
   const { mode, activeTabId, autoSave, saveActiveFile } = useAppStore();
@@ -17,6 +18,7 @@ export const EditorArea: React.FC = () => {
   return (
     <main className="editor-area editor-area--host" onBlur={handleBlur}>
       <FindReplacePanel />
+      <ExternalChangeBar />
       <div className={`editor-content ${mode === 'word' ? 'editor-content--column' : 'editor-content--row'}`}>
         {/* 没有欢迎页。标签页为空只出现在启动的那一瞬间（设置、会话还没读完），这时什么都不画 */}
         {!activeTabId ? null : mode === 'word' ? <TiptapEditor /> : <MarkdownEditor />}

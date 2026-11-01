@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { isNewerVersion } from '../utils/version';
 import type { UpdateInfo } from '../types/window';
 import { deriveNoteTitle } from '../utils/noteTitle';
+import { rebaseRelativeLinks } from '../utils/rebaseLinks';
 import { FileSortMode, DEFAULT_FILE_SORT, isFileSortMode } from '../utils/fileSort';
 
 const FILE_SORT_KEY = 'iml.fileSort';
@@ -24,8 +25,10 @@ export interface Tab {
   content: string;
   isDirty: boolean;
   mode: 'word' | 'markdown';
-  /** 磁盘上的文件被外部改动（或删除）而本标签页有未保存修改，需要用户决定 */
+  /** 磁盘上的文件被外部改动（或删除）而本标签页有未保存修改，需要用户决定；决定之前自动保存不写盘 */
   externallyModified?: boolean;
+  /** externallyModified 的原因是磁盘上的文件不见了 */
+  diskMissing?: boolean;
   /** 上次从磁盘读到 / 写进磁盘的内容的指纹：用来分清「磁盘真的被别人改了」和「只是我这边打了字、磁盘没动」 */
   diskSig?: string;
 }
@@ -268,6 +271,8 @@ export interface AppState {
   updateTabContent: (id: string, content: string) => void;
   /** 由编辑器之外的功能改写一篇文档：先把编辑器里还没写回的字刷进来，再基于最新内容改。文档已经关掉时返回 false */
   editTabContent: (id: string, edit: (current: string) => string) => boolean;
+  /** 改写一篇笔记：有未保存改动就只改编辑器里的内容，否则直接写回文件 */
+  rewriteNote: (notePath: string, transform: (content: string) => string | null) => Promise<{ before: string; after: string } | null>;
   /** 打开一个文件夹作为侧边栏的文件树，并开始监听目录变化 */
   loadFolder: (path: string) => Promise<void>;
   /** 收起文件树（不影响已经打开的标签页） */
@@ -279,6 +284,8 @@ export interface AppState {
   getNewNoteDir: () => string;
   /** 这些路径可能被外部改动了（文件夹监听的通知，或窗口重新拿到焦点时把打开的文件都查一遍） */
   handleExternalChanges: (paths: string[]) => Promise<void>;
+  /** 放弃这边的修改，换成磁盘上的版本 */
+  reloadTabFromDisk: (id: string) => Promise<boolean>;
   updateFileNode: (path: string, updates: Partial<FileNode>) => void;
   updateTabId: (oldId: string, newId: string, newTitle: string) => void;
   setExpanded: (path: string, expanded: boolean) => void;
@@ -336,6 +343,10 @@ export interface AppState {
   setRenamingPath: (path: string | null) => void;
   setContextMenu: (contextMenu: Partial<AppState['contextMenu']>) => void;
   renameFile: (oldPath: string, newName: string) => Promise<boolean>;
+  /** 文件或文件夹搬到新路径，标签页、选中、展开状态跟着走 */
+  relocate: (oldPath: string, newPath: string) => Promise<boolean>;
+  /** 移到别的文件夹，笔记里的相对地址跟着改 */
+  moveFile: (from: string, toDir: string) => Promise<boolean>;
   deleteFile: (path: string) => Promise<boolean>;
   duplicateFile: (path: string) => Promise<boolean>;
 }
@@ -364,6 +375,14 @@ export async function readLibraryDir(dirPath: string): Promise<FileNode[] | null
   );
 }
 
+/** 这个路径底下所有的笔记；本身是笔记就是它自己 */
+async function notesUnder(path: string): Promise<string[]> {
+  const entries = await readLibraryDir(path);
+  if (!entries) return NOTE_FILE_RE.test(path) ? [path] : [];
+  const nested = await Promise.all(entries.map((e) => (e.isDirectory ? notesUnder(e.path) : [e.path])));
+  return nested.flat();
+}
+
 function findNode(nodes: FileNode[], targetPath: string): FileNode | undefined {
   for (const node of nodes) {
     if (node.path === targetPath) return node;
@@ -373,6 +392,14 @@ function findNode(nodes: FileNode[], targetPath: string): FileNode | undefined {
     }
   }
   return undefined;
+}
+
+/** 标签页换成磁盘上的内容，并留下记号让富文本编辑器重载（光标在里面也要重载，不然屏幕上是旧的，接着打字就把新内容盖了） */
+function followDisk(state: AppState, id: string, content: string): Partial<AppState> {
+  return {
+    tabs: state.tabs.map((t) => (t.id === id ? { ...t, content, isDirty: false, externallyModified: false, diskMissing: false, diskSig: contentSig(content) } : t)),
+    externalWrite: { id, rev: (state.externalWrite?.rev ?? 0) + 1 },
+  };
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -534,6 +561,35 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  rewriteNote: async (notePath, transform) => {
+    const tab = get().tabs.find((t) => t.id === notePath);
+    if (tab?.isDirty) {
+      // 有没存盘的改动：只改编辑器里的内容，跟着用户下次保存一起落盘
+      let result: { before: string; after: string } | null = null;
+      get().editTabContent(notePath, (current) => {
+        const next = transform(current);
+        if (next !== null) result = { before: current, after: next };
+        return next ?? current;
+      });
+      return result;
+    }
+    const read = await window.api.fs.readFile(notePath);
+    if (!read.success) return null;
+    const before = read.content || '';
+    const after = transform(before);
+    if (after === null) return null;
+    if (after === before) return { before, after };
+    const written = await window.api.fs.writeFile(notePath, after); // 覆盖前版本历史会留底
+    if (!written.success) return null;
+    if (tab) {
+      set((state) => ({
+        tabs: state.tabs.map((t) => (t.id === notePath ? { ...t, content: after, isDirty: false, diskSig: contentSig(after) } : t)),
+        externalWrite: { id: notePath, rev: (state.externalWrite?.rev ?? 0) + 1 },
+      }));
+    }
+    return { before, after };
+  },
+
   editTabContent: (id, edit) => {
     get().editorFlush?.();
     const target = get().tabs.find(t => t.id === id);
@@ -618,26 +674,42 @@ export const useAppStore = create<AppState>((set, get) => ({
   handleExternalChanges: async (paths: string[]) => {
     await get().refreshWorkspace();
     const changed = new Set(paths);
-    for (const tab of get().tabs) {
-      if (tab.id.startsWith('new-') || !changed.has(tab.id)) continue;
-      const result = await window.api.fs.readFile(tab.id);
+    for (const { id } of get().tabs) {
+      if (id.startsWith('new-') || !changed.has(id)) continue;
+      const result = await window.api.fs.readFile(id);
+      // 防抖压着的字先刷进来再判断：不然刚打的字算「没改动」，会被磁盘内容冲掉
+      get().editorFlush?.();
+      const tab = get().tabs.find((t) => t.id === id);
+      if (!tab) continue;
       const mark = (patch: Partial<Tab>) =>
-        set((state) => ({ tabs: state.tabs.map((t) => (t.id === tab.id ? { ...t, ...patch } : t)) }));
+        set((state) => ({ tabs: state.tabs.map((t) => (t.id === id ? { ...t, ...patch } : t)) }));
       if (!result.success) {
-        mark({ externallyModified: true }); // 被外部删除 / 移动
+        mark({ externallyModified: true, diskMissing: true }); // 被外部删除 / 移动
         continue;
       }
       const diskContent = result.content || '';
-      if (diskContent === tab.content) continue;
+      const sig = contentSig(diskContent);
+      if (diskContent === tab.content) {
+        if (tab.externallyModified || tab.diskSig !== sig) mark({ isDirty: false, externallyModified: false, diskMissing: false, diskSig: sig });
+        continue;
+      }
       // 磁盘上还是我们上次读到 / 写进去的那一份：不是别人改了文件，只是这边打了字还没存。
       // 典型场景是在文件树里新建文件 → 打开 → 用户马上开始打字，文件监听的通知这时才到
-      if (tab.diskSig && tab.diskSig === contentSig(diskContent)) continue;
+      if (tab.diskSig === sig && !tab.diskMissing) continue;
       if (tab.isDirty) {
-        mark({ externallyModified: true, diskSig: contentSig(diskContent) }); // 两边都改了，交给用户决定（保存即覆盖）
+        mark({ externallyModified: true, diskMissing: false, diskSig: sig }); // 两边都改了，交给用户决定
       } else {
-        mark({ content: diskContent, isDirty: false, externallyModified: false, diskSig: contentSig(diskContent) }); // 未改动的标签页静默跟随磁盘
+        set((state) => followDisk(state, id, diskContent)); // 未改动的标签页静默跟随磁盘
       }
     }
+  },
+
+  reloadTabFromDisk: async (id) => {
+    const result = await window.api.fs.readFile(id);
+    if (!result.success) return false;
+    get().editorFlush?.();
+    set((state) => followDisk(state, id, result.content || ''));
+    return true;
   },
 
   updateFileNode: (path: string, updates: Partial<FileNode>) => set((state) => {
@@ -813,6 +885,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 失焦触发的静默保存：没改过就不写盘。否则只是点开看一眼，文件的修改时间也会变，同步盘跟着重传一遍
     if (isAutoSave && !isTempFile && !activeTab.isDirty) return true;
 
+    if (isAutoSave && !isTempFile) {
+      if (activeTab.externallyModified) return false; // 用户还没决定留哪份，不替他覆盖
+      // 文件监听有防抖：通知还没到就失焦了也不能盖掉，写之前再看一眼磁盘
+      const disk = await window.api.fs.readFile(filePath);
+      const sig = disk.success ? contentSig(disk.content || '') : activeTab.diskSig;
+      if (activeTab.diskSig && (!disk.success || sig !== activeTab.diskSig)) {
+        set((state) => ({
+          tabs: state.tabs.map((t) => (t.id === filePath ? { ...t, externallyModified: true, diskMissing: !disk.success, diskSig: sig } : t)),
+        }));
+        return false;
+      }
+    }
+
     if (isTempFile || saveAs) {
       // 未命名文档从不悄悄建成文件：内容随会话保存着，存到哪、叫什么，由用户在保存框里定
       if (isTempFile && isAutoSave) return false;
@@ -835,11 +920,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (get().workspacePath && filePath.startsWith(get().workspacePath!)) {
           get().refreshWorkspace();
         }
-      } else {
-        set((state) => ({
-          tabs: state.tabs.map(t => t.id === filePath ? { ...t, isDirty: false, externallyModified: false, diskSig: contentSig(activeTab.content) } : t)
-        }));
       }
+      set((state) => ({
+        tabs: state.tabs.map(t => t.id === filePath ? { ...t, isDirty: false, externallyModified: false, diskMissing: false, diskSig: contentSig(activeTab.content) } : t)
+      }));
       return true;
     }
     return false;
@@ -931,6 +1015,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             mode: t.mode || 'word',
             isDirty: !!t.isDirty,
             content: typeof t.content === 'string' ? t.content : '',
+            diskSig: typeof t.diskSig === 'string' ? t.diskSig : undefined,
           }));
         if (restoredTabs.length > 0) {
           // 并行读盘、一次性写回：避免逐个 set 让整棵组件树反复渲染
@@ -942,7 +1027,10 @@ export const useAppStore = create<AppState>((set, get) => ({
               const diskContent = result.content || '';
               // 上次退出前未保存的修改优先于磁盘内容，避免重启丢稿
               const useDirty = tab.isDirty && tab.content.length > 0 && tab.content !== diskContent;
-              return { ...tab, content: useDirty ? tab.content : diskContent, isDirty: useDirty };
+              const diskSig = contentSig(diskContent);
+              // 退出之后文件又被别的程序改过：恢复的修改和磁盘上是两份，交给用户决定
+              const externallyModified = useDirty && !!tab.diskSig && tab.diskSig !== diskSig;
+              return { ...tab, content: useDirty ? tab.content : diskContent, isDirty: useDirty, diskSig, externallyModified };
             } catch (e) {
               return null;
             }
@@ -1008,10 +1096,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   setContextMenu: (cm) => set((state) => ({ contextMenu: { ...state.contextMenu, ...cm } })),
 
   renameFile: async (oldPath: string, newName: string) => {
+    const sep = pathSep(oldPath);
+    return get().relocate(oldPath, `${oldPath.substring(0, oldPath.lastIndexOf(sep))}${sep}${newName}`);
+  },
+
+  relocate: async (oldPath: string, newPath: string) => {
     try {
       const sep = pathSep(oldPath);
-      const parentDir = oldPath.substring(0, oldPath.lastIndexOf(sep));
-      const newPath = `${parentDir}${sep}${newName}`;
       
       const result = await window.api.fs.rename(oldPath, newPath);
       if (result.success) {
@@ -1036,6 +1127,43 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error('Rename failed:', e);
       return false;
     }
+  },
+
+  moveFile: async (from, toDir) => {
+    const { workspacePath, notify } = get();
+    const sep = pathSep(from);
+    const parent = from.slice(0, from.lastIndexOf(sep));
+    if (toDir === parent) return false;
+    if (!workspacePath || (toDir !== workspacePath && !toDir.startsWith(workspacePath + sep))) {
+      notify('移动失败：只能移到打开的文件夹里');
+      return false;
+    }
+    if (toDir === from || toDir.startsWith(from + sep)) {
+      notify('移动失败：不能移到自己里面');
+      return false;
+    }
+    const to = `${toDir}${sep}${from.slice(parent.length + 1)}`;
+    if (await window.api.fs.exists(to)) {
+      notify('移动失败：那里已有同名文件');
+      return false;
+    }
+    get().editorFlush?.();
+    if (!(await get().relocate(from, to))) {
+      notify('移动失败：文件没动');
+      return false;
+    }
+    // 换了目录，笔记里的相对地址要跟着改，不然图片全裂
+    const notes = await notesUnder(to);
+    const movedRoot = notes.length === 1 && notes[0] === to ? null : from;
+    for (const note of notes) {
+      const newDir = note.slice(0, note.lastIndexOf(sep));
+      const oldDir = movedRoot ? from + newDir.slice(to.length) : parent;
+      await get().rewriteNote(note, (content) => rebaseRelativeLinks(content, oldDir, newDir, movedRoot));
+    }
+    const files = await readLibraryDir(toDir);
+    if (files) get().updateFileNode(toDir, { children: files });
+    get().setExpanded(toDir, true);
+    return true;
   },
 
   deleteFile: async (path: string) => {
@@ -1155,7 +1283,7 @@ function persistSession(state: AppState) {
     sidebarTab: state.sidebarTab,
     tabs: state.tabs.map(t => {
       const keepContent = (t.isDirty || t.id.startsWith('new-')) && t.content.length <= MAX_PERSISTED_CONTENT;
-      return { id: t.id, title: t.title, isDirty: t.isDirty, mode: t.mode, ...(keepContent ? { content: t.content } : {}) };
+      return { id: t.id, title: t.title, isDirty: t.isDirty, mode: t.mode, ...(keepContent ? { content: t.content, diskSig: t.diskSig } : {}) };
     }),
   };
   try {

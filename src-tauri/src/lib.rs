@@ -5,7 +5,7 @@
 //! 前端通过 `src/platform/tauriApi.ts` 把这些命令包成 `window.api`。
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
@@ -36,6 +36,8 @@ struct AppState {
     exported: Mutex<HashSet<PathBuf>>,
     /// 侧边栏里打开的那个文件夹的监听；换文件夹或关掉时把旧的丢掉
     watcher: Mutex<Option<RecommendedWatcher>>,
+    /// 标签页里开着的文件的监听；标签页一变就换一个新的
+    open_files_watcher: Mutex<Option<RecommendedWatcher>>,
 }
 
 fn err<E: std::fmt::Display>(e: E) -> String {
@@ -619,8 +621,12 @@ fn folder_watch(app: AppHandle, state: State<'_, AppState>, path: Option<String>
         return false;
     }
     *slot = Some(watcher);
+    emit_batched(app, rx);
+    true
+}
 
-    // 一次保存往往带来好几个事件：攒 400 毫秒没有新的了，再一起告诉界面
+/// 一次保存往往带来好几个事件：攒 400 毫秒没有新的了，再一起告诉界面
+fn emit_batched(app: AppHandle, rx: mpsc::Receiver<PathBuf>) {
     std::thread::spawn(move || {
         while let Ok(first) = rx.recv() {
             let mut changed: HashSet<PathBuf> = HashSet::from([first]);
@@ -631,6 +637,52 @@ fn folder_watch(app: AppHandle, state: State<'_, AppState>, path: Option<String>
             let _ = app.emit("folder:changed", paths);
         }
     });
+}
+
+/// 所在目录的真实路径 + 文件名：系统报上来的路径可能解析过软链（/tmp → /private/tmp），直接比对不上
+fn watch_key(path: &Path) -> Option<PathBuf> {
+    Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?))
+}
+
+/// 盯着这些文件，变了就把它们当初传进来的路径发到 tx。
+/// 盯所在目录而不是文件本身：写临时文件再改名的保存方式，文件一换，盯着原文件的监听就断了
+fn watch_files(paths: &[String], tx: mpsc::Sender<PathBuf>) -> Option<RecommendedWatcher> {
+    let files: HashMap<PathBuf, PathBuf> = paths.iter().map(PathBuf::from).filter_map(|p| Some((watch_key(&p)?, p))).collect();
+    let dirs: HashSet<PathBuf> = files.keys().filter_map(|key| key.parent().map(Path::to_path_buf)).collect();
+    if dirs.is_empty() {
+        return None;
+    }
+    let mut watcher = match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        let Ok(event) = res else { return };
+        for p in event.paths {
+            if let Some(file) = watch_key(&p).and_then(|key| files.get(&key)) {
+                let _ = tx.send(file.clone());
+            }
+        }
+    }) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("[open-files:watch] failed: {e}");
+            return None;
+        }
+    };
+    for dir in &dirs {
+        if let Err(e) = watcher.watch(dir, RecursiveMode::NonRecursive) {
+            eprintln!("[open-files:watch] failed: {e}");
+        }
+    }
+    Some(watcher)
+}
+
+/// 标签页里开着的文件：单独打开的不在任何被监听的文件夹里，这里盯着，变了和文件夹监听走同一个事件
+#[tauri::command]
+fn open_files_watch(app: AppHandle, state: State<'_, AppState>, paths: Vec<String>) -> bool {
+    let mut slot = state.open_files_watcher.lock().unwrap();
+    *slot = None;
+    let (tx, rx) = mpsc::channel::<PathBuf>();
+    let Some(watcher) = watch_files(&paths, tx) else { return false };
+    *slot = Some(watcher);
+    emit_batched(app, rx);
     true
 }
 
@@ -1007,6 +1059,7 @@ pub fn run() {
             settings_get,
             settings_save,
             folder_watch,
+            open_files_watch,
             fetch_page_head,
             fetch_image,
             fetch_releases,
@@ -1066,4 +1119,55 @@ pub fn run() {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("iml-open-files-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn open_file_change_is_reported_with_the_original_path() {
+        let dir = temp_dir("write");
+        let file = dir.join("笔记.md");
+        fs::write(&file, "1").unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _watcher = watch_files(&[file.to_string_lossy().into_owned()], tx).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        fs::write(&file, "2").unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), file);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_by_rename_is_seen_and_neighbours_are_ignored() {
+        let dir = temp_dir("rename");
+        let file = dir.join("a.md");
+        let neighbour = dir.join("b.md");
+        fs::write(&file, "1").unwrap();
+        fs::write(&neighbour, "1").unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _watcher = watch_files(&[file.to_string_lossy().into_owned()], tx).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        fs::write(&neighbour, "2").unwrap();
+        fs::write(dir.join("a.md.tmp"), "2").unwrap();
+        fs::rename(dir.join("a.md.tmp"), &file).unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), file);
+        while let Ok(path) = rx.recv_timeout(Duration::from_millis(500)) {
+            assert_eq!(path, file);
+        }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn nothing_to_watch_gives_no_watcher() {
+        let (tx, _rx) = mpsc::channel();
+        assert!(watch_files(&["/不存在的目录/a.md".to_string()], tx).is_none());
+    }
 }

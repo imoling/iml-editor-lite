@@ -53,7 +53,7 @@ export function createMockApi(initialFiles: Record<string, string> = {}) {
     dialog: { open: vi.fn(async () => null), save: vi.fn(async () => null) },
     export: { pdf: vi.fn(), html: vi.fn(), saveFile: vi.fn(), askPath: vi.fn(async () => null), writeFiles: vi.fn(), open: vi.fn(async () => true), reveal: vi.fn(async () => true) },
     shell: { openExternal: vi.fn(), showItemInFolder: vi.fn() },
-    folder: { watch: vi.fn(async () => true) },
+    folder: { watch: vi.fn(async () => true), watchOpenFiles: vi.fn(async () => true) },
     web: { fetchTitle: vi.fn(async () => null), fetchImage: vi.fn(async () => null) },
     events: { on: vi.fn(), send: vi.fn() },
     app: {

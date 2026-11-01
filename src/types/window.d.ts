@@ -43,6 +43,8 @@ declare global {
       folder: {
         /** 监听侧边栏里打开的那个文件夹；传 null 停止监听 */
         watch: (dirPath: string | null) => Promise<boolean>;
+        /** 告诉主进程标签页里开着哪些文件：单独打开的不在任何被监听的文件夹里 */
+        watchOpenFiles: (paths: string[]) => Promise<boolean>;
       };
       web: {
         fetchTitle: (url: string) => Promise<string | null>;

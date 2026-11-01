@@ -144,7 +144,132 @@ describe('外部改动', () => {
     expect(b).toMatchObject({ content: 'B1', isDirty: true, externallyModified: true });
     api.files.delete('/lib/a.md');
     await useAppStore.getState().handleExternalChanges(['/lib/a.md']);
+    expect(useAppStore.getState().tabs[0]).toMatchObject({ externallyModified: true, diskMissing: true });
+  });
+
+  it('跟随磁盘时留下记号：光标在编辑器里也要重载，不然屏幕上是旧的', async () => {
+    useApi({ '/lib/a.md': 'A2' });
+    useAppStore.setState({ tabs: [{ id: '/lib/a.md', title: 'a', content: 'A1', isDirty: false, mode: 'word' }] });
+    await useAppStore.getState().handleExternalChanges(['/lib/a.md']);
+    expect(useAppStore.getState().externalWrite).toEqual({ id: '/lib/a.md', rev: 1 });
+  });
+
+  it('编辑器里防抖压着的字算改动：不被磁盘内容冲掉', async () => {
+    useApi({ '/lib/a.md': 'A2' });
+    useAppStore.setState({ tabs: [{ id: '/lib/a.md', title: 'a', content: 'A1', isDirty: false, mode: 'word', diskSig: 'old' }] });
+    useAppStore.getState().registerEditorFlush(() => useAppStore.getState().updateTabContent('/lib/a.md', 'A1 + 刚打的字'));
+    await useAppStore.getState().handleExternalChanges(['/lib/a.md']);
+    expect(useAppStore.getState().tabs[0]).toMatchObject({ content: 'A1 + 刚打的字', isDirty: true, externallyModified: true });
+  });
+
+  it('文件被改回和这边一样：不再算冲突', async () => {
+    useApi({ '/lib/a.md': '一样' });
+    useAppStore.setState({ tabs: [{ id: '/lib/a.md', title: 'a', content: '一样', isDirty: true, mode: 'word', externallyModified: true }] });
+    await useAppStore.getState().handleExternalChanges(['/lib/a.md']);
+    expect(useAppStore.getState().tabs[0]).toMatchObject({ isDirty: false, externallyModified: false });
+  });
+
+  it('文件消失又回来：不再提示文件不在', async () => {
+    const api = useApi({ '/lib/a.md': 'A' });
+    await useAppStore.getState().openFileByPath('/lib/a.md');
+    useAppStore.getState().updateTabContent('/lib/a.md', 'A + 改动');
+    api.files.delete('/lib/a.md');
+    await useAppStore.getState().handleExternalChanges(['/lib/a.md']);
+    expect(useAppStore.getState().tabs[0].diskMissing).toBe(true);
+    api.files.set('/lib/a.md', 'A');
+    await useAppStore.getState().handleExternalChanges(['/lib/a.md']);
+    expect(useAppStore.getState().tabs[0]).toMatchObject({ isDirty: true, externallyModified: true, diskMissing: false });
+  });
+});
+
+describe('自动保存不盖掉外部的改动', () => {
+  const dirtyTab = async (api: ReturnType<typeof useApi>) => {
+    await useAppStore.getState().openFileByPath('/lib/a.md');
+    useAppStore.getState().updateTabContent('/lib/a.md', '我的改动');
+    api.fs.writeFile.mockClear();
+  };
+
+  it('已经标了冲突：自动保存不写盘，提示留着；手动保存才覆盖', async () => {
+    const api = useApi({ '/lib/a.md': '原文' });
+    await dirtyTab(api);
+    api.files.set('/lib/a.md', 'Agent 写的');
+    await useAppStore.getState().handleExternalChanges(['/lib/a.md']);
+
+    expect(await useAppStore.getState().saveActiveFile(false, true)).toBe(false);
+    expect(api.fs.writeFile).not.toHaveBeenCalled();
     expect(useAppStore.getState().tabs[0].externallyModified).toBe(true);
+
+    expect(await useAppStore.getState().saveActiveFile()).toBe(true);
+    expect(api.files.get('/lib/a.md')).toBe('我的改动');
+    expect(useAppStore.getState().tabs[0]).toMatchObject({ isDirty: false, externallyModified: false });
+  });
+
+  it('文件监听的通知还没到就失焦：写之前再看一眼磁盘', async () => {
+    const api = useApi({ '/lib/a.md': '原文' });
+    await dirtyTab(api);
+    api.files.set('/lib/a.md', 'Agent 写的');
+
+    expect(await useAppStore.getState().saveActiveFile(false, true)).toBe(false);
+    expect(api.files.get('/lib/a.md')).toBe('Agent 写的');
+    expect(useAppStore.getState().tabs[0]).toMatchObject({ content: '我的改动', isDirty: true, externallyModified: true });
+  });
+
+  it('文件被移走：自动保存不把它写回原处', async () => {
+    const api = useApi({ '/lib/a.md': '原文' });
+    await dirtyTab(api);
+    api.files.delete('/lib/a.md');
+
+    expect(await useAppStore.getState().saveActiveFile(false, true)).toBe(false);
+    expect(api.files.has('/lib/a.md')).toBe(false);
+    expect(useAppStore.getState().tabs[0]).toMatchObject({ externallyModified: true, diskMissing: true });
+  });
+
+  it('磁盘没被动过：照常自动保存', async () => {
+    const api = useApi({ '/lib/a.md': '原文' });
+    await dirtyTab(api);
+    expect(await useAppStore.getState().saveActiveFile(false, true)).toBe(true);
+    expect(api.files.get('/lib/a.md')).toBe('我的改动');
+  });
+
+  it('载入新版本：换成磁盘内容，编辑器重载', async () => {
+    const api = useApi({ '/lib/a.md': '原文' });
+    await dirtyTab(api);
+    api.files.set('/lib/a.md', 'Agent 写的');
+    await useAppStore.getState().handleExternalChanges(['/lib/a.md']);
+
+    expect(await useAppStore.getState().reloadTabFromDisk('/lib/a.md')).toBe(true);
+    expect(useAppStore.getState().tabs[0]).toMatchObject({ content: 'Agent 写的', isDirty: false, externallyModified: false });
+    expect(useAppStore.getState().externalWrite?.id).toBe('/lib/a.md');
+  });
+
+  it('另存为：冲突解除，之后的自动保存按新文件算', async () => {
+    const api = useApi({ '/lib/a.md': '原文' });
+    await dirtyTab(api);
+    api.files.set('/lib/a.md', 'Agent 写的');
+    await useAppStore.getState().handleExternalChanges(['/lib/a.md']);
+    (api.dialog.save as any).mockResolvedValueOnce('/lib/b.md');
+
+    expect(await useAppStore.getState().saveActiveFile(true)).toBe(true);
+    expect(api.files.get('/lib/a.md')).toBe('Agent 写的');
+    expect(api.files.get('/lib/b.md')).toBe('我的改动');
+    expect(useAppStore.getState().tabs[0]).toMatchObject({ id: '/lib/b.md', externallyModified: false });
+
+    useAppStore.getState().updateTabContent('/lib/b.md', '接着写');
+    expect(await useAppStore.getState().saveActiveFile(false, true)).toBe(true);
+    expect(api.files.get('/lib/b.md')).toBe('接着写');
+  });
+
+  it('退出期间文件被改过：恢复的修改和磁盘是两份，自动保存不盖', async () => {
+    const api = useApi({ '/lib/a.md': 'Agent 写的' });
+    localStorage.setItem('iml_session', JSON.stringify({
+      tabs: [{ id: '/lib/a.md', title: 'a.md', isDirty: true, mode: 'word', content: '上次没存的', diskSig: 'old' }],
+      activeTabId: '/lib/a.md',
+    }));
+    await useAppStore.getState().loadSession();
+
+    expect(useAppStore.getState().tabs[0]).toMatchObject({ content: '上次没存的', isDirty: true, externallyModified: true });
+    expect(await useAppStore.getState().saveActiveFile(false, true)).toBe(false);
+    expect(api.files.get('/lib/a.md')).toBe('Agent 写的');
   });
 });
 
@@ -485,5 +610,43 @@ describe('状态栏提示', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('移动文件', () => {
+  const LIBRARY = '/lib';
+  const useLibrary = (files: Record<string, string>) => {
+    const api = useApi(files);
+    void api.fs.mkdir('/lib/项目');
+    useAppStore.setState({ workspacePath: LIBRARY, defaultLibraryPath: LIBRARY } as any);
+    return api;
+  };
+
+  it('笔记搬进文件夹：文件到位，相对图片路径跟着改', async () => {
+    const api = useLibrary({ '/lib/a.md': '![图](assets/x.png)\n', '/lib/项目/b.md': 'b' });
+    expect(await useAppStore.getState().moveFile('/lib/a.md', '/lib/项目')).toBe(true);
+    expect(api.files.has('/lib/a.md')).toBe(false);
+    expect(api.files.get('/lib/项目/a.md')).toBe('![图](../assets/x.png)\n');
+  });
+
+  it('开着的标签页跟着走；有没存的字时只改编辑器里的内容', async () => {
+    const api = useLibrary({ '/lib/a.md': '![图](assets/x.png)\n' });
+    await useAppStore.getState().openFileByPath('/lib/a.md');
+    useAppStore.getState().updateTabContent('/lib/a.md', '![图](assets/x.png)\n没存的字\n');
+    await useAppStore.getState().moveFile('/lib/a.md', '/lib/项目');
+    expect(useAppStore.getState().activeTabId).toBe('/lib/项目/a.md');
+    expect(useAppStore.getState().tabs[0]).toMatchObject({ id: '/lib/项目/a.md', isDirty: true, content: '![图](../assets/x.png)\n没存的字\n' });
+    expect(api.files.get('/lib/项目/a.md')).toBe('![图](assets/x.png)\n');
+  });
+
+  it('同名、自己里面、笔记库外面、原地都不动', async () => {
+    const api = useLibrary({ '/lib/a.md': 'a', '/lib/项目/a.md': '另一篇', '/out/x.md': 'x' });
+    const { moveFile } = useAppStore.getState();
+    expect(await moveFile('/lib/a.md', '/lib/项目')).toBe(false);
+    expect(await moveFile('/lib/项目', '/lib/项目')).toBe(false);
+    expect(await moveFile('/lib/a.md', '/out')).toBe(false);
+    expect(await moveFile('/lib/a.md', '/lib')).toBe(false);
+    expect(api.files.get('/lib/a.md')).toBe('a');
+    expect(api.files.get('/lib/项目/a.md')).toBe('另一篇');
   });
 });

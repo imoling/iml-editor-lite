@@ -516,6 +516,7 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
 /* 图片节点（NoteImage）：外层只包住图，选中框才不会拉到整行；图下的图片描述由设置「图下显示图片描述」控制（#6） */
 .tiptap-prosemirror .note-image { display: block; width: fit-content; max-width: 100%; margin: 1rem 0; }
 .tiptap-prosemirror .note-image img { margin: 0; }
+.tiptap-prosemirror .note-image.ProseMirror-selectednode img { outline: 2px solid var(--color-brand-indigo); outline-offset: 2px; }
 .tiptap-prosemirror .note-image__caption { display: none; margin-top: 6px; font-size: 13px; line-height: 1.5; color: var(--text-muted); text-align: center; }
 .tiptap-prosemirror--captions .note-image__caption:not(:empty) { display: block; }
 
@@ -774,6 +775,10 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
 
 /* ── 编辑区壳 / 源码分栏 / 气泡菜单细节（从内联样式收口） ── */
 .editor-area--host { position: relative; display: flex; flex-direction: column; flex: 1; height: 100%; }
+.external-bar { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 8px 16px; border-bottom: 1px solid var(--border-subtle); background: color-mix(in srgb, var(--color-brand-indigo) 8%, var(--bg-page)); }
+.external-bar__text { display: flex; align-items: baseline; gap: 10px; flex: 1; min-width: 0; font-size: 12px; color: var(--text-secondary); }
+.external-bar__text strong { font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+.external-bar__text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editor-content { flex: 1; padding: 0; overflow: hidden; display: flex; height: 100%; }
 .editor-content--column { flex-direction: column; }
 .editor-content--row { flex-direction: row; }

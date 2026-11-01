@@ -1,3 +1,4 @@
+import { startTreeDrag } from '../../utils/treeDrag';
 import React from 'react';
 import { useAppStore, FileNode, HeadingNode, readLibraryDir } from '../../stores/appStore';
 import { sortFileNodes, FILE_SORT_LABELS, FileSortMode } from '../../utils/fileSort';
@@ -41,6 +42,13 @@ async function openNote(path: string, title: string) {
   } else {
     useAppStore.getState().notify(`打不开「${title}」：文件可能已被移动或删除，刷新一下文件夹试试`, 8000);
   }
+}
+
+/** 右键「移动到…」：系统的选文件夹框，默认在当前文件夹 */
+async function moveTo(path: string) {
+  const { workspacePath, moveFile } = useAppStore.getState();
+  const picked = await window.api.dialog.open({ properties: ['openDirectory'], defaultPath: workspacePath ?? undefined });
+  if (picked?.[0]) await moveFile(path, picked[0]);
 }
 
 const FileTreeItem: React.FC<{ node: FileNode; level: number }> = ({ node, level }) => {
@@ -89,6 +97,8 @@ const FileTreeItem: React.FC<{ node: FileNode; level: number }> = ({ node, level
       <div
         className={`tree-item ${isActive && !node.isDirectory ? 'active' : ''} ${isSelected && !isActive ? 'tree-item--selected' : ''}`}
         style={{ paddingLeft: `${level * 12 + 8}px` }}
+        data-tree-dir={node.isDirectory ? node.path : node.path.slice(0, node.path.length - node.name.length - 1)}
+        onMouseDown={(e) => { if (!isRenaming) startTreeDrag(e, node.path, node.name.replace(/\.md$/i, ''), (dir) => void useAppStore.getState().moveFile(node.path, dir)); }}
         onClick={handleToggle}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -180,6 +190,7 @@ const ContextMenuComponent = () => {
         </>
       )}
       {!isRoot && <MenuItem label="重命名" hint="F2" onClick={() => { done(); setRenamingPath(node.path); }} />}
+      {!isRoot && <MenuItem label="移动到…" onClick={() => { done(); void moveTo(node.path); }} />}
       {!node.isDirectory && <MenuItem label="创建副本" hint={isMac ? '⌘D' : 'Ctrl+D'} onClick={() => { done(); duplicateFile(node.path); }} />}
       <MenuItem label={REVEAL_LABEL} onClick={() => { done(); window.api.shell.showItemInFolder(node.path); }} />
       {!isRoot && (
@@ -290,7 +301,7 @@ export const Sidebar: React.FC = () => {
           </div>
         ) : (
           <>
-            <div className="tree-item library-header" title={workspacePath} onClick={() => setSelectedNodePath(null)} onContextMenu={(e) => { e.stopPropagation(); openRootMenu(e); }}>
+            <div className="tree-item library-header" data-tree-dir={workspacePath} title={workspacePath} onClick={() => setSelectedNodePath(null)} onContextMenu={(e) => { e.stopPropagation(); openRootMenu(e); }}>
               <Folder size={14} color="var(--color-brand-indigo)" />
               <span className="truncate flex-1">{workspaceName}</span>
               <button onClick={(e) => { e.stopPropagation(); createNoteIn(getNewNoteDir()); }} className="icon-btn icon-btn--sm hover-bg" title="新建文档（在选中的文件夹里）"><FilePlus size={13} /></button>
@@ -303,7 +314,7 @@ export const Sidebar: React.FC = () => {
               <button onClick={(e) => { e.stopPropagation(); closeFolder(); }} className="icon-btn icon-btn--sm hover-bg" title="关闭文件夹（打开的标签页不受影响）"><X size={12} /></button>
             </div>
 
-            <div className="workspace-tree">
+            <div className="workspace-tree" data-tree-dir={workspacePath ?? undefined}>
               {fileTree.length === 0 ? (
                 <div className="tree-empty tree-empty--root">这个文件夹里还没有文档，点上方 ＋ 新建一篇</div>
               ) : (
