@@ -4,6 +4,7 @@ import { Sidebar, ActivityBar } from './components/Sidebar/Sidebar';
 import { EditorArea } from './components/Editor/EditorArea';
 import { StatusBar } from './components/StatusBar/StatusBar';
 import { useAppStore, THEME_PRESETS, clearSessionAndReload, type DialogId } from './stores/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import AboutModal from './components/About/AboutModal';
 import ShortcutsModal from './components/Help/ShortcutsModal';
 import { SettingsModal } from './components/Settings/SettingsModal';
@@ -36,40 +37,14 @@ function drainPendingOpenFiles(): Promise<void> {
 }
 
 const App: React.FC = () => {
-  const { 
-    toggleMode, 
-    activeTabId, 
-    tabs,
-    sidebarVisible,
-    statusBarVisible,
-    setOutline,
-    toggleSidebar,
-    toggleToolbar,
-    toggleStatusBar,
-    createNewFile,
-    toggleFind,
-    toggleReplace,
-    openFile,
-    openFileByPath,
-    openDirectory,
-    saveActiveFile,
-    tabToClose,
-    pendingCloseIds,
-    closeTab,
-    setActiveTab,
-    autoCheckUpdates,
-    theme,
-    setTheme,
-    loadSession,
-    loadSettings,
-    appearanceMode,
-    applyAppearance,
-    dialog,
-    openDialog,
-    closeDialog,
-    focusMode,
-  } = useAppStore();
+  const {
+    toggleMode, activeTabId, tabs, sidebarVisible, statusBarVisible, setOutline, toggleSidebar, toggleToolbar, toggleStatusBar, createNewFile, toggleFind, toggleReplace, openFile, openFileByPath, openDirectory, saveActiveFile, tabToClose, pendingCloseIds, closeTab, setActiveTab, autoCheckUpdates, theme, setTheme, loadSession, loadSettings, appearanceMode, applyAppearance, dialog, openDialog, closeDialog, focusMode,
+  } = useAppStore(useShallow((s) => ({
+    toggleMode: s.toggleMode, activeTabId: s.activeTabId, tabs: s.tabs, sidebarVisible: s.sidebarVisible, statusBarVisible: s.statusBarVisible, setOutline: s.setOutline, toggleSidebar: s.toggleSidebar, toggleToolbar: s.toggleToolbar, toggleStatusBar: s.toggleStatusBar, createNewFile: s.createNewFile, toggleFind: s.toggleFind, toggleReplace: s.toggleReplace, openFile: s.openFile, openFileByPath: s.openFileByPath, openDirectory: s.openDirectory, saveActiveFile: s.saveActiveFile, tabToClose: s.tabToClose, pendingCloseIds: s.pendingCloseIds, closeTab: s.closeTab, setActiveTab: s.setActiveTab, autoCheckUpdates: s.autoCheckUpdates, theme: s.theme, setTheme: s.setTheme, loadSession: s.loadSession, loadSettings: s.loadSettings, appearanceMode: s.appearanceMode, applyAppearance: s.applyAppearance, dialog: s.dialog, openDialog: s.openDialog, closeDialog: s.closeDialog, focusMode: s.focusMode,
+  })));
 
+  // 只订阅这一个布尔：App 不再整库订阅，弹不弹要靠它自己触发重渲染
+  const updateShow = useAppStore((s) => s.updateStatus.show);
   const activeTab = tabs.find(t => t.id === activeTabId);
 
   // 标签页开着哪些文件告诉主进程：单独打开的不在任何被监听的文件夹里
@@ -414,9 +389,7 @@ const App: React.FC = () => {
       )}
 
       {/* 检查更新状态弹窗 */}
-      {useAppStore.getState().updateStatus.show && (
-        <UpdateModal />
-      )}
+      {updateShow && <UpdateModal />}
 
       {/* 设置 / 关于 / 快捷键：主窗口内的浮层，不新开窗口 */}
       {dialog === 'about' && <AboutModal isOpen onClose={closeDialog} />}
@@ -438,7 +411,7 @@ const formatMB = (bytes: number) => `${Math.round(bytes / 1024 / 1024)} MB`;
  * 并把人直接送到这台电脑该下的那个安装包，而不是一个要自己挑文件的页面。
  */
 const UpdateModal: React.FC = () => {
-  const { updateStatus, setUpdateStatus } = useAppStore();
+  const { updateStatus, setUpdateStatus } = useAppStore(useShallow((s) => ({ updateStatus: s.updateStatus, setUpdateStatus: s.setUpdateStatus })));
   const close = () => setUpdateStatus({ ...updateStatus, show: false });
   const current = window.api.appVersion;
   const hasUpdate = isNewerVersion(updateStatus.latestVersion, current);

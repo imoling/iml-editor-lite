@@ -3,6 +3,7 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import { TextSelection } from '@tiptap/pm/state';
 import type { Editor } from '@tiptap/core';
 import { useAppStore } from '../../stores/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import { markdownToHtml } from '../../utils/markdown';
 import { serializeDoc } from '../../utils/incrementalMarkdown';
 import { registerSource, placeCursorAfterFrontmatter, loadDocFresh } from '../../utils/sourceMap';
@@ -52,10 +53,11 @@ function reportSearchState(editor: Editor) {
 const scrollTops = new Map<string, number>();
 
 export const TiptapEditor: React.FC = () => {
-  const { 
-    activeTabId, tabs, updateTabContent, navigationRequest, zoom,
-    toolbarVisible,
-  } = useAppStore();
+  const {
+    activeTabId, tabs, updateTabContent, navigationRequest, zoom, toolbarVisible,
+  } = useAppStore(useShallow((s) => ({
+    activeTabId: s.activeTabId, tabs: s.tabs, updateTabContent: s.updateTabContent, navigationRequest: s.navigationRequest, zoom: s.zoom, toolbarVisible: s.toolbarVisible,
+  })));
   const search = useAppStore((s) => s.search);
   const searchCommand = useAppStore((s) => s.searchCommand);
   const spellcheck = useAppStore((s) => s.spellcheck);

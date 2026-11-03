@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useAppStore } from '../../stores/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import { Minus, Plus, ChevronUp } from 'lucide-react';
 
 const ZOOM_OPTIONS = [300, 200, 150, 125, 100, 75, 50, 25];
@@ -16,8 +17,12 @@ export function countWords(text: string) {
   return { words: cjkCount + westernWords, lines: content.split('\n').length };
 }
 
-export const StatusBar: React.FC = () => {
-  const { mode, toggleMode, activeTabId, tabs, statusBarVisible, zoom, setZoom } = useAppStore();
+const StatusBarImpl: React.FC = () => {
+  const {
+    mode, toggleMode, activeTabId, tabs, statusBarVisible, zoom, setZoom,
+  } = useAppStore(useShallow((s) => ({
+    mode: s.mode, toggleMode: s.toggleMode, activeTabId: s.activeTabId, tabs: s.tabs, statusBarVisible: s.statusBarVisible, zoom: s.zoom, setZoom: s.setZoom,
+  })));
   const notice = useAppStore((s) => s.notice);
   const [showZoomMenu, setShowZoomMenu] = React.useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -106,3 +111,6 @@ export const StatusBar: React.FC = () => {
     </footer>
   );
 };
+
+/** 不接 props，只靠自己订阅的 store 片段更新：App 因为弹窗、标签页这类事重渲染时，这一整块不跟着重画 */
+export const StatusBar = React.memo(StatusBarImpl);

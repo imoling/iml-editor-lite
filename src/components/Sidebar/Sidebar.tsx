@@ -1,6 +1,7 @@
 import { startTreeDrag } from '../../utils/treeDrag';
 import React from 'react';
 import { useAppStore, FileNode, HeadingNode, readLibraryDir } from '../../stores/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import { sortFileNodes, FILE_SORT_LABELS, FileSortMode } from '../../utils/fileSort';
 import {
   ChevronDown, ChevronRight, FolderOpen, FileText, FileCode, FolderClosed,
@@ -11,8 +12,8 @@ const isMac = window.api.app.platform === 'darwin';
 const REVEAL_LABEL = isMac ? '在访达中显示' : '在资源管理器中显示';
 const MD_RE = /\.(md|markdown|mdown|mkd)$/i;
 
-export const ActivityBar: React.FC = () => {
-  const { sidebarTab, setSidebarTab, sidebarVisible } = useAppStore();
+const ActivityBarImpl: React.FC = () => {
+  const { sidebarTab, setSidebarTab, sidebarVisible } = useAppStore(useShallow((s) => ({ sidebarTab: s.sidebarTab, setSidebarTab: s.setSidebarTab, sidebarVisible: s.sidebarVisible })));
   const tabs = [
     { id: 'files' as const, icon: <Folder size={16} />, label: '文件', title: '打开的文件夹' },
     { id: 'outline' as const, icon: <List size={16} />, label: '大纲', title: '当前文档的大纲' },
@@ -52,7 +53,11 @@ async function moveTo(path: string) {
 }
 
 const FileTreeItem: React.FC<{ node: FileNode; level: number }> = ({ node, level }) => {
-  const { updateFileNode, activeTabId, expandedPaths, setExpanded, selectedNodePath, setSelectedNodePath, renamingPath, setRenamingPath, renameFile, setContextMenu } = useAppStore();
+  const {
+    updateFileNode, activeTabId, expandedPaths, setExpanded, selectedNodePath, setSelectedNodePath, renamingPath, setRenamingPath, renameFile, setContextMenu,
+  } = useAppStore(useShallow((s) => ({
+    updateFileNode: s.updateFileNode, activeTabId: s.activeTabId, expandedPaths: s.expandedPaths, setExpanded: s.setExpanded, selectedNodePath: s.selectedNodePath, setSelectedNodePath: s.setSelectedNodePath, renamingPath: s.renamingPath, setRenamingPath: s.setRenamingPath, renameFile: s.renameFile, setContextMenu: s.setContextMenu,
+  })));
   const isOpen = expandedPaths.includes(node.path);
   const fileSort = useAppStore((st) => st.fileSort);
   const [editName, setEditName] = React.useState(node.name.replace(/\.md$/i, ''));
@@ -151,7 +156,7 @@ const FileTreeItem: React.FC<{ node: FileNode; level: number }> = ({ node, level
 };
 
 const OutlineItem: React.FC<{ node: HeadingNode }> = ({ node }) => {
-  const { scrollToHeading } = useAppStore();
+  const { scrollToHeading } = useAppStore(useShallow((s) => ({ scrollToHeading: s.scrollToHeading })));
   return (
     <div className="tree-item" style={{ paddingLeft: `${(node.level - 1) * 16 + 12}px` }} onClick={() => scrollToHeading(node)}>
       <span className={node.level === 1 ? 'outline-item--h1' : 'outline-item'}>{node.text}</span>
@@ -166,7 +171,11 @@ const MenuItem: React.FC<{ label: string; hint?: string; danger?: boolean; onCli
 );
 
 const ContextMenuComponent = () => {
-  const { contextMenu, setContextMenu, setRenamingPath, duplicateFile, deleteFile, createNoteIn, createFolderIn, workspacePath } = useAppStore();
+  const {
+    contextMenu, setContextMenu, setRenamingPath, duplicateFile, deleteFile, createNoteIn, createFolderIn, workspacePath,
+  } = useAppStore(useShallow((s) => ({
+    contextMenu: s.contextMenu, setContextMenu: s.setContextMenu, setRenamingPath: s.setRenamingPath, duplicateFile: s.duplicateFile, deleteFile: s.deleteFile, createNoteIn: s.createNoteIn, createFolderIn: s.createFolderIn, workspacePath: s.workspacePath,
+  })));
 
   React.useEffect(() => {
     const close = () => setContextMenu({ visible: false });
@@ -223,12 +232,12 @@ const SortMenu: React.FC<{ current: FileSortMode; onPick: (mode: FileSortMode) =
   );
 };
 
-export const Sidebar: React.FC = () => {
+const SidebarImpl: React.FC = () => {
   const {
-    fileTree, workspacePath, workspaceName, sidebarVisible, outline, sidebarTab,
-    refreshWorkspace, sidebarWidth, setSidebarWidth,
-    createNoteIn, createFolderIn, getNewNoteDir, setContextMenu, setSelectedNodePath, openDirectory, closeFolder,
-  } = useAppStore();
+    fileTree, workspacePath, workspaceName, sidebarVisible, outline, sidebarTab, refreshWorkspace, sidebarWidth, setSidebarWidth, createNoteIn, createFolderIn, getNewNoteDir, setContextMenu, setSelectedNodePath, openDirectory, closeFolder,
+  } = useAppStore(useShallow((s) => ({
+    fileTree: s.fileTree, workspacePath: s.workspacePath, workspaceName: s.workspaceName, sidebarVisible: s.sidebarVisible, outline: s.outline, sidebarTab: s.sidebarTab, refreshWorkspace: s.refreshWorkspace, sidebarWidth: s.sidebarWidth, setSidebarWidth: s.setSidebarWidth, createNoteIn: s.createNoteIn, createFolderIn: s.createFolderIn, getNewNoteDir: s.getNewNoteDir, setContextMenu: s.setContextMenu, setSelectedNodePath: s.setSelectedNodePath, openDirectory: s.openDirectory, closeFolder: s.closeFolder,
+  })));
   const [showSort, setShowSort] = React.useState(false);
   const fileSort = useAppStore((st) => st.fileSort);
   const setFileSort = useAppStore((st) => st.setFileSort);
@@ -328,3 +337,9 @@ export const Sidebar: React.FC = () => {
     </aside>
   );
 };
+
+/** 不接 props，只靠自己订阅的 store 片段更新：App 因为弹窗、标签页这类事重渲染时，这一整块不跟着重画 */
+export const ActivityBar = React.memo(ActivityBarImpl);
+
+/** 不接 props，只靠自己订阅的 store 片段更新：App 因为弹窗、标签页这类事重渲染时，这一整块不跟着重画 */
+export const Sidebar = React.memo(SidebarImpl);

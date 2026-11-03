@@ -15,6 +15,7 @@ import {
   selectNextOccurrence,
 } from '@codemirror/search';
 import { useAppStore } from '../../stores/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import { markdownToHtml, htmlToMarkdown } from '../../utils/markdown';
 import { sanitizeHtml } from '../../utils/sanitize';
 import { resolveImagesInHtml, noteDirOf } from '../../utils/assetUrl';
@@ -30,7 +31,11 @@ import '../styles/editor.css';
 const sourceScrollTops = new Map<string, number>();
 
 export const MarkdownEditor: React.FC = () => {
-  const { activeTabId, tabs, updateTabContent, navigationRequest, appearanceMode } = useAppStore();
+  const {
+    activeTabId, tabs, updateTabContent, navigationRequest, appearanceMode,
+  } = useAppStore(useShallow((s) => ({
+    activeTabId: s.activeTabId, tabs: s.tabs, updateTabContent: s.updateTabContent, navigationRequest: s.navigationRequest, appearanceMode: s.appearanceMode,
+  })));
   const searchState = useAppStore((s) => s.search);
   const searchCommand = useAppStore((s) => s.searchCommand);
   const activeTab = tabs.find((t) => t.id === activeTabId);
